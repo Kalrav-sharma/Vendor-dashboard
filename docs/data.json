@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-03T22:03:13.899147+05:30",
+  "generated_at": "2026-09-03T23:16:48.684344+05:30",
   "vendor_code": "Vendor-156",
   "vendor_name": "LEXCRU WATER TECH PVT LTD",
   "facilities": [
@@ -13,17 +13,18 @@
   "purchase_orders": [
     {
       "facility": "PB-UC-GGN",
-      "po_code": "PGNU/PO2627/0413",
+      "po_code": "PGNU/PO2627/0426",
       "vendor_code": "Vendor-156",
-      "status": "COMPLETE",
-      "created_iso": "2026-08-21T19:27:56+05:30",
-      "total_amount": 141662.0,
-      "inflow_receipts_count": 1,
-      "qty_ordered": 3400,
-      "qty_received": 3400,
-      "qty_pending": 0,
+      "status": "APPROVED",
+      "created_iso": "2026-08-27T17:48:55+05:30",
+      "total_amount": 562403.2,
+      "inflow_receipts_count": 0,
+      "qty_ordered": 8564,
+      "qty_received": 0,
+      "qty_pending": 8564,
       "qty_rejected": 0,
-      "num_items": 2
+      "num_items": 3,
+      "grns": []
     },
     {
       "facility": "PB-UC-GGN",
@@ -37,21 +38,18 @@
       "qty_received": 240,
       "qty_pending": 2,
       "qty_rejected": 0,
-      "num_items": 1
-    },
-    {
-      "facility": "PB-UC-GGN",
-      "po_code": "PGNU/PO2627/0426",
-      "vendor_code": "Vendor-156",
-      "status": "APPROVED",
-      "created_iso": "2026-08-27T17:48:55+05:30",
-      "total_amount": 562403.2,
-      "inflow_receipts_count": 0,
-      "qty_ordered": 8564,
-      "qty_received": 0,
-      "qty_pending": 8564,
-      "qty_rejected": 0,
-      "num_items": 3
+      "num_items": 1,
+      "grns": [
+        {
+          "grn_code": "GRNNEUGGN242531422",
+          "status": "COMPLETE",
+          "created_iso": "2026-08-29T15:11:55+05:30",
+          "vendor_invoice_number": "LMF-2627/4502",
+          "vendor_invoice_date": "2026-08-21",
+          "total_received_amount": 67968.0,
+          "total_rejected_amount": 0.0
+        }
+      ]
     },
     {
       "facility": "PB-UC-GGN",
@@ -65,21 +63,8 @@
       "qty_received": 0,
       "qty_pending": 18818,
       "qty_rejected": 0,
-      "num_items": 6
-    },
-    {
-      "facility": "PB-UC-GGN",
-      "po_code": "PGNU/PO2627/0404",
-      "vendor_code": "Vendor-156",
-      "status": "COMPLETE",
-      "created_iso": "2026-08-19T17:12:21+05:30",
-      "total_amount": 67968.0,
-      "inflow_receipts_count": 1,
-      "qty_ordered": 240,
-      "qty_received": 240,
-      "qty_pending": 0,
-      "qty_rejected": 0,
-      "num_items": 1
+      "num_items": 6,
+      "grns": []
     },
     {
       "facility": "PB-UC-GGN",
@@ -93,21 +78,27 @@
       "qty_received": 5820,
       "qty_pending": 19800,
       "qty_rejected": 0,
-      "num_items": 9
-    },
-    {
-      "facility": "PB-UC-GGN",
-      "po_code": "PGNU/PO2627/0418",
-      "vendor_code": "Vendor-156",
-      "status": "APPROVED",
-      "created_iso": "2026-08-24T18:22:03+05:30",
-      "total_amount": 50976.0,
-      "inflow_receipts_count": 0,
-      "qty_ordered": 180,
-      "qty_received": 0,
-      "qty_pending": 180,
-      "qty_rejected": 0,
-      "num_items": 1
+      "num_items": 9,
+      "grns": [
+        {
+          "grn_code": "GRNNEUGGN242531359",
+          "status": "COMPLETE",
+          "created_iso": "2026-08-23T14:06:02+05:30",
+          "vendor_invoice_number": "LMF-2627/4341",
+          "vendor_invoice_date": "2026-08-15",
+          "total_received_amount": 567957.6,
+          "total_rejected_amount": 0.0
+        },
+        {
+          "grn_code": "GRNNEUGGN242531411",
+          "status": "COMPLETE",
+          "created_iso": "2026-08-25T12:44:19+05:30",
+          "vendor_invoice_number": "LMF-2627/4341",
+          "vendor_invoice_date": "2026-08-15",
+          "total_received_amount": 1060584.0,
+          "total_rejected_amount": 0.0
+        }
+      ]
     },
     {
       "facility": "PB-UC-GGN",
@@ -121,63 +112,83 @@
       "qty_received": 48,
       "qty_pending": 2,
       "qty_rejected": 0,
-      "num_items": 1
+      "num_items": 1,
+      "grns": [
+        {
+          "grn_code": "GRNNEUGGN242531355",
+          "status": "COMPLETE",
+          "created_iso": "2026-08-23T10:37:11+05:30",
+          "vendor_invoice_number": "LMF-2627/4404",
+          "vendor_invoice_date": "2026-08-18",
+          "total_received_amount": 14726.4,
+          "total_rejected_amount": 0.0
+        }
+      ]
     },
     {
-      "facility": "PB-UC-KOL",
-      "po_code": "PKLU/PO2627/0191",
+      "facility": "PB-UC-GGN",
+      "po_code": "PGNU/PO2627/0418",
+      "vendor_code": "Vendor-156",
+      "status": "APPROVED",
+      "created_iso": "2026-08-24T18:22:03+05:30",
+      "total_amount": 50976.0,
+      "inflow_receipts_count": 0,
+      "qty_ordered": 180,
+      "qty_received": 0,
+      "qty_pending": 180,
+      "qty_rejected": 0,
+      "num_items": 1,
+      "grns": []
+    },
+    {
+      "facility": "PB-UC-GGN",
+      "po_code": "PGNU/PO2627/0413",
       "vendor_code": "Vendor-156",
       "status": "COMPLETE",
-      "created_iso": "2026-08-21T19:28:10+05:30",
-      "total_amount": 31388.0,
+      "created_iso": "2026-08-21T19:27:56+05:30",
+      "total_amount": 141662.0,
       "inflow_receipts_count": 1,
-      "qty_ordered": 100,
-      "qty_received": 100,
+      "qty_ordered": 3400,
+      "qty_received": 3400,
       "qty_pending": 0,
       "qty_rejected": 0,
-      "num_items": 1
+      "num_items": 2,
+      "grns": [
+        {
+          "grn_code": "GRNNEUGGN242531603",
+          "status": "COMPLETE",
+          "created_iso": "2026-09-02T09:41:51+05:30",
+          "vendor_invoice_number": "LMF-2627/4601",
+          "vendor_invoice_date": "2026-08-24",
+          "total_received_amount": 141659.0,
+          "total_rejected_amount": 0.0
+        }
+      ]
     },
     {
-      "facility": "PB-UC-KOL",
-      "po_code": "PKLU/PO2627/0200",
+      "facility": "PB-UC-GGN",
+      "po_code": "PGNU/PO2627/0404",
       "vendor_code": "Vendor-156",
-      "status": "REJECTED",
-      "created_iso": "2026-09-01T10:31:34+05:30",
-      "total_amount": 6490.0,
-      "inflow_receipts_count": 0,
-      "qty_ordered": 250,
-      "qty_received": 0,
-      "qty_pending": 250,
+      "status": "COMPLETE",
+      "created_iso": "2026-08-19T17:12:21+05:30",
+      "total_amount": 67968.0,
+      "inflow_receipts_count": 1,
+      "qty_ordered": 240,
+      "qty_received": 240,
+      "qty_pending": 0,
       "qty_rejected": 0,
-      "num_items": 1
-    },
-    {
-      "facility": "PB-UC-KOL",
-      "po_code": "PKLU/PO2627/0201",
-      "vendor_code": "Vendor-156",
-      "status": "APPROVED",
-      "created_iso": "2026-09-01T13:33:57+05:30",
-      "total_amount": 177920.4,
-      "inflow_receipts_count": 0,
-      "qty_ordered": 1272,
-      "qty_received": 0,
-      "qty_pending": 1272,
-      "qty_rejected": 0,
-      "num_items": 4
-    },
-    {
-      "facility": "PB-UC-KOL",
-      "po_code": "PKLU/PO2627/0184",
-      "vendor_code": "Vendor-156",
-      "status": "APPROVED",
-      "created_iso": "2026-08-13T17:19:52+05:30",
-      "total_amount": 1054448.0,
-      "inflow_receipts_count": 2,
-      "qty_ordered": 2911,
-      "qty_received": 2908,
-      "qty_pending": 3,
-      "qty_rejected": 0,
-      "num_items": 6
+      "num_items": 1,
+      "grns": [
+        {
+          "grn_code": "GRNNEUGGN242531636",
+          "status": "COMPLETE",
+          "created_iso": "2026-09-02T12:11:37+05:30",
+          "vendor_invoice_number": "LMF-2627/4601",
+          "vendor_invoice_date": "2026-08-26",
+          "total_received_amount": 67968.0,
+          "total_rejected_amount": 0.0
+        }
+      ]
     },
     {
       "facility": "PB-UC-KOL",
@@ -191,35 +202,97 @@
       "qty_received": 0,
       "qty_pending": 84,
       "qty_rejected": 0,
-      "num_items": 1
+      "num_items": 1,
+      "grns": []
     },
     {
-      "facility": "PB-UC-BLR",
-      "po_code": "PBRU/PO2627/0288",
+      "facility": "PB-UC-KOL",
+      "po_code": "PKLU/PO2627/0200",
       "vendor_code": "Vendor-156",
-      "status": "COMPLETE",
-      "created_iso": "2026-08-13T17:20:34+05:30",
-      "total_amount": 1117058.8,
-      "inflow_receipts_count": 2,
-      "qty_ordered": 4517,
-      "qty_received": 4517,
-      "qty_pending": 0,
+      "status": "REJECTED",
+      "created_iso": "2026-09-01T10:31:34+05:30",
+      "total_amount": 6490.0,
+      "inflow_receipts_count": 0,
+      "qty_ordered": 250,
+      "qty_received": 0,
+      "qty_pending": 250,
       "qty_rejected": 0,
-      "num_items": 7
+      "num_items": 1,
+      "grns": []
     },
     {
-      "facility": "PB-UC-BLR",
-      "po_code": "PBRU/PO2627/0299",
+      "facility": "PB-UC-KOL",
+      "po_code": "PKLU/PO2627/0191",
       "vendor_code": "Vendor-156",
       "status": "COMPLETE",
-      "created_iso": "2026-08-21T19:28:31+05:30",
-      "total_amount": 47082.0,
+      "created_iso": "2026-08-21T19:28:10+05:30",
+      "total_amount": 31388.0,
       "inflow_receipts_count": 1,
-      "qty_ordered": 150,
-      "qty_received": 150,
+      "qty_ordered": 100,
+      "qty_received": 100,
       "qty_pending": 0,
       "qty_rejected": 0,
-      "num_items": 1
+      "num_items": 1,
+      "grns": [
+        {
+          "grn_code": "GRNNEUKOL24251193",
+          "status": "COMPLETE",
+          "created_iso": "2026-08-29T15:15:37+05:30",
+          "vendor_invoice_number": "LMF-2627/4605",
+          "vendor_invoice_date": "2026-08-24",
+          "total_received_amount": 31388.0,
+          "total_rejected_amount": 0.0
+        }
+      ]
+    },
+    {
+      "facility": "PB-UC-KOL",
+      "po_code": "PKLU/PO2627/0201",
+      "vendor_code": "Vendor-156",
+      "status": "APPROVED",
+      "created_iso": "2026-09-01T13:33:57+05:30",
+      "total_amount": 177920.4,
+      "inflow_receipts_count": 0,
+      "qty_ordered": 1272,
+      "qty_received": 0,
+      "qty_pending": 1272,
+      "qty_rejected": 0,
+      "num_items": 4,
+      "grns": []
+    },
+    {
+      "facility": "PB-UC-KOL",
+      "po_code": "PKLU/PO2627/0184",
+      "vendor_code": "Vendor-156",
+      "status": "APPROVED",
+      "created_iso": "2026-08-13T17:19:52+05:30",
+      "total_amount": 1054448.0,
+      "inflow_receipts_count": 2,
+      "qty_ordered": 2911,
+      "qty_received": 2908,
+      "qty_pending": 3,
+      "qty_rejected": 0,
+      "num_items": 6,
+      "grns": [
+        {
+          "grn_code": "GRNNEUKOL24251187",
+          "status": "COMPLETE",
+          "created_iso": "2026-08-21T14:52:08+05:30",
+          "vendor_invoice_number": "LMF-2027/4339 ",
+          "vendor_invoice_date": "2026-08-15",
+          "total_received_amount": 553679.6,
+          "total_rejected_amount": 0.0
+        },
+        {
+          "grn_code": "GRNNEUKOL24251188",
+          "status": "COMPLETE",
+          "created_iso": "2026-08-21T16:45:58+05:30",
+          "vendor_invoice_number": "LMF-2027/4339",
+          "vendor_invoice_date": "2026-08-15",
+          "total_received_amount": 495529.2,
+          "total_rejected_amount": 0.0
+        }
+      ]
     },
     {
       "facility": "PB-UC-BLR",
@@ -233,7 +306,8 @@
       "qty_received": 0,
       "qty_pending": 264,
       "qty_rejected": 0,
-      "num_items": 1
+      "num_items": 1,
+      "grns": []
     },
     {
       "facility": "PB-UC-BLR",
@@ -247,119 +321,67 @@
       "qty_received": 0,
       "qty_pending": 3303,
       "qty_rejected": 0,
-      "num_items": 4
+      "num_items": 4,
+      "grns": []
     },
     {
-      "facility": "PB-UC-BOMBAY",
-      "po_code": "PUBM/PO2627/0430",
-      "vendor_code": "Vendor-156",
-      "status": "APPROVED",
-      "created_iso": "2026-08-27T17:49:19+05:30",
-      "total_amount": 379638.0,
-      "inflow_receipts_count": 0,
-      "qty_ordered": 8300,
-      "qty_received": 0,
-      "qty_pending": 8300,
-      "qty_rejected": 0,
-      "num_items": 3
-    },
-    {
-      "facility": "PB-UC-BOMBAY",
-      "po_code": "PUBM/PO2627/0386",
-      "vendor_code": "Vendor-156",
-      "status": "APPROVED",
-      "created_iso": "2026-08-13T17:20:03+05:30",
-      "total_amount": 1411566.0,
-      "inflow_receipts_count": 12,
-      "qty_ordered": 22450,
-      "qty_received": 4050,
-      "qty_pending": 18400,
-      "qty_rejected": 0,
-      "num_items": 10
-    },
-    {
-      "facility": "PB-UC-BOMBAY",
-      "po_code": "PUBM/PO2627/0419",
-      "vendor_code": "Vendor-156",
-      "status": "APPROVED",
-      "created_iso": "2026-08-21T19:28:19+05:30",
-      "total_amount": 78526.0,
-      "inflow_receipts_count": 0,
-      "qty_ordered": 3200,
-      "qty_received": 0,
-      "qty_pending": 3200,
-      "qty_rejected": 0,
-      "num_items": 2
-    },
-    {
-      "facility": "PB-UC-BOMBAY",
-      "po_code": "PUBM/PO2627/0399",
-      "vendor_code": "Vendor-156",
-      "status": "APPROVED",
-      "created_iso": "2026-08-18T07:56:10+05:30",
-      "total_amount": 10863703.0,
-      "inflow_receipts_count": 0,
-      "qty_ordered": 71200,
-      "qty_received": 0,
-      "qty_pending": 71200,
-      "qty_rejected": 0,
-      "num_items": 14
-    },
-    {
-      "facility": "PB-UC-BOMBAY",
-      "po_code": "PUBM/PO2627/0411",
-      "vendor_code": "Vendor-156",
-      "status": "APPROVED",
-      "created_iso": "2026-08-20T18:04:09+05:30",
-      "total_amount": 68534.4,
-      "inflow_receipts_count": 1,
-      "qty_ordered": 242,
-      "qty_received": 240,
-      "qty_pending": 2,
-      "qty_rejected": 0,
-      "num_items": 1
-    },
-    {
-      "facility": "PB-UC-BOMBAY",
-      "po_code": "PUBM/PO2627/0397",
-      "vendor_code": "Vendor-156",
-      "status": "REJECTED",
-      "created_iso": "2026-08-18T07:00:43+05:30",
-      "total_amount": 10811783.0,
-      "inflow_receipts_count": 0,
-      "qty_ordered": 69200,
-      "qty_received": 0,
-      "qty_pending": 69200,
-      "qty_rejected": 0,
-      "num_items": 13
-    },
-    {
-      "facility": "PB-UC-BOMBAY",
-      "po_code": "PUBM/PO2627/0423",
+      "facility": "PB-UC-BLR",
+      "po_code": "PBRU/PO2627/0299",
       "vendor_code": "Vendor-156",
       "status": "COMPLETE",
-      "created_iso": "2026-08-24T18:44:50+05:30",
-      "total_amount": 50976.0,
+      "created_iso": "2026-08-21T19:28:31+05:30",
+      "total_amount": 47082.0,
       "inflow_receipts_count": 1,
-      "qty_ordered": 180,
-      "qty_received": 180,
+      "qty_ordered": 150,
+      "qty_received": 150,
       "qty_pending": 0,
       "qty_rejected": 0,
-      "num_items": 1
+      "num_items": 1,
+      "grns": [
+        {
+          "grn_code": "GRNNEUBLR24257833",
+          "status": "COMPLETE",
+          "created_iso": "2026-09-02T10:17:00+05:30",
+          "vendor_invoice_number": "LMF-2627/4607",
+          "vendor_invoice_date": "2026-09-02",
+          "total_received_amount": 47082.0,
+          "total_rejected_amount": 0.0
+        }
+      ]
     },
     {
-      "facility": "PB-UC-BOMBAY",
-      "po_code": "PUBM/PO2627/0393",
+      "facility": "PB-UC-BLR",
+      "po_code": "PBRU/PO2627/0288",
       "vendor_code": "Vendor-156",
       "status": "COMPLETE",
-      "created_iso": "2026-08-14T19:24:26+05:30",
-      "total_amount": 230100.0,
-      "inflow_receipts_count": 4,
-      "qty_ordered": 750,
-      "qty_received": 750,
+      "created_iso": "2026-08-13T17:20:34+05:30",
+      "total_amount": 1117058.8,
+      "inflow_receipts_count": 2,
+      "qty_ordered": 4517,
+      "qty_received": 4517,
       "qty_pending": 0,
       "qty_rejected": 0,
-      "num_items": 1
+      "num_items": 7,
+      "grns": [
+        {
+          "grn_code": "GRNNEUBLR24257813",
+          "status": "COMPLETE",
+          "created_iso": "2026-08-24T14:31:10+05:30",
+          "vendor_invoice_number": "LMF-2627/4322",
+          "vendor_invoice_date": "2026-08-24",
+          "total_received_amount": 96004.8,
+          "total_rejected_amount": 0.0
+        },
+        {
+          "grn_code": "GRNNEUBLR24257814",
+          "status": "COMPLETE",
+          "created_iso": "2026-08-24T17:48:48+05:30",
+          "vendor_invoice_number": "LMF-2627/4322",
+          "vendor_invoice_date": "2026-08-24",
+          "total_received_amount": 1021054.0,
+          "total_rejected_amount": 0.0
+        }
+      ]
     },
     {
       "facility": "PB-UC-BOMBAY",
@@ -373,35 +395,18 @@
       "qty_received": 120,
       "qty_pending": 80,
       "qty_rejected": 0,
-      "num_items": 1
-    },
-    {
-      "facility": "PB-UC-BOMBAY",
-      "po_code": "PUBM/PO2627/0439",
-      "vendor_code": "Vendor-156",
-      "status": "COMPLETE",
-      "created_iso": "2026-09-01T13:30:08+05:30",
-      "total_amount": 172468.8,
-      "inflow_receipts_count": 0,
-      "qty_ordered": 1218,
-      "qty_received": 0,
-      "qty_pending": 1218,
-      "qty_rejected": 0,
-      "num_items": 1
-    },
-    {
-      "facility": "PB-UC-BOMBAY",
-      "po_code": "PUBM/PO2627/0440",
-      "vendor_code": "Vendor-156",
-      "status": "APPROVED",
-      "created_iso": "2026-09-01T13:34:11+05:30",
-      "total_amount": 415600.6,
-      "inflow_receipts_count": 0,
-      "qty_ordered": 22509,
-      "qty_received": 0,
-      "qty_pending": 22509,
-      "qty_rejected": 0,
-      "num_items": 7
+      "num_items": 1,
+      "grns": [
+        {
+          "grn_code": "G17653",
+          "status": "COMPLETE",
+          "created_iso": "2026-08-21T15:08:19+05:30",
+          "vendor_invoice_number": "LMF-2627/4405",
+          "vendor_invoice_date": "2026-08-18",
+          "total_received_amount": 36816.0,
+          "total_rejected_amount": 0.0
+        }
+      ]
     },
     {
       "facility": "PB-UC-BOMBAY",
@@ -415,35 +420,334 @@
       "qty_received": 240,
       "qty_pending": 0,
       "qty_rejected": 0,
-      "num_items": 1
+      "num_items": 1,
+      "grns": [
+        {
+          "grn_code": "G18067",
+          "status": "COMPLETE",
+          "created_iso": "2026-09-01T11:57:29+05:30",
+          "vendor_invoice_number": "LMF-2627/4675",
+          "vendor_invoice_date": "2026-08-26",
+          "total_received_amount": 67968.0,
+          "total_rejected_amount": 0.0
+        }
+      ]
     },
     {
-      "facility": "PB-UC-HYD",
-      "po_code": "PUHY/PO2627/0474",
+      "facility": "PB-UC-BOMBAY",
+      "po_code": "PUBM/PO2627/0419",
       "vendor_code": "Vendor-156",
       "status": "APPROVED",
-      "created_iso": "2026-09-01T13:34:34+05:30",
-      "total_amount": 341293.02,
+      "created_iso": "2026-08-21T19:28:19+05:30",
+      "total_amount": 78526.0,
       "inflow_receipts_count": 0,
-      "qty_ordered": 26769,
+      "qty_ordered": 3200,
       "qty_received": 0,
-      "qty_pending": 26769,
+      "qty_pending": 3200,
       "qty_rejected": 0,
-      "num_items": 7
+      "num_items": 2,
+      "grns": []
     },
     {
-      "facility": "PB-UC-HYD",
-      "po_code": "PUHY/PO2627/0462",
+      "facility": "PB-UC-BOMBAY",
+      "po_code": "PUBM/PO2627/0439",
+      "vendor_code": "Vendor-156",
+      "status": "COMPLETE",
+      "created_iso": "2026-09-01T13:30:08+05:30",
+      "total_amount": 172468.8,
+      "inflow_receipts_count": 0,
+      "qty_ordered": 1218,
+      "qty_received": 0,
+      "qty_pending": 1218,
+      "qty_rejected": 0,
+      "num_items": 1,
+      "grns": []
+    },
+    {
+      "facility": "PB-UC-BOMBAY",
+      "po_code": "PUBM/PO2627/0393",
+      "vendor_code": "Vendor-156",
+      "status": "COMPLETE",
+      "created_iso": "2026-08-14T19:24:26+05:30",
+      "total_amount": 230100.0,
+      "inflow_receipts_count": 4,
+      "qty_ordered": 750,
+      "qty_received": 750,
+      "qty_pending": 0,
+      "qty_rejected": 0,
+      "num_items": 1,
+      "grns": [
+        {
+          "grn_code": "G17225",
+          "status": "COMPLETE",
+          "created_iso": "2026-08-17T11:02:08+05:30",
+          "vendor_invoice_number": "LMF-2627/4337",
+          "vendor_invoice_date": "2026-08-14",
+          "total_received_amount": 46020.0,
+          "total_rejected_amount": 0.0
+        },
+        {
+          "grn_code": "G17271",
+          "status": "COMPLETE",
+          "created_iso": "2026-08-17T14:10:16+05:30",
+          "vendor_invoice_number": "LMF-2627/4337",
+          "vendor_invoice_date": "2026-08-14",
+          "total_received_amount": 107380.0,
+          "total_rejected_amount": 0.0
+        },
+        {
+          "grn_code": "G17336",
+          "status": "COMPLETE",
+          "created_iso": "2026-08-18T11:50:49+05:30",
+          "vendor_invoice_number": "LMF-2627/4337",
+          "vendor_invoice_date": "2026-08-14",
+          "total_received_amount": 61360.0,
+          "total_rejected_amount": 0.0
+        },
+        {
+          "grn_code": "G17511",
+          "status": "COMPLETE",
+          "created_iso": "2026-08-20T11:25:13+05:30",
+          "vendor_invoice_number": "LMF-2627/4337",
+          "vendor_invoice_date": "2026-08-14",
+          "total_received_amount": 15340.0,
+          "total_rejected_amount": 0.0
+        }
+      ]
+    },
+    {
+      "facility": "PB-UC-BOMBAY",
+      "po_code": "PUBM/PO2627/0411",
       "vendor_code": "Vendor-156",
       "status": "APPROVED",
-      "created_iso": "2026-08-27T15:11:23+05:30",
-      "total_amount": 319753.2,
-      "inflow_receipts_count": 0,
-      "qty_ordered": 8264,
-      "qty_received": 0,
-      "qty_pending": 8264,
+      "created_iso": "2026-08-20T18:04:09+05:30",
+      "total_amount": 68534.4,
+      "inflow_receipts_count": 1,
+      "qty_ordered": 242,
+      "qty_received": 240,
+      "qty_pending": 2,
       "qty_rejected": 0,
-      "num_items": 3
+      "num_items": 1,
+      "grns": [
+        {
+          "grn_code": "G17769",
+          "status": "COMPLETE",
+          "created_iso": "2026-08-26T12:26:08+05:30",
+          "vendor_invoice_number": "LMF-2627/4500",
+          "vendor_invoice_date": "2026-08-26",
+          "total_received_amount": 67968.0,
+          "total_rejected_amount": 0.0
+        }
+      ]
+    },
+    {
+      "facility": "PB-UC-BOMBAY",
+      "po_code": "PUBM/PO2627/0430",
+      "vendor_code": "Vendor-156",
+      "status": "APPROVED",
+      "created_iso": "2026-08-27T17:49:19+05:30",
+      "total_amount": 379638.0,
+      "inflow_receipts_count": 0,
+      "qty_ordered": 8300,
+      "qty_received": 0,
+      "qty_pending": 8300,
+      "qty_rejected": 0,
+      "num_items": 3,
+      "grns": []
+    },
+    {
+      "facility": "PB-UC-BOMBAY",
+      "po_code": "PUBM/PO2627/0423",
+      "vendor_code": "Vendor-156",
+      "status": "COMPLETE",
+      "created_iso": "2026-08-24T18:44:50+05:30",
+      "total_amount": 50976.0,
+      "inflow_receipts_count": 1,
+      "qty_ordered": 180,
+      "qty_received": 180,
+      "qty_pending": 0,
+      "qty_rejected": 0,
+      "num_items": 1,
+      "grns": [
+        {
+          "grn_code": "G17966",
+          "status": "COMPLETE",
+          "created_iso": "2026-08-31T12:36:27+05:30",
+          "vendor_invoice_number": "LMF-2627/4673",
+          "vendor_invoice_date": "2026-08-26",
+          "total_received_amount": 50976.0,
+          "total_rejected_amount": 0.0
+        }
+      ]
+    },
+    {
+      "facility": "PB-UC-BOMBAY",
+      "po_code": "PUBM/PO2627/0386",
+      "vendor_code": "Vendor-156",
+      "status": "APPROVED",
+      "created_iso": "2026-08-13T17:20:03+05:30",
+      "total_amount": 1411566.0,
+      "inflow_receipts_count": 12,
+      "qty_ordered": 22450,
+      "qty_received": 4050,
+      "qty_pending": 18400,
+      "qty_rejected": 0,
+      "num_items": 10,
+      "grns": [
+        {
+          "grn_code": "G17233",
+          "status": "COMPLETE",
+          "created_iso": "2026-08-17T11:32:26+05:30",
+          "vendor_invoice_number": "LMF-2627/4338",
+          "vendor_invoice_date": "2026-08-15",
+          "total_received_amount": 433107.2,
+          "total_rejected_amount": 0.0
+        },
+        {
+          "grn_code": "G17263",
+          "status": "COMPLETE",
+          "created_iso": "2026-08-17T12:56:47+05:30",
+          "vendor_invoice_number": "LMF-2627/4338",
+          "vendor_invoice_date": "2026-08-15",
+          "total_received_amount": 17841.6,
+          "total_rejected_amount": 0.0
+        },
+        {
+          "grn_code": "G17292",
+          "status": "COMPLETE",
+          "created_iso": "2026-08-17T15:20:14+05:30",
+          "vendor_invoice_number": "LMF-2627/4338",
+          "vendor_invoice_date": "2026-08-15",
+          "total_received_amount": 29736.0,
+          "total_rejected_amount": 0.0
+        },
+        {
+          "grn_code": "G17532",
+          "status": "COMPLETE",
+          "created_iso": "2026-08-20T14:47:57+05:30",
+          "vendor_invoice_number": "LMF-2627/4338",
+          "vendor_invoice_date": "2026-08-15",
+          "total_received_amount": 31152.0,
+          "total_rejected_amount": 0.0
+        },
+        {
+          "grn_code": "G17656",
+          "status": "COMPLETE",
+          "created_iso": "2026-08-22T10:35:19+05:30",
+          "vendor_invoice_number": "LMF-2627/4338",
+          "vendor_invoice_date": "2026-08-15",
+          "total_received_amount": 223020.0,
+          "total_rejected_amount": 0.0
+        },
+        {
+          "grn_code": "G17657",
+          "status": "DISCARDED",
+          "created_iso": "2026-08-22T10:44:40+05:30",
+          "vendor_invoice_number": "LMF-2627/4338",
+          "vendor_invoice_date": "2026-08-15",
+          "total_received_amount": 0,
+          "total_rejected_amount": 0
+        },
+        {
+          "grn_code": "G17661",
+          "status": "COMPLETE",
+          "created_iso": "2026-08-22T11:24:39+05:30",
+          "vendor_invoice_number": "LMF-2627/4338",
+          "vendor_invoice_date": "2026-08-15",
+          "total_received_amount": 49560.0,
+          "total_rejected_amount": 0.0
+        },
+        {
+          "grn_code": "G17742",
+          "status": "COMPLETE",
+          "created_iso": "2026-08-24T10:24:25+05:30",
+          "vendor_invoice_number": "LMF-2627/4338",
+          "vendor_invoice_date": "2026-08-15",
+          "total_received_amount": 133812.0,
+          "total_rejected_amount": 0.0
+        },
+        {
+          "grn_code": "G17745",
+          "status": "COMPLETE",
+          "created_iso": "2026-08-24T11:26:38+05:30",
+          "vendor_invoice_number": "LMF-2627/4338",
+          "vendor_invoice_date": "2026-08-15",
+          "total_received_amount": 59472.0,
+          "total_rejected_amount": 0.0
+        },
+        {
+          "grn_code": "G17760",
+          "status": "COMPLETE",
+          "created_iso": "2026-08-24T16:28:17+05:30",
+          "vendor_invoice_number": "LMF-2627/4338",
+          "vendor_invoice_date": "2026-08-15",
+          "total_received_amount": 23364.0,
+          "total_rejected_amount": 0.0
+        },
+        {
+          "grn_code": "G17762",
+          "status": "CREATED",
+          "created_iso": "2026-08-24T18:29:13+05:30",
+          "vendor_invoice_number": "LMF-2627/4338",
+          "vendor_invoice_date": "2026-08-15",
+          "total_received_amount": 0,
+          "total_rejected_amount": 0
+        },
+        {
+          "grn_code": "G17763",
+          "status": "COMPLETE",
+          "created_iso": "2026-08-24T18:32:58+05:30",
+          "vendor_invoice_number": "LMF-2627/4338",
+          "vendor_invoice_date": "2026-08-15",
+          "total_received_amount": 32851.2,
+          "total_rejected_amount": 0.0
+        }
+      ]
+    },
+    {
+      "facility": "PB-UC-BOMBAY",
+      "po_code": "PUBM/PO2627/0399",
+      "vendor_code": "Vendor-156",
+      "status": "APPROVED",
+      "created_iso": "2026-08-18T07:56:10+05:30",
+      "total_amount": 10863703.0,
+      "inflow_receipts_count": 0,
+      "qty_ordered": 71200,
+      "qty_received": 0,
+      "qty_pending": 71200,
+      "qty_rejected": 0,
+      "num_items": 14,
+      "grns": []
+    },
+    {
+      "facility": "PB-UC-BOMBAY",
+      "po_code": "PUBM/PO2627/0397",
+      "vendor_code": "Vendor-156",
+      "status": "REJECTED",
+      "created_iso": "2026-08-18T07:00:43+05:30",
+      "total_amount": 10811783.0,
+      "inflow_receipts_count": 0,
+      "qty_ordered": 69200,
+      "qty_received": 0,
+      "qty_pending": 69200,
+      "qty_rejected": 0,
+      "num_items": 13,
+      "grns": []
+    },
+    {
+      "facility": "PB-UC-BOMBAY",
+      "po_code": "PUBM/PO2627/0440",
+      "vendor_code": "Vendor-156",
+      "status": "APPROVED",
+      "created_iso": "2026-09-01T13:34:11+05:30",
+      "total_amount": 415600.6,
+      "inflow_receipts_count": 0,
+      "qty_ordered": 22509,
+      "qty_received": 0,
+      "qty_pending": 22509,
+      "qty_rejected": 0,
+      "num_items": 7,
+      "grns": []
     },
     {
       "facility": "PB-UC-HYD",
@@ -457,49 +761,8 @@
       "qty_received": 0,
       "qty_pending": 116,
       "qty_rejected": 0,
-      "num_items": 1
-    },
-    {
-      "facility": "PB-UC-HYD",
-      "po_code": "PUHY/PO2627/0440",
-      "vendor_code": "Vendor-156",
-      "status": "APPROVED",
-      "created_iso": "2026-08-20T18:03:24+05:30",
-      "total_amount": 32851.2,
-      "inflow_receipts_count": 1,
-      "qty_ordered": 116,
-      "qty_received": 108,
-      "qty_pending": 8,
-      "qty_rejected": 0,
-      "num_items": 1
-    },
-    {
-      "facility": "PB-UC-HYD",
-      "po_code": "PUHY/PO2627/0413",
-      "vendor_code": "Vendor-156",
-      "status": "APPROVED",
-      "created_iso": "2026-08-13T11:15:41+05:30",
-      "total_amount": 153400.0,
-      "inflow_receipts_count": 1,
-      "qty_ordered": 500,
-      "qty_received": 432,
-      "qty_pending": 68,
-      "qty_rejected": 0,
-      "num_items": 1
-    },
-    {
-      "facility": "PB-UC-HYD",
-      "po_code": "PUHY/PO2627/0450",
-      "vendor_code": "Vendor-156",
-      "status": "APPROVED",
-      "created_iso": "2026-08-24T18:21:50+05:30",
-      "total_amount": 44179.2,
-      "inflow_receipts_count": 0,
-      "qty_ordered": 156,
-      "qty_received": 0,
-      "qty_pending": 156,
-      "qty_rejected": 0,
-      "num_items": 1
+      "num_items": 1,
+      "grns": []
     },
     {
       "facility": "PB-UC-HYD",
@@ -513,7 +776,67 @@
       "qty_received": 4139,
       "qty_pending": 22500,
       "qty_rejected": 0,
-      "num_items": 9
+      "num_items": 9,
+      "grns": [
+        {
+          "grn_code": "HYD20708",
+          "status": "COMPLETE",
+          "created_iso": "2026-08-22T16:43:58+05:30",
+          "vendor_invoice_number": "LMF-2627/4321",
+          "vendor_invoice_date": "2026-08-14",
+          "total_received_amount": 971635.6,
+          "total_rejected_amount": 0.0
+        },
+        {
+          "grn_code": "HYD20709",
+          "status": "COMPLETE",
+          "created_iso": "2026-08-24T09:39:47+05:30",
+          "vendor_invoice_number": "LMF-2627/4321",
+          "vendor_invoice_date": "2026-08-14",
+          "total_received_amount": 62587.2,
+          "total_rejected_amount": 0.0
+        }
+      ]
+    },
+    {
+      "facility": "PB-UC-HYD",
+      "po_code": "PUHY/PO2627/0474",
+      "vendor_code": "Vendor-156",
+      "status": "APPROVED",
+      "created_iso": "2026-09-01T13:34:34+05:30",
+      "total_amount": 341293.02,
+      "inflow_receipts_count": 0,
+      "qty_ordered": 26769,
+      "qty_received": 0,
+      "qty_pending": 26769,
+      "qty_rejected": 0,
+      "num_items": 7,
+      "grns": []
+    },
+    {
+      "facility": "PB-UC-HYD",
+      "po_code": "PUHY/PO2627/0440",
+      "vendor_code": "Vendor-156",
+      "status": "APPROVED",
+      "created_iso": "2026-08-20T18:03:24+05:30",
+      "total_amount": 32851.2,
+      "inflow_receipts_count": 1,
+      "qty_ordered": 116,
+      "qty_received": 108,
+      "qty_pending": 8,
+      "qty_rejected": 0,
+      "num_items": 1,
+      "grns": [
+        {
+          "grn_code": "HYD21182",
+          "status": "COMPLETE",
+          "created_iso": "2026-08-29T14:54:56+05:30",
+          "vendor_invoice_number": "LMF-2627/4503",
+          "vendor_invoice_date": "2026-08-21",
+          "total_received_amount": 30585.6,
+          "total_rejected_amount": 0.0
+        }
+      ]
     },
     {
       "facility": "PB-UC-HYD",
@@ -527,7 +850,73 @@
       "qty_received": 5150,
       "qty_pending": 1000,
       "qty_rejected": 0,
-      "num_items": 2
+      "num_items": 2,
+      "grns": [
+        {
+          "grn_code": "HYD21013",
+          "status": "COMPLETE",
+          "created_iso": "2026-08-28T15:04:09+05:30",
+          "vendor_invoice_number": "LMF-2627/4598",
+          "vendor_invoice_date": "2026-08-24",
+          "total_received_amount": 65136.0,
+          "total_rejected_amount": 0.0
+        }
+      ]
+    },
+    {
+      "facility": "PB-UC-HYD",
+      "po_code": "PUHY/PO2627/0462",
+      "vendor_code": "Vendor-156",
+      "status": "APPROVED",
+      "created_iso": "2026-08-27T15:11:23+05:30",
+      "total_amount": 319753.2,
+      "inflow_receipts_count": 0,
+      "qty_ordered": 8264,
+      "qty_received": 0,
+      "qty_pending": 8264,
+      "qty_rejected": 0,
+      "num_items": 3,
+      "grns": []
+    },
+    {
+      "facility": "PB-UC-HYD",
+      "po_code": "PUHY/PO2627/0450",
+      "vendor_code": "Vendor-156",
+      "status": "APPROVED",
+      "created_iso": "2026-08-24T18:21:50+05:30",
+      "total_amount": 44179.2,
+      "inflow_receipts_count": 0,
+      "qty_ordered": 156,
+      "qty_received": 0,
+      "qty_pending": 156,
+      "qty_rejected": 0,
+      "num_items": 1,
+      "grns": []
+    },
+    {
+      "facility": "PB-UC-HYD",
+      "po_code": "PUHY/PO2627/0413",
+      "vendor_code": "Vendor-156",
+      "status": "APPROVED",
+      "created_iso": "2026-08-13T11:15:41+05:30",
+      "total_amount": 153400.0,
+      "inflow_receipts_count": 1,
+      "qty_ordered": 500,
+      "qty_received": 432,
+      "qty_pending": 68,
+      "qty_rejected": 0,
+      "num_items": 1,
+      "grns": [
+        {
+          "grn_code": "HYD20707",
+          "status": "COMPLETE",
+          "created_iso": "2026-08-22T15:45:12+05:30",
+          "vendor_invoice_number": "LMF-2627/4403",
+          "vendor_invoice_date": "2026-08-18",
+          "total_received_amount": 132537.6,
+          "total_rejected_amount": 0.0
+        }
+      ]
     }
   ]
 }

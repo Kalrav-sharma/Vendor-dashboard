@@ -126,6 +126,62 @@ def fetch_po_detail(session, token, facility, code):
         return None
 
 
+def fetch_grn_codes_for_po(session, token, facility, po_code):
+    try:
+        r = session.post(
+            f"{BASE_URL}/services/rest/v1/purchase/inflowReceipt/getInflowReceipts",
+            headers=headers(token, facility),
+            json={"purchaseOrderCode": po_code},
+            timeout=REQUEST_TIMEOUT,
+        )
+        data = r.json()
+        return data.get("inflowReceiptCodes") or []
+    except Exception as e:
+        print(f"WARN: GRN code search failed for {facility}/{po_code}: {e}", file=sys.stderr)
+        return []
+
+
+def fetch_grn_detail(session, token, facility, grn_code):
+    try:
+        r = session.post(
+            f"{BASE_URL}/services/rest/v1/purchase/inflowReceipt/getInflowReceipt",
+            headers=headers(token, facility),
+            json={"inflowReceiptCode": grn_code},
+            timeout=REQUEST_TIMEOUT,
+        )
+        d = r.json()
+        ir = d.get("inflowReceipt", d)
+        created_ms = ir.get("created")
+        created_iso = None
+        if created_ms:
+            try:
+                created_iso = datetime.fromtimestamp(int(created_ms) / 1000, tz=IST).isoformat()
+            except (TypeError, ValueError, OSError):
+                created_iso = None
+        return {
+            "grn_code": ir.get("code"),
+            "status": ir.get("statusCode"),
+            "created_iso": created_iso,
+            "vendor_invoice_number": ir.get("vendorInvoiceNumber"),
+            "vendor_invoice_date": ir.get("vendorInvoiceDate"),
+            "total_received_amount": ir.get("totalReceivedAmount"),
+            "total_rejected_amount": ir.get("totalRejectedAmount"),
+        }
+    except Exception as e:
+        print(f"WARN: GRN detail fetch failed for {facility}/{grn_code}: {e}", file=sys.stderr)
+        return None
+
+
+def fetch_grns_for_po(session, token, facility, po_code):
+    """Look up every GRN raised against one PO and return their details."""
+    grns = []
+    for grn_code in fetch_grn_codes_for_po(session, token, facility, po_code):
+        detail = fetch_grn_detail(session, token, facility, grn_code)
+        if detail:
+            grns.append(detail)
+    return grns
+
+
 def build_record(facility, code, po):
     items = po.get("purchaseOrderItems") or []
     created_ms = po.get("created") or po.get("createdDate")
@@ -148,6 +204,7 @@ def build_record(facility, code, po):
         "qty_pending": sum(it.get("pendingQuantity", 0) or 0 for it in items),
         "qty_rejected": sum(it.get("rejectedQuantity", 0) or 0 for it in items),
         "num_items": len(items),
+        "grns": [],  # filled in by main() when inflow_receipts_count > 0
     }
 
 
@@ -169,6 +226,9 @@ def render_html(records, generated_at_iso):
     total_pending = sum(r["qty_pending"] for r in records)
     total_rejected_qty = sum(r["qty_rejected"] for r in records)
     total_amount = sum(r["total_amount"] or 0 for r in records)
+    total_grn_received_amount = sum(
+        g.get("total_received_amount") or 0 for r in records for g in (r.get("grns") or [])
+    )
     rejected_pos = [r for r in records if r["status"] == "REJECTED"]
 
     status_counts = {}
@@ -190,8 +250,21 @@ def render_html(records, generated_at_iso):
         }.get(status, "st-other")
         return f'<span class="badge {cls}">{status or "UNKNOWN"}</span>'
 
+    def grn_summary(r):
+        grns = r.get("grns") or []
+        if not grns:
+            return "-", "-"
+        invoices = ", ".join(sorted({g["vendor_invoice_number"] for g in grns if g.get("vendor_invoice_number")})) or "-"
+        recv_total = sum(g.get("total_received_amount") or 0 for g in grns)
+        rej_total = sum(g.get("total_rejected_amount") or 0 for g in grns)
+        amount_str = fmt_money(recv_total)
+        if rej_total:
+            amount_str += f" <span class='rej-amt'>(-{fmt_money(rej_total)} rej)</span>"
+        return invoices, amount_str
+
     rows = []
     for r in sorted(records, key=lambda x: x["created_iso"] or "", reverse=True):
+        invoices, grn_amount = grn_summary(r)
         rows.append(f"""
         <tr>
           <td>{r['facility']}</td>
@@ -202,6 +275,8 @@ def render_html(records, generated_at_iso):
           <td class="num">{fmt_num(r['qty_received'])}</td>
           <td class="num">{fmt_num(r['qty_pending'])}</td>
           <td class="num">{fmt_num(r['total_amount'])}</td>
+          <td class="mono">{invoices}</td>
+          <td class="num">{grn_amount}</td>
         </tr>""")
 
     status_pills = "".join(
@@ -271,6 +346,8 @@ def render_html(records, generated_at_iso):
   tr:last-child td {{ border-bottom: none; }}
   .num {{ text-align: right; font-variant-numeric: tabular-nums; }}
   .mono {{ font-family: ui-monospace, monospace; font-size: 0.8rem; }}
+  .rej-amt {{ color: #b91c1c; font-size: 0.75rem; }}
+  @media (prefers-color-scheme: dark) {{ .rej-amt {{ color: #f87171; }} }}
   .table-wrap {{ overflow-x: auto; }}
   footer {{ color: var(--muted); font-size: 0.75rem; margin-top: 18px; text-align: center; }}
 </style>
@@ -289,6 +366,7 @@ def render_html(records, generated_at_iso):
     <div class="card"><div class="label">Qty Received</div><div class="value">{fmt_num(total_received)}</div></div>
     <div class="card"><div class="label">Qty Pending</div><div class="value">{fmt_num(total_pending)}</div></div>
     <div class="card"><div class="label">Total Value</div><div class="value">{fmt_money(total_amount)}</div></div>
+    <div class="card"><div class="label">GRN Amount Received</div><div class="value">{fmt_money(total_grn_received_amount)}</div></div>
   </div>
 
   <div class="pills">{status_pills}</div>
@@ -297,7 +375,8 @@ def render_html(records, generated_at_iso):
   <table>
     <thead><tr>
       <th>Facility</th><th>PO Code</th><th>Status</th><th>Created (IST)</th>
-      <th class="num">Qty Ord</th><th class="num">Qty Recv</th><th class="num">Qty Pend</th><th class="num">Amount</th>
+      <th class="num">Qty Ord</th><th class="num">Qty Recv</th><th class="num">Qty Pend</th><th class="num">PO Amount</th>
+      <th>Invoice No(s)</th><th class="num">GRN Amount</th>
     </tr></thead>
     <tbody>{''.join(rows)}</tbody>
   </table>
@@ -351,6 +430,25 @@ def main():
             po = fut.result()
             if po and po.get("vendorCode") == VENDOR_CODE:
                 fresh_records[code] = build_record(facility, code, po)
+
+    # 2b. For every freshly-refreshed PO that has at least one GRN raised
+    #     against it, fetch those GRNs' invoice numbers and amounts. Only
+    #     runs for POs we already decided to refresh above (open POs, or
+    #     newly created ones) — terminal POs carried forward from prior
+    #     state keep whatever GRN data they already have, no re-fetch.
+    grn_targets = [
+        (rec["facility"], code)
+        for code, rec in fresh_records.items()
+        if (rec.get("inflow_receipts_count") or 0) > 0
+    ]
+    with ThreadPoolExecutor(max_workers=10) as ex:
+        futs = {
+            ex.submit(fetch_grns_for_po, session, token, facility, code): code
+            for facility, code in grn_targets
+        }
+        for fut in as_completed(futs):
+            code = futs[fut]
+            fresh_records[code]["grns"] = fut.result()
 
     # 3. Merge: fresh data wins; terminal POs from prior state not touched
     #    this run are carried forward unchanged.
