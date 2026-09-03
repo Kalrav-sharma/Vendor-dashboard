@@ -1,0 +1,460 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lexcru PO Tracker</title>
+<style>
+  :root {
+    --bg: #f7f7f5; --card: #ffffff; --text: #1a1a1a; --muted: #6b6b6b;
+    --border: #e4e4e0; --accent: #2563eb;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #16161a; --card: #1e1e24; --text: #f0f0ee; --muted: #9a9a9e; --border: #2e2e35; --accent: #60a5fa; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; padding: 24px 16px 60px; }
+  .wrap { max-width: 1100px; margin: 0 auto; }
+  h1 { font-size: 1.4rem; margin: 0 0 2px; }
+  .sub { color: var(--muted); font-size: 0.85rem; margin-bottom: 20px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 20px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+  .card .label { font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 4px; }
+  .card .value { font-size: 1.35rem; font-weight: 600; }
+  .pills { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 20px; }
+  .pill { display: flex; align-items: center; gap: 6px; background: var(--card); border: 1px solid var(--border); border-radius: 999px; padding: 5px 10px; font-size: 0.8rem; }
+  .pill-count { font-weight: 600; }
+  .badge { font-size: 0.72rem; font-weight: 600; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+  .st-complete { background: #dcfce7; color: #166534; }
+  .st-approved { background: #dbeafe; color: #1e40af; }
+  .st-rejected { background: #fee2e2; color: #991b1b; }
+  .st-created { background: #fef9c3; color: #854d0e; }
+  .st-other { background: #f0f0f0; color: #444; }
+  @media (prefers-color-scheme: dark) {
+    .st-complete { background: #14301f; color: #86efac; }
+    .st-approved { background: #16233f; color: #93c5fd; }
+    .st-rejected { background: #3a1717; color: #fca5a5; }
+    .st-created { background: #3a331a; color: #fde68a; }
+    .st-other { background: #2a2a2a; color: #ccc; }
+  }
+  .alert { background: #fef2f2; border: 1px solid #fecaca; color: #7f1d1d; border-radius: 10px; padding: 12px 16px; margin-bottom: 20px; font-size: 0.88rem; }
+  @media (prefers-color-scheme: dark) {
+    .alert { background: #2a1414; border-color: #5c1f1f; color: #fca5a5; }
+  }
+  .alert ul { margin: 6px 0 0; padding-left: 18px; }
+  table { width: 100%; border-collapse: collapse; background: var(--card); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; font-size: 0.85rem; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 600; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.03em; }
+  tr:last-child td { border-bottom: none; }
+  .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .mono { font-family: ui-monospace, monospace; font-size: 0.8rem; }
+  .table-wrap { overflow-x: auto; }
+  footer { color: var(--muted); font-size: 0.75rem; margin-top: 18px; text-align: center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Lexcru Water Tech — PO Tracker</h1>
+  <div class="sub">Vendor Vendor-156 (LEXCRU WATER TECH PVT LTD) · Facilities: PB-UC-GGN, PB-UC-KOL, PB-UC-BLR, PB-UC-BOMBAY, PB-UC-HYD · POs created 2026-08-01 onward · Auto-refreshed every 5 min</div>
+
+  
+        <div class="alert">
+          <strong>2 rejected PO(s)</strong> worth ₹10,818,273 total
+          <ul><li>PB-UC-KOL · PKLU/PO2627/0200 · ₹6,490 · 250 units</li><li>PB-UC-BOMBAY · PUBM/PO2627/0397 · ₹10,811,783 · 69,200 units</li></ul>
+        </div>
+
+  <div class="cards">
+    <div class="card"><div class="label">Total POs</div><div class="value">37</div></div>
+    <div class="card"><div class="label">Open POs</div><div class="value">26</div></div>
+    <div class="card"><div class="label">Qty Ordered</div><div class="value">338,364</div></div>
+    <div class="card"><div class="label">Qty Received</div><div class="value">32,832</div></div>
+    <div class="card"><div class="label">Qty Pending</div><div class="value">305,532</div></div>
+    <div class="card"><div class="label">Total Value</div><div class="value">₹33,601,286</div></div>
+  </div>
+
+  <div class="pills"><div class="pill"><span class="badge st-approved">APPROVED</span> <span class="pill-count">26</span></div><div class="pill"><span class="badge st-complete">COMPLETE</span> <span class="pill-count">9</span></div><div class="pill"><span class="badge st-rejected">REJECTED</span> <span class="pill-count">2</span></div></div>
+
+  <div class="table-wrap">
+  <table>
+    <thead><tr>
+      <th>Facility</th><th>PO Code</th><th>Status</th><th>Created (IST)</th>
+      <th class="num">Qty Ord</th><th class="num">Qty Recv</th><th class="num">Qty Pend</th><th class="num">Amount</th>
+    </tr></thead>
+    <tbody>
+        <tr>
+          <td>PB-UC-BLR</td>
+          <td class="mono">PBRU/PO2627/0315</td>
+          <td><span class="badge st-approved">APPROVED</span></td>
+          <td>2026-09-01 13:34</td>
+          <td class="num">3,303</td>
+          <td class="num">0</td>
+          <td class="num">3,303</td>
+          <td class="num">335,875</td>
+        </tr>
+        <tr>
+          <td>PB-UC-HYD</td>
+          <td class="mono">PUHY/PO2627/0474</td>
+          <td><span class="badge st-approved">APPROVED</span></td>
+          <td>2026-09-01 13:34</td>
+          <td class="num">26,769</td>
+          <td class="num">0</td>
+          <td class="num">26,769</td>
+          <td class="num">341,293</td>
+        </tr>
+        <tr>
+          <td>PB-UC-BOMBAY</td>
+          <td class="mono">PUBM/PO2627/0440</td>
+          <td><span class="badge st-approved">APPROVED</span></td>
+          <td>2026-09-01 13:34</td>
+          <td class="num">22,509</td>
+          <td class="num">0</td>
+          <td class="num">22,509</td>
+          <td class="num">415,601</td>
+        </tr>
+        <tr>
+          <td>PB-UC-KOL</td>
+          <td class="mono">PKLU/PO2627/0201</td>
+          <td><span class="badge st-approved">APPROVED</span></td>
+          <td>2026-09-01 13:33</td>
+          <td class="num">1,272</td>
+          <td class="num">0</td>
+          <td class="num">1,272</td>
+          <td class="num">177,920</td>
+        </tr>
+        <tr>
+          <td>PB-UC-GGN</td>
+          <td class="mono">PGNU/PO2627/0435</td>
+          <td><span class="badge st-approved">APPROVED</span></td>
+          <td>2026-09-01 13:33</td>
+          <td class="num">18,818</td>
+          <td class="num">0</td>
+          <td class="num">18,818</td>
+          <td class="num">514,559</td>
+        </tr>
+        <tr>
+          <td>PB-UC-BOMBAY</td>
+          <td class="mono">PUBM/PO2627/0439</td>
+          <td><span class="badge st-complete">COMPLETE</span></td>
+          <td>2026-09-01 13:30</td>
+          <td class="num">1,218</td>
+          <td class="num">0</td>
+          <td class="num">1,218</td>
+          <td class="num">172,469</td>
+        </tr>
+        <tr>
+          <td>PB-UC-KOL</td>
+          <td class="mono">PKLU/PO2627/0200</td>
+          <td><span class="badge st-rejected">REJECTED</span></td>
+          <td>2026-09-01 10:31</td>
+          <td class="num">250</td>
+          <td class="num">0</td>
+          <td class="num">250</td>
+          <td class="num">6,490</td>
+        </tr>
+        <tr>
+          <td>PB-UC-BOMBAY</td>
+          <td class="mono">PUBM/PO2627/0430</td>
+          <td><span class="badge st-approved">APPROVED</span></td>
+          <td>2026-08-27 17:49</td>
+          <td class="num">8,300</td>
+          <td class="num">0</td>
+          <td class="num">8,300</td>
+          <td class="num">379,638</td>
+        </tr>
+        <tr>
+          <td>PB-UC-KOL</td>
+          <td class="mono">PKLU/PO2627/0195</td>
+          <td><span class="badge st-approved">APPROVED</span></td>
+          <td>2026-08-27 17:49</td>
+          <td class="num">84</td>
+          <td class="num">0</td>
+          <td class="num">84</td>
+          <td class="num">67,897</td>
+        </tr>
+        <tr>
+          <td>PB-UC-GGN</td>
+          <td class="mono">PGNU/PO2627/0426</td>
+          <td><span class="badge st-approved">APPROVED</span></td>
+          <td>2026-08-27 17:48</td>
+          <td class="num">8,564</td>
+          <td class="num">0</td>
+          <td class="num">8,564</td>
+          <td class="num">562,403</td>
+        </tr>
+        <tr>
+          <td>PB-UC-BLR</td>
+          <td class="mono">PBRU/PO2627/0309</td>
+          <td><span class="badge st-approved">APPROVED</span></td>
+          <td>2026-08-27 15:11</td>
+          <td class="num">264</td>
+          <td class="num">0</td>
+          <td class="num">264</td>
+          <td class="num">213,391</td>
+        </tr>
+        <tr>
+          <td>PB-UC-HYD</td>
+          <td class="mono">PUHY/PO2627/0462</td>
+          <td><span class="badge st-approved">APPROVED</span></td>
+          <td>2026-08-27 15:11</td>
+          <td class="num">8,264</td>
+          <td class="num">0</td>
+          <td class="num">8,264</td>
+          <td class="num">319,753</td>
+        </tr>
+        <tr>
+          <td>PB-UC-BOMBAY</td>
+          <td class="mono">PUBM/PO2627/0423</td>
+          <td><span class="badge st-complete">COMPLETE</span></td>
+          <td>2026-08-24 18:44</td>
+          <td class="num">180</td>
+          <td class="num">180</td>
+          <td class="num">0</td>
+          <td class="num">50,976</td>
+        </tr>
+        <tr>
+          <td>PB-UC-GGN</td>
+          <td class="mono">PGNU/PO2627/0418</td>
+          <td><span class="badge st-approved">APPROVED</span></td>
+          <td>2026-08-24 18:22</td>
+          <td class="num">180</td>
+          <td class="num">0</td>
+          <td class="num">180</td>
+          <td class="num">50,976</td>
+        </tr>
+        <tr>
+          <td>PB-UC-HYD</td>
+          <td class="mono">PUHY/PO2627/0450</td>
+          <td><span class="badge st-approved">APPROVED</span></td>
+          <td>2026-08-24 18:21</td>
+          <td class="num">156</td>
+          <td class="num">0</td>
+          <td class="num">156</td>
+          <td class="num">44,179</td>
+        </tr>
+        <tr>
+          <td>PB-UC-HYD</td>
+          <td class="mono">PUHY/PO2627/0445</td>
+          <td><span class="badge st-approved">APPROVED</span></td>
+          <td>2026-08-21 19:28</td>
+          <td class="num">6,150</td>
+          <td class="num">5,150</td>
+          <td class="num">1,000</td>
+          <td class="num">70,509</td>
+        </tr>
+        <tr>
+          <td>PB-UC-BLR</td>
+          <td class="mono">PBRU/PO2627/0299</td>
+          <td><span class="badge st-complete">COMPLETE</span></td>
+          <td>2026-08-21 19:28</td>
+          <td class="num">150</td>
+          <td class="num">150</td>
+          <td class="num">0</td>
+          <td class="num">47,082</td>
+        </tr>
+        <tr>
+          <td>PB-UC-BOMBAY</td>
+          <td class="mono">PUBM/PO2627/0419</td>
+          <td><span class="badge st-approved">APPROVED</span></td>
+          <td>2026-08-21 19:28</td>
+          <td class="num">3,200</td>
+          <td class="num">0</td>
+          <td class="num">3,200</td>
+          <td class="num">78,526</td>
+        </tr>
+        <tr>
+          <td>PB-UC-KOL</td>
+          <td class="mono">PKLU/PO2627/0191</td>
+          <td><span class="badge st-complete">COMPLETE</span></td>
+          <td>2026-08-21 19:28</td>
+          <td class="num">100</td>
+          <td class="num">100</td>
+          <td class="num">0</td>
+          <td class="num">31,388</td>
+        </tr>
+        <tr>
+          <td>PB-UC-GGN</td>
+          <td class="mono">PGNU/PO2627/0413</td>
+          <td><span class="badge st-complete">COMPLETE</span></td>
+          <td>2026-08-21 19:27</td>
+          <td class="num">3,400</td>
+          <td class="num">3,400</td>
+          <td class="num">0</td>
+          <td class="num">141,662</td>
+        </tr>
+        <tr>
+          <td>PB-UC-BOMBAY</td>
+          <td class="mono">PUBM/PO2627/0411</td>
+          <td><span class="badge st-approved">APPROVED</span></td>
+          <td>2026-08-20 18:04</td>
+          <td class="num">242</td>
+          <td class="num">240</td>
+          <td class="num">2</td>
+          <td class="num">68,534</td>
+        </tr>
+        <tr>
+          <td>PB-UC-GGN</td>
+          <td class="mono">PGNU/PO2627/0407</td>
+          <td><span class="badge st-approved">APPROVED</span></td>
+          <td>2026-08-20 18:03</td>
+          <td class="num">242</td>
+          <td class="num">240</td>
+          <td class="num">2</td>
+          <td class="num">68,534</td>
+        </tr>
+        <tr>
+          <td>PB-UC-HYD</td>
+          <td class="mono">PUHY/PO2627/0440</td>
+          <td><span class="badge st-approved">APPROVED</span></td>
+          <td>2026-08-20 18:03</td>
+          <td class="num">116</td>
+          <td class="num">108</td>
+          <td class="num">8</td>
+          <td class="num">32,851</td>
+        </tr>
+        <tr>
+          <td>PB-UC-GGN</td>
+          <td class="mono">PGNU/PO2627/0404</td>
+          <td><span class="badge st-complete">COMPLETE</span></td>
+          <td>2026-08-19 17:12</td>
+          <td class="num">240</td>
+          <td class="num">240</td>
+          <td class="num">0</td>
+          <td class="num">67,968</td>
+        </tr>
+        <tr>
+          <td>PB-UC-BOMBAY</td>
+          <td class="mono">PUBM/PO2627/0407</td>
+          <td><span class="badge st-complete">COMPLETE</span></td>
+          <td>2026-08-19 17:12</td>
+          <td class="num">240</td>
+          <td class="num">240</td>
+          <td class="num">0</td>
+          <td class="num">67,968</td>
+        </tr>
+        <tr>
+          <td>PB-UC-HYD</td>
+          <td class="mono">PUHY/PO2627/0432</td>
+          <td><span class="badge st-approved">APPROVED</span></td>
+          <td>2026-08-19 17:11</td>
+          <td class="num">116</td>
+          <td class="num">0</td>
+          <td class="num">116</td>
+          <td class="num">32,851</td>
+        </tr>
+        <tr>
+          <td>PB-UC-BOMBAY</td>
+          <td class="mono">PUBM/PO2627/0399</td>
+          <td><span class="badge st-approved">APPROVED</span></td>
+          <td>2026-08-18 07:56</td>
+          <td class="num">71,200</td>
+          <td class="num">0</td>
+          <td class="num">71,200</td>
+          <td class="num">10,863,703</td>
+        </tr>
+        <tr>
+          <td>PB-UC-BOMBAY</td>
+          <td class="mono">PUBM/PO2627/0397</td>
+          <td><span class="badge st-rejected">REJECTED</span></td>
+          <td>2026-08-18 07:00</td>
+          <td class="num">69,200</td>
+          <td class="num">0</td>
+          <td class="num">69,200</td>
+          <td class="num">10,811,783</td>
+        </tr>
+        <tr>
+          <td>PB-UC-BOMBAY</td>
+          <td class="mono">PUBM/PO2627/0393</td>
+          <td><span class="badge st-complete">COMPLETE</span></td>
+          <td>2026-08-14 19:24</td>
+          <td class="num">750</td>
+          <td class="num">750</td>
+          <td class="num">0</td>
+          <td class="num">230,100</td>
+        </tr>
+        <tr>
+          <td>PB-UC-BLR</td>
+          <td class="mono">PBRU/PO2627/0288</td>
+          <td><span class="badge st-complete">COMPLETE</span></td>
+          <td>2026-08-13 17:20</td>
+          <td class="num">4,517</td>
+          <td class="num">4,517</td>
+          <td class="num">0</td>
+          <td class="num">1,117,059</td>
+        </tr>
+        <tr>
+          <td>PB-UC-BOMBAY</td>
+          <td class="mono">PUBM/PO2627/0386</td>
+          <td><span class="badge st-approved">APPROVED</span></td>
+          <td>2026-08-13 17:20</td>
+          <td class="num">22,450</td>
+          <td class="num">4,050</td>
+          <td class="num">18,400</td>
+          <td class="num">1,411,566</td>
+        </tr>
+        <tr>
+          <td>PB-UC-KOL</td>
+          <td class="mono">PKLU/PO2627/0184</td>
+          <td><span class="badge st-approved">APPROVED</span></td>
+          <td>2026-08-13 17:19</td>
+          <td class="num">2,911</td>
+          <td class="num">2,908</td>
+          <td class="num">3</td>
+          <td class="num">1,054,448</td>
+        </tr>
+        <tr>
+          <td>PB-UC-GGN</td>
+          <td class="mono">PGNU/PO2627/0387</td>
+          <td><span class="badge st-approved">APPROVED</span></td>
+          <td>2026-08-13 17:19</td>
+          <td class="num">25,620</td>
+          <td class="num">5,820</td>
+          <td class="num">19,800</td>
+          <td class="num">2,027,368</td>
+        </tr>
+        <tr>
+          <td>PB-UC-HYD</td>
+          <td class="mono">PUHY/PO2627/0416</td>
+          <td><span class="badge st-approved">APPROVED</span></td>
+          <td>2026-08-13 17:19</td>
+          <td class="num">26,639</td>
+          <td class="num">4,139</td>
+          <td class="num">22,500</td>
+          <td class="num">1,493,865</td>
+        </tr>
+        <tr>
+          <td>PB-UC-HYD</td>
+          <td class="mono">PUHY/PO2627/0413</td>
+          <td><span class="badge st-approved">APPROVED</span></td>
+          <td>2026-08-13 11:15</td>
+          <td class="num">500</td>
+          <td class="num">432</td>
+          <td class="num">68</td>
+          <td class="num">153,400</td>
+        </tr>
+        <tr>
+          <td>PB-UC-BOMBAY</td>
+          <td class="mono">PUBM/PO2627/0385</td>
+          <td><span class="badge st-approved">APPROVED</span></td>
+          <td>2026-08-13 11:15</td>
+          <td class="num">200</td>
+          <td class="num">120</td>
+          <td class="num">80</td>
+          <td class="num">61,360</td>
+        </tr>
+        <tr>
+          <td>PB-UC-GGN</td>
+          <td class="mono">PGNU/PO2627/0382</td>
+          <td><span class="badge st-approved">APPROVED</span></td>
+          <td>2026-08-13 11:15</td>
+          <td class="num">50</td>
+          <td class="num">48</td>
+          <td class="num">2</td>
+          <td class="num">15,340</td>
+        </tr></tbody>
+  </table>
+  </div>
+
+  <footer>Last refreshed: 2026-09-03T22:03:13.899147+05:30 · Rejected units so far: 0</footer>
+</div>
+</body>
+</html>
