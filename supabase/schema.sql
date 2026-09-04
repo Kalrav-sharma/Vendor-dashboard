@@ -27,6 +27,23 @@
 --     admin Edge Function for vendor accounts).
 
 -- ---------------------------------------------------------------------
+-- profiles
+--
+-- Created before is_admin() below: is_admin() is a LANGUAGE SQL function,
+-- and unlike plpgsql, Postgres validates a SQL-language function body
+-- (including that referenced tables actually exist) at CREATE FUNCTION
+-- time, not just at call time. It has to be defined after profiles.
+-- ---------------------------------------------------------------------
+create table if not exists public.profiles (
+  id uuid primary key references auth.users(id) on delete cascade,
+  role text not null check (role in ('admin', 'vendor')),
+  vendor_code text,          -- required for role='vendor', null for admins
+  vendor_name text,          -- display name only, e.g. "LEXCRU WATER TECH PVT LTD"
+  email text,                -- denormalized copy of auth.users.email, for admin display only
+  created_at timestamptz not null default now()
+);
+
+-- ---------------------------------------------------------------------
 -- is_admin(): SECURITY DEFINER so it can check profiles.role without
 -- re-triggering profiles' own RLS policy (querying a table from inside its
 -- own policy causes "infinite recursion detected in policy" in Postgres).
@@ -43,18 +60,6 @@ as $$
     where id = auth.uid() and role = 'admin'
   );
 $$;
-
--- ---------------------------------------------------------------------
--- profiles
--- ---------------------------------------------------------------------
-create table if not exists public.profiles (
-  id uuid primary key references auth.users(id) on delete cascade,
-  role text not null check (role in ('admin', 'vendor')),
-  vendor_code text,          -- required for role='vendor', null for admins
-  vendor_name text,          -- display name only, e.g. "LEXCRU WATER TECH PVT LTD"
-  email text,                -- denormalized copy of auth.users.email, for admin display only
-  created_at timestamptz not null default now()
-);
 
 alter table public.profiles enable row level security;
 

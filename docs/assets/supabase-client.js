@@ -10,8 +10,8 @@
 // bypasses RLS entirely and must only ever exist as a GitHub Actions
 // secret and a Supabase Edge Function secret.
 
-const SUPABASE_URL = "__SUPABASE_URL__";
-const SUPABASE_ANON_KEY = "__SUPABASE_ANON_KEY__";
+const SUPABASE_URL = "https://jfxfzulufaxrmopnvpqa.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_LNoy7fE1VMV1V7ygcUhCaQ_J9Atuk1q";
 
 function getSupabaseClient() {
   return window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
