@@ -1,4 +1,4 @@
-name: Refresh Lexcru PO Tracker
+name: Sync Uniware PO/GRN data to Supabase
 
 on:
   schedule:
@@ -13,7 +13,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  refresh:
+  sync:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -24,15 +24,17 @@ jobs:
 
       - run: pip install -r requirements.txt
 
-      - run: python scripts/fetch_and_render.py
+      - run: python scripts/sync_to_supabase.py
         env:
           UNIWARE_USERNAME: ${{ secrets.UNIWARE_USERNAME }}
           UNIWARE_PASSWORD: ${{ secrets.UNIWARE_PASSWORD }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 
-      - name: Commit and push updated dashboard
+      - name: Commit heartbeat file
         run: |
           git config user.name "lexcru-po-tracker-bot"
           git config user.email "actions@users.noreply.github.com"
-          git add docs/
-          git diff --cached --quiet && echo "No changes" || git commit -m "Auto-refresh $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          git add docs/.last_sync
+          git diff --cached --quiet && echo "No changes" || git commit -m "Sync heartbeat $(date -u +%Y-%m-%dT%H:%M:%SZ)"
           git push

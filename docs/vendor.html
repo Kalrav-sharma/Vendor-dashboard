@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vendor Portal — My POs</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="assets/styles.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="assets/supabase-client.js"></script>
+</head>
+<body>
+  <div class="wrap">
+    <header class="page-head">
+      <div>
+        <h1>My Purchase Orders</h1>
+        <div class="scope" id="scope-line">Loading…</div>
+      </div>
+      <div class="who">
+        <span id="who-line"></span><br>
+        <button class="link-btn" id="signout-btn">Sign out</button>
+      </div>
+    </header>
+
+    <div id="content">
+      <div class="loading">Loading your data…</div>
+    </div>
+
+    <footer class="page-foot">Data refreshes automatically every ~5 minutes from Uniware.</footer>
+  </div>
+
+<script>
+  const TERMINAL = new Set(["COMPLETE", "REJECTED", "CANCELLED", "CLOSED"]);
+  const STATUS_META = {
+    COMPLETE: ["Complete", "good"],
+    APPROVED: ["Approved · open", "open"],
+    CREATED: ["Created · open", "open"],
+    REJECTED: ["Rejected", "critical"],
+    CANCELLED: ["Cancelled", "muted"],
+  };
+
+  function fmtNum(n) { return (n === null || n === undefined) ? "–" : Number(n).toLocaleString("en-IN"); }
+  function fmtMoney(n) { return (n === null || n === undefined) ? "–" : "₹" + Number(n).toLocaleString("en-IN", { maximumFractionDigits: 0 }); }
+  function fmtDate(iso) {
+    if (!iso) return "–";
+    const d = new Date(iso);
+    return d.toLocaleDateString("en-IN", { day: "2-digit", month: "short" }) + ", " +
+           d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
+  }
+  function statusChip(status) {
+    const [label, cls] = STATUS_META[status] || [status || "Unknown", "muted"];
+    return `<span class="chip chip-${cls}">${label}</span>`;
+  }
+  function escapeHtml(s) {
+    return String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+  }
+
+  async function main() {
+    const ctx = await requireSession();
+    if (!ctx) return;
+    const { client, profile } = ctx;
+
+    document.getElementById("who-line").innerHTML = `<b>${escapeHtml(profile.vendor_name || profile.vendor_code)}</b>`;
+    document.getElementById("signout-btn").addEventListener("click", async () => {
+      await client.auth.signOut();
+      window.location.href = "login.html";
+    });
+
+    const [{ data: pos, error: poErr }, { data: grns, error: grnErr }] = await Promise.all([
+      client.from("purchase_orders").select("*").order("created_at", { ascending: false }),
+      client.from("grns").select("*"),
+    ]);
+
+    if (poErr) {
+      document.getElementById("content").innerHTML = `<div class="alert">Failed to load purchase orders: ${escapeHtml(poErr.message)}</div>`;
+      return;
+    }
+
+    document.getElementById("scope-line").textContent =
+      `Vendor code ${profile.vendor_code} · ${pos.length} purchase order${pos.length === 1 ? "" : "s"} on file`;
+
+    const grnsByPo = {};
+    for (const g of (grns || [])) {
+      (grnsByPo[g.po_code] ||= []).push(g);
+    }
+
+    render(pos, grnsByPo);
+  }
+
+  function render(pos, grnsByPo) {
+    const openCount = pos.filter(p => !TERMINAL.has(p.status)).length;
+    const totalOrdered = pos.reduce((s, p) => s + (Number(p.qty_ordered) || 0), 0);
+    const totalReceived = pos.reduce((s, p) => s + (Number(p.qty_received) || 0), 0);
+    const totalAmount = pos.reduce((s, p) => s + (Number(p.total_amount) || 0), 0);
+    const totalGrnAmount = Object.values(grnsByPo).flat().reduce((s, g) => s + (Number(g.total_received_amount) || 0), 0);
+    const rejected = pos.filter(p => p.status === "REJECTED");
+
+    const statusCounts = {};
+    for (const p of pos) statusCounts[p.status] = (statusCounts[p.status] || 0) + 1;
+    const statusPills = Object.entries(statusCounts).sort((a, b) => b[1] - a[1])
+      .map(([s, c]) => `<div class="stat-pill">${statusChip(s)}<span class="stat-count">${c}</span></div>`).join("");
+
+    let alertHtml = "";
+    if (rejected.length) {
+      const items = rejected.map(p =>
+        `<li><span class="mono">${escapeHtml(p.po_code)}</span> · ${escapeHtml(p.facility)} · ${fmtMoney(p.total_amount)} · ${fmtNum(p.qty_ordered)} units</li>`
+      ).join("");
+      alertHtml = `<div class="alert">
+        <div class="alert-head"><span class="alert-icon">!</span><strong>${rejected.length} purchase order${rejected.length === 1 ? "" : "s"} rejected</strong></div>
+        <ul>${items}</ul>
+      </div>`;
+    }
+
+    const rows = pos.map(p => {
+      const grns = grnsByPo[p.po_code] || [];
+      const invoices = [...new Set(grns.map(g => g.vendor_invoice_number).filter(Boolean))];
+      const recv = grns.reduce((s, g) => s + (Number(g.total_received_amount) || 0), 0);
+      const rej = grns.reduce((s, g) => s + (Number(g.total_rejected_amount) || 0), 0);
+      const grnCell = grns.length === 0
+        ? `<span class="cell-empty">not yet raised</span>`
+        : `<div class="invoice-list">${escapeHtml(invoices.join(", ") || "–")}</div><div class="grn-amt">${fmtMoney(recv)}${rej ? ` <span class="grn-rej">−${fmtMoney(rej)} rej.</span>` : ""}</div>`;
+      return `<tr>
+        <td class="fac-code">${escapeHtml(p.facility)}</td>
+        <td class="mono">${escapeHtml(p.po_code)}</td>
+        <td>${statusChip(p.status)}</td>
+        <td class="mono">${fmtDate(p.created_at)}</td>
+        <td class="num mono">${fmtNum(p.qty_ordered)}</td>
+        <td class="num mono">${fmtNum(p.qty_received)}</td>
+        <td class="num mono">${fmtMoney(p.total_amount)}</td>
+        <td>${grnCell}</td>
+      </tr>`;
+    }).join("");
+
+    document.getElementById("content").innerHTML = `
+      <div class="kpis">
+        <div class="kpi"><div class="label">Purchase orders</div><div class="value">${pos.length}</div></div>
+        <div class="kpi"><div class="label">Still open</div><div class="value">${openCount}</div></div>
+        <div class="kpi"><div class="label">Units ordered</div><div class="value">${fmtNum(totalOrdered)}</div></div>
+        <div class="kpi"><div class="label">Units received</div><div class="value">${fmtNum(totalReceived)}</div></div>
+        <div class="kpi"><div class="label">PO value</div><div class="value">${fmtMoney(totalAmount)}</div></div>
+        <div class="kpi"><div class="label">GRN value received</div><div class="value">${fmtMoney(totalGrnAmount)}</div></div>
+      </div>
+      <div class="stat-pills">${statusPills}</div>
+      ${alertHtml}
+      <div class="table-card"><div class="table-scroll">
+      <table>
+        <thead><tr>
+          <th>Facility</th><th>PO code</th><th>Status</th><th>Created</th>
+          <th class="num">Qty ordered</th><th class="num">Received</th><th class="num">PO value</th><th>GRN / invoice</th>
+        </tr></thead>
+        <tbody>${rows || `<tr><td colspan="8" class="empty-state">No purchase orders yet.</td></tr>`}</tbody>
+      </table>
+      </div></div>
+    `;
+  }
+
+  main();
+</script>
+</body>
+</html>

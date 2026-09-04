@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vendor Portal — Sign in</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="assets/styles.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="assets/supabase-client.js"></script>
+</head>
+<body>
+  <div class="auth-shell">
+    <div class="auth-card">
+      <h1>Vendor Portal</h1>
+      <div class="sub">Sign in to see your purchase orders and receipts.</div>
+      <div id="error-box"></div>
+      <form id="login-form">
+        <div class="field">
+          <label for="email">Email</label>
+          <input type="email" id="email" required autocomplete="username">
+        </div>
+        <div class="field">
+          <label for="password">Password</label>
+          <input type="password" id="password" required autocomplete="current-password">
+        </div>
+        <button type="submit" class="primary-btn" id="submit-btn">Sign in</button>
+      </form>
+    </div>
+  </div>
+
+<script>
+  const client = getSupabaseClient();
+  const form = document.getElementById("login-form");
+  const errorBox = document.getElementById("error-box");
+  const submitBtn = document.getElementById("submit-btn");
+
+  // If already signed in, skip straight to the right dashboard.
+  client.auth.getSession().then(({ data: { session } }) => {
+    if (session) redirectByRole(session.user.id);
+  });
+
+  async function redirectByRole(userId) {
+    const { data: profile } = await client.from("profiles").select("role").eq("id", userId).single();
+    window.location.href = profile?.role === "admin" ? "admin.html" : "vendor.html";
+  }
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    errorBox.innerHTML = "";
+    submitBtn.disabled = true;
+    submitBtn.textContent = "Signing in…";
+    const email = document.getElementById("email").value.trim();
+    const password = document.getElementById("password").value;
+
+    const { data, error } = await client.auth.signInWithPassword({ email, password });
+    if (error) {
+      errorBox.innerHTML = `<div class="form-error">${error.message === "Invalid login credentials" ? "Incorrect email or password." : error.message}</div>`;
+      submitBtn.disabled = false;
+      submitBtn.textContent = "Sign in";
+      return;
+    }
+    await redirectByRole(data.user.id);
+  });
+</script>
+</body>
+</html>

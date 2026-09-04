@@ -1,78 +1,143 @@
-# Lexcru PO Tracker
+# Vendor PO Tracker (with auth)
 
-Auto-refreshing dashboard of Lexcru Water Tech Pvt Ltd (Uniware vendor code
-`Vendor-156`) purchase orders across the 5 Native facilities (`PB-UC-GGN`,
-`PB-UC-KOL`, `PB-UC-BLR`, `PB-UC-BOMBAY`, `PB-UC-HYD`), created 2026-08-01
-onward.
+A live portal where vendors log in and see only their own purchase orders
+and GRN/invoice status, pulled automatically from Uniware. Currently scoped
+to one vendor (Lexcru Water Tech, Uniware vendor code `Vendor-156`) across
+5 Native facilities (`PB-UC-GGN`, `PB-UC-KOL`, `PB-UC-BLR`, `PB-UC-BOMBAY`,
+`PB-UC-HYD`), purchase orders created 2026-08-01 onward.
 
-Runs entirely on GitHub's infrastructure — no local machine, no Claude
-involvement after setup. A GitHub Actions workflow fires every 5 minutes,
-pulls fresh data straight from Uniware's REST API, and pushes an updated
-`docs/index.html`. GitHub Pages serves that file as a live link.
+**Architecture:**
+- **GitHub Actions** (`.github/workflows/refresh.yml`) — runs every 5
+  minutes, pure Python, zero LLM/human involvement. Pulls fresh PO + GRN
+  data from Uniware and writes it into Supabase.
+- **Supabase Postgres** — the database of record. Row Level Security (RLS)
+  enforces that a vendor login can only ever query rows matching their own
+  `vendor_code`; an admin login can query everything.
+- **Supabase Auth** — real login/password, managed by you (admin) via the
+  admin console's "Create vendor login" form.
+- **Supabase Edge Function** (`admin-create-vendor`) — the only place vendor
+  accounts get created. Runs server-side so the highly-privileged
+  `service_role` key never touches the browser.
+- **GitHub Pages** (`docs/`) — serves the static frontend: `login.html`,
+  `vendor.html` (vendor dashboard), `admin.html` (admin console). All three
+  talk to Supabase directly via `supabase-js`; RLS does the real access
+  control, not the frontend code.
 
 ## One-time setup
 
-1. **Create the repo.** Push this folder to a new GitHub repository (public
-   or private — public repos get unlimited free Actions minutes on standard
-   runners, which matters at a 5-minute cadence; private repos get 2,000
-   free minutes/month, which a `*/5 * * * *` schedule can burn through
-   quickly since each run takes ~30-60s but there are ~8,640 runs/month).
+### 1. Create the Supabase project
+1. supabase.com → sign up → **New Project**. Set a strong DB password (you
+   won't need to give it to me/anyone — it's separate from vendor logins).
+2. Project Settings → API. Note down:
+   - **Project URL** (`https://xxxx.supabase.co`)
+   - **`anon` `public` key**
+   - **`service_role` key** — treat as a master password to your whole
+     database. Never commit it, never put it in any file under `docs/`,
+     never paste it anywhere but the two places below.
 
-2. **Add repo secrets** (Settings → Secrets and variables → Actions → New
-   repository secret):
-   - `UNIWARE_USERNAME`
-   - `UNIWARE_PASSWORD`
+### 2. Run the database schema
+Project → **SQL Editor** → New query → paste the entire contents of
+`supabase/schema.sql` → Run. This creates the `profiles`, `purchase_orders`
+and `grns` tables with RLS policies already attached.
 
-   Use the same read-only Uniware account already used for other reporting
-   scripts on Kalrav's machine — never the PO-create account.
+### 3. Bootstrap your own admin login
+1. Project → **Authentication → Users → Add user** → create your own
+   email + password. Copy the generated User UID.
+2. Back in the SQL Editor, run (see the bottom of `supabase/schema.sql` for
+   this exact snippet):
+   ```sql
+   insert into public.profiles (id, role, vendor_name, email)
+   values ('<your-user-uid>', 'admin', 'Kalrav (admin)', '<your-email>');
+   ```
+   This is the only account that ever gets `role='admin'` this way — every
+   vendor account after this gets created through the admin console itself.
 
-3. **Enable GitHub Pages** (Settings → Pages):
-   - Source: **Deploy from a branch**
-   - Branch: `main`, folder: `/docs`
+### 4. Deploy the Edge Function
+Easiest path, no CLI needed: Project → **Edge Functions** → **Create a new
+function** → name it exactly `admin-create-vendor` → paste in the contents
+of `supabase/functions/admin-create-vendor/index.ts` → Deploy.
 
-   Your hosted link will be `https://<your-username>.github.io/<repo-name>/`.
+(If you'd rather use the CLI: `supabase login`, `supabase link --project-ref
+<your-project-ref>`, then `supabase functions deploy admin-create-vendor`
+from this repo root.)
 
-4. **Custom domain (optional):** add a `CNAME` file inside `docs/` containing
-   your domain, and point a DNS `CNAME` record at
-   `<your-username>.github.io`. GitHub's own docs cover the exact DNS
-   records needed for apex vs. subdomain.
+Then set its one required secret — Project → Edge Functions →
+`admin-create-vendor` → Secrets (or `supabase secrets set
+SUPABASE_SERVICE_ROLE_KEY=<key>`):
+- `SUPABASE_SERVICE_ROLE_KEY` = the service_role key from step 1.
 
-5. **Kick off the first run** manually: Actions tab → "Refresh Lexcru PO
-   Tracker" → Run workflow. After that it runs unattended every 5 minutes.
+(`SUPABASE_URL` and `SUPABASE_ANON_KEY` are auto-injected by Supabase into
+every Edge Function — you don't set those yourself.)
 
-## How it stays cheap and fast at a 5-minute cadence
+### 5. Fill in the frontend's public config
+Edit `docs/assets/supabase-client.js` in this repo, replacing:
+- `__SUPABASE_URL__` with your Project URL
+- `__SUPABASE_ANON_KEY__` with your `anon` `public` key
 
-Re-listing and re-fetching every PO since Aug 1 on every run would grow
-without bound and hammer Uniware. Instead each run:
+Both are safe to commit — they grant no access on their own; every table's
+RLS policy is what actually decides who can read what.
 
-- Re-fetches full detail **only** for POs whose last known status isn't
-  terminal (`COMPLETE` / `REJECTED` / `CANCELLED` / `CLOSED`) — those can
-  still change (partial receipts, approval, rejection).
-- Searches Uniware for new PO codes only in a short recent window (last 4
-  days) per facility, to catch newly created POs.
-- Carries forward terminal POs from the previous run's `docs/data.json`
-  untouched.
+### 6. Push to GitHub
+```
+cd ~/lexcru-po-tracker
+git remote add origin https://github.com/<you>/<repo>.git
+git branch -M main
+git push -u origin main
+```
 
-`docs/data.json` is the full current dataset (also useful if you want to
-build something else on top of it later); `docs/index.html` is the rendered
-dashboard.
+### 7. Add GitHub Actions secrets
+Repo → **Settings → Secrets and variables → Actions → New repository
+secret**, four of them:
+- `UNIWARE_USERNAME`, `UNIWARE_PASSWORD` — same read-only Uniware account
+  used elsewhere.
+- `SUPABASE_URL` — same Project URL as above.
+- `SUPABASE_SERVICE_ROLE_KEY` — same service_role key as step 4. This is
+  the second (and last) place this key should ever be pasted.
 
-## Files
+### 8. Turn on GitHub Pages
+Repo → **Settings → Pages** → Source: **Deploy from a branch** → Branch
+`main`, folder **`/docs`** → Save.
 
-- `scripts/fetch_and_render.py` — the whole pipeline: auth, search, fetch,
-  merge, render. Pure Python, no LLM calls anywhere.
-- `.github/workflows/refresh.yml` — the 5-minute schedule.
-- `docs/` — generated output, served by GitHub Pages. Committed by the bot,
-  not hand-edited.
+Your portal's link: `https://<you>.github.io/<repo>/` — lands on
+`login.html` if you're not signed in.
+
+### 9. Fire the first sync manually
+Repo → **Actions** → "Sync Uniware PO/GRN data to Supabase" → **Run
+workflow**. Don't wait for the cron — trigger it once by hand so the
+database is populated before you first open the portal.
+
+## Using it day to day
+
+- **Sign in as admin** at your Pages URL → lands on `admin.html`. Use
+  "Create vendor login" to add a new vendor: their email, a temporary
+  password you tell them directly (shown once, not stored anywhere
+  retrievable), their Uniware vendor code, and a display name. The vendor
+  filter dropdown below lets you view any single vendor's POs, or all of
+  them together.
+- **A vendor signs in** with the email/password you gave them → lands on
+  `vendor.html`, sees only their own POs and GRNs — enforced by Postgres
+  RLS, not by anything the frontend chooses to show.
+- To onboard a new vendor beyond Lexcru: add their vendor code to
+  `VENDOR_CODE`/`FACILITIES` handling in `scripts/sync_to_supabase.py` (this
+  script is currently single-vendor; extending it to loop over a list of
+  vendor codes is the next natural step once you're ready to onboard more
+  than one), then create their login from the admin console.
 
 ## Known constraints
 
-- GitHub's scheduled workflows are not millisecond-precise — under load
-  GitHub can delay a run by a few minutes. Treat "every 5 minutes" as "at
-  least every 5-15 minutes in practice," not a hard guarantee.
-- If Uniware ever rotates the read-only account's password, update the
-  `UNIWARE_PASSWORD` secret — the workflow will otherwise start failing
-  (visible in the Actions tab, which can be wired to email/Slack
-  notifications via GitHub's own settings if wanted).
-- `getPurchaseOrderDetails` masks `vendorName` on this account, so matching
-  is done purely on `vendorCode == "Vendor-156"`.
+- GitHub's scheduled cron isn't millisecond-precise — treat "every 5
+  minutes" as "every 5-15 minutes in practice."
+- `getPurchaseOrderDetails` masks `vendorName` on this Uniware account, so
+  matching is done purely on `vendorCode`.
+- This repo + its GitHub Pages site should be **private** before any real
+  vendor uses it for anything beyond a live test — a public repo makes the
+  static frontend files (not the data — that's gated by Supabase RLS) world
+  readable, and a public GitHub Pages URL is unauthenticated at the HTTP
+  level even though the data behind login is properly access-controlled.
+  Private repos need GitHub Enterprise for private Pages, or Pages can be
+  swapped for something like Cloudflare Pages/Vercel with access control at
+  the hosting layer instead.
+- Passwords you set for vendors are temporary — there's currently no
+  "vendor changes their own password" or "forgot password" flow wired into
+  `login.html`; Supabase Auth supports both, just not built into this UI
+  yet.
