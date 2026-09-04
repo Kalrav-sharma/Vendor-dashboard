@@ -65,7 +65,7 @@
       <div id="content"><div class="loading">Loading…</div></div>
     </div>
 
-    <footer class="page-foot">Data refreshes automatically every ~5 minutes from Uniware.</footer>
+    <footer class="page-foot">Data refreshes automatically every ~5 minutes from Uniware. <span id="last-updated"></span></footer>
   </div>
 
 <script>
@@ -95,6 +95,7 @@
   }
 
   let allPos = [], grnsByPo = {}, client;
+  const POLL_INTERVAL_MS = 60 * 1000;
 
   async function main() {
     const ctx = await requireSession();
@@ -110,9 +111,15 @@
       window.location.href = "login.html";
     });
 
-    await Promise.all([loadVendors(), loadPurchaseOrders()]);
-
+    await refreshAll();
     document.getElementById("vendor-filter").addEventListener("change", renderTable);
+    setInterval(refreshAll, POLL_INTERVAL_MS);
+  }
+
+  async function refreshAll() {
+    await Promise.all([loadVendors(), loadPurchaseOrders()]);
+    document.getElementById("last-updated").textContent =
+      "Page last checked " + new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
   }
 
   async function loadVendors() {
@@ -136,11 +143,17 @@
       </table></div></div>`;
     }
     const select = document.getElementById("vendor-filter");
+    const previousValue = select.value;
+    select.querySelectorAll("option[data-vendor-option]").forEach(opt => opt.remove());
     for (const v of vendors) {
       const opt = document.createElement("option");
       opt.value = v.vendor_code;
       opt.textContent = `${v.vendor_code} — ${v.vendor_name || ""}`;
+      opt.dataset.vendorOption = "1";
       select.appendChild(opt);
+    }
+    if ([...select.options].some(o => o.value === previousValue)) {
+      select.value = previousValue;
     }
   }
 

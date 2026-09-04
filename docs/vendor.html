@@ -27,7 +27,7 @@
       <div class="loading">Loading your data…</div>
     </div>
 
-    <footer class="page-foot">Data refreshes automatically every ~5 minutes from Uniware.</footer>
+    <footer class="page-foot">Data refreshes automatically every ~5 minutes from Uniware. <span id="last-updated"></span></footer>
   </div>
 
 <script>
@@ -56,17 +56,9 @@
     return String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
   }
 
-  async function main() {
-    const ctx = await requireSession();
-    if (!ctx) return;
-    const { client, profile } = ctx;
+  const POLL_INTERVAL_MS = 60 * 1000;
 
-    document.getElementById("who-line").innerHTML = `<b>${escapeHtml(profile.vendor_name || profile.vendor_code)}</b>`;
-    document.getElementById("signout-btn").addEventListener("click", async () => {
-      await client.auth.signOut();
-      window.location.href = "login.html";
-    });
-
+  async function loadAndRender(client, profile) {
     const [{ data: pos, error: poErr }, { data: grns, error: grnErr }] = await Promise.all([
       client.from("purchase_orders").select("*").order("created_at", { ascending: false }),
       client.from("grns").select("*"),
@@ -86,6 +78,23 @@
     }
 
     render(pos, grnsByPo);
+    document.getElementById("last-updated").textContent =
+      "Page last checked " + new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  }
+
+  async function main() {
+    const ctx = await requireSession();
+    if (!ctx) return;
+    const { client, profile } = ctx;
+
+    document.getElementById("who-line").innerHTML = `<b>${escapeHtml(profile.vendor_name || profile.vendor_code)}</b>`;
+    document.getElementById("signout-btn").addEventListener("click", async () => {
+      await client.auth.signOut();
+      window.location.href = "login.html";
+    });
+
+    await loadAndRender(client, profile);
+    setInterval(() => loadAndRender(client, profile), POLL_INTERVAL_MS);
   }
 
   function render(pos, grnsByPo) {
