@@ -31,7 +31,17 @@ const { vendors, refresh: refreshVendors, vendorLabel, revokeVendor, restoreVend
 const { filters, filteredSorted, facilityOptions, statusOptions } = usePoFilters(currentPos, grnsByPo, vendorLabel);
 const { sortedRows: skuRows } = useSkuAggregates(currentPos, poItemsByPo, { multiVendor: true });
 
-const vendorOptions = computed(() => vendors.value.map(v => ({ code: v.vendor_code, label: v.vendor_name || v.vendor_code })));
+// Two logins can share the same vendor_code (e.g. a second Lexcru user) --
+// dedupe by vendor_code so the filter dropdown lists each vendor once,
+// not once per login.
+const vendorOptions = computed(() => {
+  const byCode = new Map();
+  for (const v of vendors.value) {
+    if (!v.vendor_code || byCode.has(v.vendor_code)) continue;
+    byCode.set(v.vendor_code, { code: v.vendor_code, label: v.vendor_name || v.vendor_code });
+  }
+  return [...byCode.values()];
+});
 const { filters: skuFilters, filteredSorted: skuFilteredSorted } = useSkuFilters(skuRows, vendorLabel);
 
 const scopeLine = computed(() => {
