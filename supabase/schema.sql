@@ -44,8 +44,20 @@ create table if not exists public.profiles (
   vendor_code text,          -- required for role='vendor', null for admins
   vendor_name text,          -- display name only, e.g. "LEXCRU WATER TECH PVT LTD"
   email text,                -- denormalized copy of auth.users.email, for admin display only
+  revoked boolean not null default false,  -- display-only mirror of the real
+                              -- enforcement, which is a Supabase Auth ban set
+                              -- server-side by the admin-create-vendor Edge
+                              -- Function -- this column can't itself block
+                              -- login, it only lets the admin console show
+                              -- correct Revoke/Restore state without needing
+                              -- service_role access to check it
   created_at timestamptz not null default now()
 );
+
+-- profiles already existed before `revoked` was added, so "create table if
+-- not exists" above won't retroactively add the column -- this does, and
+-- is a no-op if it's already there.
+alter table public.profiles add column if not exists revoked boolean not null default false;
 
 -- ---------------------------------------------------------------------
 -- is_admin(): SECURITY DEFINER so it can check profiles.role without

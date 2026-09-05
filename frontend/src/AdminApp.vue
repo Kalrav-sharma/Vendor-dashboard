@@ -24,7 +24,7 @@ const pageTitle = computed(() => ({
 }[activeNav.value]));
 
 const { currentPos, grnsByPo, poItemsByPo, grnItemsByPoSku, grnByCode, lastUpdated, invoicesForItem } = usePurchaseOrders();
-const { vendors, refresh: refreshVendors, vendorLabel } = useVendors();
+const { vendors, refresh: refreshVendors, vendorLabel, revokeVendor, restoreVendor, deleteVendor } = useVendors();
 const { filters, filteredSorted, facilityOptions, statusOptions } = usePoFilters(currentPos, grnsByPo, vendorLabel);
 const { sortedRows: skuRows } = useSkuAggregates(currentPos, poItemsByPo, { multiVendor: true });
 
@@ -125,7 +125,10 @@ async function signOut() {
         </div>
 
         <div v-show="activeNav === 'manage-vendors'">
-          <ManageVendors :vendors="vendors" :on-vendors-changed="refreshVendors" />
+          <ManageVendors
+            :vendors="vendors" :on-vendors-changed="refreshVendors"
+            :on-revoke="revokeVendor" :on-restore="restoreVendor" :on-delete="deleteVendor"
+          />
         </div>
 
         <footer class="page-foot">Data refreshes automatically every ~5 minutes from Uniware. {{ lastCheckedText }}</footer>
