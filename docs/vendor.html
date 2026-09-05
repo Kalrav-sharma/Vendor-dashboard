@@ -271,7 +271,7 @@
   // and the tbody -- safe to call on every keystroke, never touches the
   // filter inputs themselves.
   function renderPoTableBody() {
-    const filtered = currentPos.filter(p => poMatchesFilters(poRowFields(p)));
+    const filtered = currentPos.filter(p => poMatchesFilters(poRowFields(p))).sort(poSortComparator);
 
     const openCount = filtered.filter(p => !TERMINAL_STATUSES.has(p.status)).length;
     const totalOrdered = filtered.reduce((s, p) => s + (Number(p.qty_ordered) || 0), 0);

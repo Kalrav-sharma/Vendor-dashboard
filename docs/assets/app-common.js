@@ -44,6 +44,15 @@ function visiblePos(pos) {
   return pos.filter(p => !HIDDEN_STATUSES.has(p.status));
 }
 
+// Open/approved POs before completed ones; within each of those two
+// groups, largest PO value first. Used to order the PO Tracking table.
+function poSortComparator(a, b) {
+  const aGroup = TERMINAL_STATUSES.has(a.status) ? 1 : 0;
+  const bGroup = TERMINAL_STATUSES.has(b.status) ? 1 : 0;
+  if (aGroup !== bGroup) return aGroup - bGroup;
+  return (Number(b.total_amount) || 0) - (Number(a.total_amount) || 0);
+}
+
 // --- Real Uniware PO PDF download ---
 // Calls the get-po-pdf Edge Function, which fetches the actual official
 // Uniware document (not something we generate) and streams it back --

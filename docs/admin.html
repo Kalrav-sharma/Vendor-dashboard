@@ -372,7 +372,7 @@
   // and the tbody -- safe on every keystroke, never touches the filter
   // inputs themselves (see renderPoTracking above).
   function renderPoTableBody() {
-    const filtered = currentPos.filter(p => poMatchesFilters(p, poRowFields(p)));
+    const filtered = currentPos.filter(p => poMatchesFilters(p, poRowFields(p))).sort(poSortComparator);
 
     document.getElementById("scope-line").textContent =
       `${currentPos.length} purchase order${currentPos.length === 1 ? "" : "s"} across all vendors` +
