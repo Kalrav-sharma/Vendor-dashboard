@@ -1,13 +1,22 @@
 #!/usr/bin/env python3
 """
-Pulls Lexcru Water Tech Pvt Ltd purchase orders + GRNs from Uniware across
-the 5 Native facilities (created Aug 1 2026 onward), and upserts them into
-Supabase Postgres tables (purchase_orders, grns, and their SKU-level line
-items po_items / grn_items — Uniware returns these in the same detail
-responses already being fetched, so this costs no extra API calls). The
-vendor/admin portal pages under docs/ read directly from Supabase (via
-supabase-js + Row Level Security) — this script's only job is keeping that
-database current.
+Pulls purchase orders + GRNs from Uniware across the 5 Native facilities
+(created Aug 1 2026 onward), for every vendor that has a login on the
+portal (queried fresh from Supabase's profiles table each run — NOT a
+hardcoded vendor list), and upserts them into Supabase Postgres tables
+(purchase_orders, grns, and their SKU-level line items po_items /
+grn_items — Uniware returns these in the same detail responses already
+being fetched, so this costs no extra API calls). The vendor/admin portal
+pages under docs/ read directly from Supabase (via supabase-js + Row Level
+Security) — this script's only job is keeping that database current.
+
+Onboarding a new vendor is therefore just: create their login from the
+admin console's "Create vendor login" form (Manage Vendors). Nothing else
+to configure here — the next run picks them up automatically. Uniware's
+PO-search endpoint isn't vendor-filterable (one search returns every
+vendor's PO codes at a facility), so this script always searches once per
+facility and only then filters each fetched PO's actual vendorCode against
+the current profiles-derived vendor list.
 
 Designed to run unattended on a schedule (GitHub Actions cron, every 5 min)
 with zero human/LLM involvement per run. Credentials come from environment
@@ -19,16 +28,21 @@ variables, set as GitHub Actions repo secrets, never committed:
 
 Cost-control design (this runs every 5 minutes, forever):
   - Supabase itself is the persisted state (replacing the old local
-    docs/data.json). On each run we query it for this vendor's existing
-    PO codes + statuses, then:
+    docs/data.json). On each run we query it for every known PO's
+    facility + status + vendor_code, then:
       1. Re-fetch full detail ONLY for POs whose last known status is not
          terminal (COMPLETE/REJECTED/CANCELLED/CLOSED) — open POs can still
          change (partial receipts, approval, rejection).
       2. Search only a short recent window (RECENT_WINDOW_DAYS) per facility
-         for newly created PO codes, rather than re-listing the entire
-         Aug-1-to-today range every run.
+         for newly created PO codes, UNLESS a vendor exists with zero rows
+         synced yet (just onboarded) — then this run does the full
+         START_DATE..now backfill instead, since that's the only way to
+         discover a brand-new vendor's history. Already-terminal POs found
+         by that wider search are still skipped (see point 3), so this
+         only costs extra work proportional to the new vendor's own
+         history, not a re-fetch of everyone else's settled POs.
       3. Terminal POs already in Supabase are left untouched — no re-fetch,
-         no re-write.
+         no re-write, even if re-discovered by a backfill-widened search.
   - GRNs are looked up only for POs that got a fresh detail fetch this run
     and have inflowReceiptsCount > 0 — same discipline as PO detail.
 """
@@ -49,9 +63,6 @@ UNIWARE_BASE_URL = "https://urbanclap.unicommerce.com"
 REQUEST_TIMEOUT = 30
 
 FACILITIES = ["PB-UC-GGN", "PB-UC-KOL", "PB-UC-BLR", "PB-UC-BOMBAY", "PB-UC-HYD"]
-VENDOR_CODE = "Vendor-156"
-VENDOR_NAME = "LEXCRU WATER TECH PVT LTD"  # Uniware masks vendorName in its API responses,
-                                            # so this is the only source of truth for it
 
 START_DATE = datetime(2026, 8, 1, 0, 0, 0, tzinfo=timezone.utc)
 RECENT_WINDOW_DAYS = 4  # how far back to re-search for newly created PO codes each run
@@ -190,7 +201,7 @@ def fetch_grn_detail(session, token, facility, grn_code):
     return header, item_rows
 
 
-def fetch_grns_for_po(session, token, facility, po_code):
+def fetch_grns_for_po(session, token, facility, po_code, vendor_code):
     grn_rows = []
     grn_item_rows = []
     for grn_code in fetch_grn_codes_for_po(session, token, facility, po_code):
@@ -198,17 +209,17 @@ def fetch_grns_for_po(session, token, facility, po_code):
         if not header:
             continue
         header["po_code"] = po_code
-        header["vendor_code"] = VENDOR_CODE
+        header["vendor_code"] = vendor_code
         grn_rows.append(header)
         for it in items:
             it["grn_code"] = header["grn_code"]
             it["po_code"] = po_code
-            it["vendor_code"] = VENDOR_CODE
+            it["vendor_code"] = vendor_code
             grn_item_rows.append(it)
     return grn_rows, grn_item_rows
 
 
-def build_po_row(facility, code, po):
+def build_po_row(facility, code, po, vendor_name):
     """Returns (po_row, inflow_receipts_count, item_rows)."""
     items = po.get("purchaseOrderItems") or []
     created_ms = po.get("created") or po.get("createdDate")
@@ -224,7 +235,7 @@ def build_po_row(facility, code, po):
         "po_code": code,
         "facility": facility,
         "vendor_code": vendor_code,
-        "vendor_name": VENDOR_NAME,  # Uniware masks vendorName in the API; VENDOR_NAME is the known mapping
+        "vendor_name": vendor_name,  # Uniware masks vendorName in the API; sourced from profiles instead
         "status": po.get("statusCode"),
         "created_at": created_iso,
         "total_amount": (po.get("purchaseOrderPriceSummary") or {}).get("totalAmount"),
@@ -276,12 +287,28 @@ def supabase_headers(key):
     }
 
 
-def fetch_existing_po_state(session, supabase_url, key, vendor_code):
-    """Returns {po_code: {"facility": ..., "status": ...}} for this vendor."""
+def fetch_vendor_map(session, supabase_url, key):
+    """Returns {vendor_code: vendor_name} for every vendor login that exists
+    right now — this IS the onboarding mechanism: create a login in the
+    admin console, the next run picks them up here automatically."""
+    r = session.get(
+        f"{supabase_url}/rest/v1/profiles",
+        headers=supabase_headers(key),
+        params={"role": "eq.vendor", "select": "vendor_code,vendor_name"},
+        timeout=REQUEST_TIMEOUT,
+    )
+    r.raise_for_status()
+    return {row["vendor_code"]: row.get("vendor_name") or row["vendor_code"] for row in r.json() if row.get("vendor_code")}
+
+
+def fetch_existing_po_state(session, supabase_url, key):
+    """Returns {po_code: {"facility": ..., "status": ..., "vendor_code": ...}}
+    across ALL vendors — not vendor-scoped, since one facility search covers
+    every vendor's POs anyway (Uniware's search endpoint isn't vendor-filterable)."""
     r = session.get(
         f"{supabase_url}/rest/v1/purchase_orders",
         headers=supabase_headers(key),
-        params={"vendor_code": f"eq.{vendor_code}", "select": "po_code,facility,status"},
+        params={"select": "po_code,facility,status,vendor_code"},
         timeout=REQUEST_TIMEOUT,
     )
     r.raise_for_status()
@@ -308,18 +335,35 @@ def upsert_rows(session, supabase_url, key, table, on_conflict, rows):
 
 def main():
     supabase_url, supabase_key = supabase_config()
-    token = get_uniware_token()
     session = requests.Session()
 
-    existing = fetch_existing_po_state(session, supabase_url, supabase_key, VENDOR_CODE)
+    vendor_map = fetch_vendor_map(session, supabase_url, supabase_key)
+    if not vendor_map:
+        # Always touch the heartbeat even on a no-op run, so the workflow
+        # still has something to commit (see note below).
+        with open(HEARTBEAT_PATH, "w") as f:
+            f.write(datetime.now(IST).isoformat() + "\n")
+        print("No vendor logins exist yet (profiles.role='vendor' is empty) — "
+              "nothing to sync. Create one from the admin console to onboard it.")
+        return
+
+    token = get_uniware_token()
+    existing = fetch_existing_po_state(session, supabase_url, supabase_key)
     now_utc = datetime.now(timezone.utc)
-    is_first_run = not existing
-    search_start = START_DATE if is_first_run else now_utc - timedelta(days=RECENT_WINDOW_DAYS)
+
+    # A vendor with zero rows synced so far has never been backfilled --
+    # widen the search to the full history to discover it. Already-known,
+    # already-terminal POs (from other, previously-backfilled vendors)
+    # get explicitly skipped below even though this wider search re-finds
+    # them, so this doesn't cost a full re-fetch of everyone else's history.
+    known_vendor_codes_with_data = {row["vendor_code"] for row in existing.values()}
+    needs_backfill = any(vc not in known_vendor_codes_with_data for vc in vendor_map)
+    search_start = START_DATE if needs_backfill else now_utc - timedelta(days=RECENT_WINDOW_DAYS)
 
     # 1. Candidate PO codes: known-open ones already in Supabase, plus
-    #    anything created in the search window (first run backfills the
-    #    full START_DATE..now range, chunked to dodge Uniware's wide-range
-    #    gotcha; every later run only re-searches the short recent window).
+    #    anything created in the search window (widened to the full
+    #    START_DATE..now range, chunked to dodge Uniware's wide-range
+    #    gotcha, whenever a brand-new vendor needs backfilling).
     codes_to_refresh = {}  # code -> facility
     for facility in FACILITIES:
         cursor = search_start
@@ -329,16 +373,22 @@ def main():
             found |= search_po_codes(session, token, facility, cursor, chunk_end)
             cursor = chunk_end
         for code in found:
+            prior = existing.get(code)
+            if prior and prior.get("status") in TERMINAL_STATUSES:
+                continue  # already settled, don't re-fetch just because a backfill search re-surfaced it
             codes_to_refresh[code] = facility
 
     for code, row in existing.items():
         if row.get("status") not in TERMINAL_STATUSES:
             codes_to_refresh.setdefault(code, row["facility"])
 
-    # 2. Fetch fresh PO detail for all candidates, in parallel.
+    # 2. Fetch fresh PO detail for all candidates, in parallel. Anything
+    #    whose actual vendorCode isn't a known vendor login gets discarded
+    #    here -- this is the only vendor filter, applied per-PO rather
+    #    than per-search, since the search itself can't be vendor-scoped.
     po_rows = []
     po_item_rows = []
-    inflow_counts = {}  # po_code -> inflowReceiptsCount, for step 3
+    inflow_counts = {}  # po_code -> (facility, vendor_code), for step 3
     with ThreadPoolExecutor(max_workers=10) as ex:
         futs = {
             ex.submit(fetch_po_detail, session, token, facility, code): (facility, code)
@@ -347,12 +397,13 @@ def main():
         for fut in as_completed(futs):
             facility, code = futs[fut]
             po = fut.result()
-            if po and po.get("vendorCode") == VENDOR_CODE:
-                row, inflow_count, item_rows = build_po_row(facility, code, po)
+            vendor_code = po.get("vendorCode") if po else None
+            if vendor_code in vendor_map:
+                row, inflow_count, item_rows = build_po_row(facility, code, po, vendor_map[vendor_code])
                 po_rows.append(row)
                 po_item_rows.extend(item_rows)
                 if inflow_count > 0:
-                    inflow_counts[code] = facility
+                    inflow_counts[code] = (facility, vendor_code)
 
     upsert_rows(session, supabase_url, supabase_key, "purchase_orders", "po_code", po_rows)
     upsert_rows(session, supabase_url, supabase_key, "po_items", "po_code,item_sku", po_item_rows)
@@ -362,8 +413,8 @@ def main():
     grn_item_rows = []
     with ThreadPoolExecutor(max_workers=10) as ex:
         futs = {
-            ex.submit(fetch_grns_for_po, session, token, facility, code): code
-            for code, facility in inflow_counts.items()
+            ex.submit(fetch_grns_for_po, session, token, facility, code, vendor_code): code
+            for code, (facility, vendor_code) in inflow_counts.items()
         }
         for fut in as_completed(futs):
             headers, items = fut.result()
@@ -381,8 +432,9 @@ def main():
         f.write(datetime.now(IST).isoformat() + "\n")
 
     print(f"Refreshed {len(po_rows)} PO(s) ({len(po_item_rows)} line items), "
-          f"{len(grn_rows)} GRN(s) ({len(grn_item_rows)} line items) this run "
-          f"({'first run / full backfill' if is_first_run else 'incremental'}).")
+          f"{len(grn_rows)} GRN(s) ({len(grn_item_rows)} line items) this run, "
+          f"across {len(vendor_map)} vendor(s) "
+          f"({'backfilling a new vendor' if needs_backfill else 'incremental'}).")
 
 
 if __name__ == "__main__":
