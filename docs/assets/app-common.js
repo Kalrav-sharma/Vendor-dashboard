@@ -61,7 +61,16 @@ async function downloadPoPdf(client, poCode, buttonEl) {
       { method: "GET" }
     );
     if (error || !(data instanceof Blob)) {
-      alert(`Couldn't fetch the PO PDF: ${error?.message || "unexpected response from server"}`);
+      // supabase-js's error.message is a generic "non-2xx status code" --
+      // the actual reason is in the response body the function returned.
+      let detail = error?.message || "unexpected response from server";
+      if (error?.context?.json) {
+        try {
+          const body = await error.context.json();
+          if (body?.error) detail = body.error;
+        } catch { /* body wasn't JSON -- keep the generic message */ }
+      }
+      alert(`Couldn't fetch the PO PDF: ${detail}`);
       return;
     }
     const blobUrl = URL.createObjectURL(data);

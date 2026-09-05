@@ -42,29 +42,58 @@ const CORS_HEADERS = {
 // of the reported 5-10s) — this skips that round-trip whenever the cache
 // is still fresh, refreshing it a couple of minutes before it would expire.
 let cachedUniwareToken: { token: string; expiresAt: number } | null = null;
+// Several downloads clicked close together can land on the same warm
+// instance concurrently. Without this, each one would see the cache as
+// empty/expired at the same time and fire its own simultaneous password-
+// grant request -- suspected cause of the intermittent 502s seen when
+// clicking the button a few times in quick succession. This makes every
+// concurrent caller await the SAME in-flight fetch instead of racing.
+let inFlightTokenFetch: Promise<string> | null = null;
 
 async function getUniwareToken(): Promise<string> {
   if (cachedUniwareToken && Date.now() < cachedUniwareToken.expiresAt) {
     return cachedUniwareToken.token;
   }
-  const tokenResp = await fetch(
-    `${UNIWARE_BASE_URL}/oauth/token?` + new URLSearchParams({
-      grant_type: "password",
-      client_id: "my-trusted-client",
-      username: UNIWARE_USERNAME,
-      password: UNIWARE_PASSWORD,
-    }),
-  );
-  const tokenData = await tokenResp.json();
-  if (!tokenData.access_token) {
-    throw new Error("Failed to authenticate with Uniware");
+  if (inFlightTokenFetch) {
+    return inFlightTokenFetch;
   }
-  const expiresInMs = (Number(tokenData.expires_in) || 300) * 1000;
-  cachedUniwareToken = {
-    token: tokenData.access_token,
-    expiresAt: Date.now() + expiresInMs - 120_000, // refresh 2 min early
-  };
-  return cachedUniwareToken.token;
+  inFlightTokenFetch = (async () => {
+    try {
+      const tokenResp = await fetch(
+        `${UNIWARE_BASE_URL}/oauth/token?` + new URLSearchParams({
+          grant_type: "password",
+          client_id: "my-trusted-client",
+          username: UNIWARE_USERNAME,
+          password: UNIWARE_PASSWORD,
+        }),
+      );
+      const rawBody = await tokenResp.text();
+      if (!tokenResp.ok) {
+        console.error(`Uniware oauth/token HTTP ${tokenResp.status}: ${rawBody.slice(0, 500)}`);
+        throw new Error("Failed to authenticate with Uniware");
+      }
+      let tokenData: { access_token?: string; expires_in?: number };
+      try {
+        tokenData = JSON.parse(rawBody);
+      } catch {
+        console.error(`Uniware oauth/token returned non-JSON: ${rawBody.slice(0, 500)}`);
+        throw new Error("Failed to authenticate with Uniware");
+      }
+      if (!tokenData.access_token) {
+        console.error(`Uniware oauth/token had no access_token: ${rawBody.slice(0, 500)}`);
+        throw new Error("Failed to authenticate with Uniware");
+      }
+      const expiresInMs = (Number(tokenData.expires_in) || 300) * 1000;
+      cachedUniwareToken = {
+        token: tokenData.access_token,
+        expiresAt: Date.now() + expiresInMs - 120_000, // refresh 2 min early
+      };
+      return cachedUniwareToken.token;
+    } finally {
+      inFlightTokenFetch = null;
+    }
+  })();
+  return inFlightTokenFetch;
 }
 
 Deno.serve(async (req) => {
@@ -116,8 +145,13 @@ Deno.serve(async (req) => {
       { headers: { Authorization: `bearer ${uniwareToken}` } },
     );
 
-    if (!pdfResp.ok || !(pdfResp.headers.get("Content-Type") || "").includes("pdf")) {
-      return json({ error: "Uniware did not return a PDF for this PO" }, 502);
+    const pdfContentType = pdfResp.headers.get("Content-Type") || "";
+    if (!pdfResp.ok || !pdfContentType.includes("pdf")) {
+      const bodySnippet = await pdfResp.text().catch(() => "");
+      console.error(
+        `Uniware po/show HTTP ${pdfResp.status} content-type=${pdfContentType} for ${poCode}: ${bodySnippet.slice(0, 500)}`,
+      );
+      return json({ error: `Uniware did not return a PDF for this PO (HTTP ${pdfResp.status})` }, 502);
     }
 
     const pdfBytes = await pdfResp.arrayBuffer();
