@@ -26,6 +26,11 @@ async function handleFileChosen(e) {
   if (!file) return;
   errorMsg.value = "";
 
+  if (file.type !== "application/pdf") {
+    errorMsg.value = `"${file.name}" isn't a PDF -- only PDF invoice copies can be uploaded.`;
+    return;
+  }
+
   if (file.size > MAX_BYTES) {
     errorMsg.value = `"${file.name}" is larger than 15 MB -- please compress it or split the invoice into parts.`;
     return;
@@ -53,8 +58,8 @@ function fmtSize(bytes) {
     <div class="invoice-uploads-head">
       <h4>Invoice copies</h4>
       <label v-if="allowUpload" class="link-btn-inline invoice-upload-btn">
-        {{ isUploading ? "Uploading…" : "+ Upload invoice" }}
-        <input type="file" accept=".pdf,.jpg,.jpeg,.png,.webp" :disabled="isUploading" hidden @change="handleFileChosen">
+        {{ isUploading ? "Uploading…" : "+ Upload invoice (PDF)" }}
+        <input type="file" accept="application/pdf,.pdf" :disabled="isUploading" hidden @change="handleFileChosen">
       </label>
     </div>
 
@@ -62,7 +67,7 @@ function fmtSize(bytes) {
 
     <div v-if="isLoading && !rows.length" class="empty-state">Loading…</div>
     <div v-else-if="!rows.length" class="empty-state">
-      {{ allowUpload ? "No invoice copies uploaded yet -- use the button above once you've dispatched against this PO." : "Vendor hasn't uploaded any invoice copies yet." }}
+      {{ allowUpload ? "No invoice copies uploaded yet -- use the button above once you've dispatched against this PO (PDF only)." : "Vendor hasn't uploaded any invoice copies yet." }}
     </div>
     <ul v-else class="invoice-upload-list">
       <li v-for="row in rows" :key="row.id">

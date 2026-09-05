@@ -277,15 +277,15 @@ create policy po_invoice_uploads_delete on public.po_invoice_uploads
   using (uploaded_by = auth.uid() or public.is_admin());
 
 -- ---------------------------------------------------------------------
--- Storage bucket "po-invoices" — private (not public); every read/write
--- goes through the RLS policies below, keyed off the path's first
--- folder segment (the vendor_code). Safe to re-run: on conflict updates
--- the size/type limits in place rather than erroring.
+-- Storage bucket "po-invoices" — private (not public), PDF-only; every
+-- read/write goes through the RLS policies below, keyed off the path's
+-- first folder segment (the vendor_code). Safe to re-run: on conflict
+-- updates the size/type limits in place rather than erroring.
 -- ---------------------------------------------------------------------
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values (
   'po-invoices', 'po-invoices', false, 15728640,
-  array['application/pdf', 'image/jpeg', 'image/png', 'image/webp']
+  array['application/pdf']
 )
 on conflict (id) do update set
   public = excluded.public,
