@@ -96,7 +96,7 @@ const statusPills = computed(() => {
           <th v-if="vendorOptions">Vendor</th>
           <th>Facility</th><th>PO code</th><th>Status</th>
           <th class="num">Qty ordered</th><th class="num">Received</th><th class="num">PO value</th>
-          <th>GRN / invoice</th><th>Documents</th>
+          <th>GRN / invoice</th><th>PO Copy</th><th>Invoice Upload</th>
         </tr>
         <tr class="filter-row">
           <td v-if="vendorOptions">
@@ -123,11 +123,12 @@ const statusPills = computed(() => {
           <td><input v-model="filters.poValue" type="text" placeholder="Filter…"></td>
           <td><input v-model="filters.grn" type="text" placeholder="Filter…"></td>
           <td></td>
+          <td></td>
         </tr>
       </thead>
       <tbody>
         <tr v-if="!rows.length">
-          <td :colspan="vendorOptions ? 9 : 8" class="empty-state">No purchase orders match these filters.</td>
+          <td :colspan="vendorOptions ? 10 : 9" class="empty-state">No purchase orders match these filters.</td>
         </tr>
         <tr v-for="p in rows" :key="p.po_code">
           <td v-if="vendorOptions">{{ vendorLabel(p.vendor_code, p.vendor_name) }}</td>
@@ -148,15 +149,15 @@ const statusPills = computed(() => {
             </template>
           </td>
           <td>
-            <div class="po-doc-actions">
-              <button class="link-btn-inline" :disabled="downloadingCodes.has(p.po_code)" @click="downloadPoPdf(p.po_code)">
-                {{ downloadingCodes.has(p.po_code) ? "Fetching…" : "Download PDF" }}
-              </button>
-              <label v-if="allowInvoiceUpload" class="link-btn-inline invoice-upload-btn">
-                {{ isUploadingRow(p.po_code) ? "Uploading…" : "+ Add invoice" }}
-                <input type="file" accept="application/pdf,.pdf" hidden :disabled="isUploadingRow(p.po_code)" @change="handleRowInvoiceChosen($event, p)">
-              </label>
-            </div>
+            <button class="link-btn-inline po-copy-btn" :disabled="downloadingCodes.has(p.po_code)" @click="downloadPoPdf(p.po_code)">
+              {{ downloadingCodes.has(p.po_code) ? "Fetching…" : "Download PDF" }}
+            </button>
+          </td>
+          <td>
+            <label v-if="allowInvoiceUpload" class="link-btn-inline invoice-upload-btn">
+              {{ isUploadingRow(p.po_code) ? "Uploading…" : "+ Add invoice" }}
+              <input type="file" accept="application/pdf,.pdf" hidden :disabled="isUploadingRow(p.po_code)" @change="handleRowInvoiceChosen($event, p)">
+            </label>
             <div v-if="rowUploadErrors[p.po_code]" class="form-error po-doc-error">{{ rowUploadErrors[p.po_code] }}</div>
           </td>
         </tr>
