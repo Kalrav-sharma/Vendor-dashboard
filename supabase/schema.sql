@@ -224,6 +224,105 @@ create policy grn_items_select on public.grn_items
   );
 
 -- ---------------------------------------------------------------------
+-- po_invoice_uploads — vendor-uploaded invoice copy files (dispatch
+-- documentation), distinct from grns.vendor_invoice_number (a Uniware
+-- GRN's own invoice number/date, separate from any file). Multiple rows
+-- per PO are expected -- dispatches happen in batches, one invoice each.
+-- The actual file bytes live in Storage bucket "po-invoices"; this table
+-- is just the metadata + access-control record for those files.
+-- ---------------------------------------------------------------------
+create table if not exists public.po_invoice_uploads (
+  id bigint generated always as identity primary key,
+  po_code text not null references public.purchase_orders(po_code) on delete cascade,
+  vendor_code text not null,  -- denormalized from the parent PO, for a join-free RLS check
+  storage_path text not null unique,  -- "<vendor_code>/<po_code>/<timestamp>-<filename>" in po-invoices
+  file_name text not null,
+  file_size bigint,
+  uploaded_by uuid references auth.users(id) on delete set null,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists po_invoice_uploads_po_code_idx on public.po_invoice_uploads(po_code);
+create index if not exists po_invoice_uploads_vendor_code_idx on public.po_invoice_uploads(vendor_code);
+
+alter table public.po_invoice_uploads enable row level security;
+
+drop policy if exists po_invoice_uploads_select on public.po_invoice_uploads;
+create policy po_invoice_uploads_select on public.po_invoice_uploads
+  for select
+  using (
+    public.is_admin()
+    or vendor_code = (select p.vendor_code from public.profiles p where p.id = auth.uid())
+  );
+
+-- A vendor can only insert rows tagged with their own vendor_code, and
+-- only against a PO that actually belongs to that same vendor_code --
+-- so this can't be used to attach an invoice file to someone else's PO.
+drop policy if exists po_invoice_uploads_insert on public.po_invoice_uploads;
+create policy po_invoice_uploads_insert on public.po_invoice_uploads
+  for insert
+  with check (
+    vendor_code = (select p.vendor_code from public.profiles p where p.id = auth.uid())
+    and exists (
+      select 1 from public.purchase_orders po
+      where po.po_code = po_invoice_uploads.po_code and po.vendor_code = po_invoice_uploads.vendor_code
+    )
+  );
+
+-- Either the vendor who uploaded it (fixing a mistake) or an admin
+-- (cleaning up a wrong/duplicate file) can remove a row.
+drop policy if exists po_invoice_uploads_delete on public.po_invoice_uploads;
+create policy po_invoice_uploads_delete on public.po_invoice_uploads
+  for delete
+  using (uploaded_by = auth.uid() or public.is_admin());
+
+-- ---------------------------------------------------------------------
+-- Storage bucket "po-invoices" — private (not public); every read/write
+-- goes through the RLS policies below, keyed off the path's first
+-- folder segment (the vendor_code). Safe to re-run: on conflict updates
+-- the size/type limits in place rather than erroring.
+-- ---------------------------------------------------------------------
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values (
+  'po-invoices', 'po-invoices', false, 15728640,
+  array['application/pdf', 'image/jpeg', 'image/png', 'image/webp']
+)
+on conflict (id) do update set
+  public = excluded.public,
+  file_size_limit = excluded.file_size_limit,
+  allowed_mime_types = excluded.allowed_mime_types;
+
+drop policy if exists po_invoices_insert on storage.objects;
+create policy po_invoices_insert on storage.objects
+  for insert
+  with check (
+    bucket_id = 'po-invoices'
+    and (storage.foldername(name))[1] = (select p.vendor_code from public.profiles p where p.id = auth.uid())
+  );
+
+drop policy if exists po_invoices_select on storage.objects;
+create policy po_invoices_select on storage.objects
+  for select
+  using (
+    bucket_id = 'po-invoices'
+    and (
+      public.is_admin()
+      or (storage.foldername(name))[1] = (select p.vendor_code from public.profiles p where p.id = auth.uid())
+    )
+  );
+
+drop policy if exists po_invoices_delete on storage.objects;
+create policy po_invoices_delete on storage.objects
+  for delete
+  using (
+    bucket_id = 'po-invoices'
+    and (
+      public.is_admin()
+      or (storage.foldername(name))[1] = (select p.vendor_code from public.profiles p where p.id = auth.uid())
+    )
+  );
+
+-- ---------------------------------------------------------------------
 -- Bootstrap: make yourself the first admin.
 --
 -- 1. In Supabase Dashboard → Authentication → Users → Add user, create your

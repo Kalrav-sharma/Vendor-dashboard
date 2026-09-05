@@ -1,0 +1,102 @@
+// Vendor-uploaded invoice copy files for a PO (dispatch documentation --
+// distinct from a GRN's own vendor_invoice_number field). Multiple files
+// per PO are expected since dispatches happen in batches.
+//
+// Files live in the private "po-invoices" Storage bucket, path
+// "<vendor_code>/<po_code>/<timestamp>-<filename>"; po_invoice_uploads
+// is just the metadata row. Both are gated by the RLS policies in
+// schema.sql, so this composable enforces nothing itself -- a vendor
+// physically cannot upload/see/delete another vendor's files no matter
+// what this code does.
+//
+// Module-level singleton (like usePdfDownload) so upload/delete
+// in-flight state survives independently of which modal instance is
+// currently mounted, keyed by po_code (and by upload row id for deletes).
+import { reactive } from "vue";
+import { supabase } from "../supabaseClient.js";
+
+const BUCKET = "po-invoices";
+
+const uploadsByPo = reactive({}); // po_code -> array of rows
+const loadingPo = reactive(new Set()); // po_codes currently being (re)fetched
+const workingIds = reactive(new Set()); // po_code (as `upload:<po_code>`) or row id currently mid-action
+
+export function useInvoiceUploads() {
+  async function fetchInvoices(poCode) {
+    loadingPo.add(poCode);
+    try {
+      const { data, error } = await supabase
+        .from("po_invoice_uploads")
+        .select("*")
+        .eq("po_code", poCode)
+        .order("created_at", { ascending: false });
+      if (!error) uploadsByPo[poCode] = data;
+      return { data, error };
+    } finally {
+      loadingPo.delete(poCode);
+    }
+  }
+
+  async function uploadInvoice(poCode, vendorCode, file) {
+    const key = `upload:${poCode}`;
+    workingIds.add(key);
+    try {
+      const safeName = file.name.replace(/[^A-Za-z0-9_.-]/g, "_");
+      const path = `${vendorCode}/${poCode}/${Date.now()}-${safeName}`;
+
+      const { error: uploadErr } = await supabase.storage.from(BUCKET).upload(path, file);
+      if (uploadErr) return { ok: false, error: uploadErr.message };
+
+      const { error: insertErr } = await supabase.from("po_invoice_uploads").insert({
+        po_code: poCode,
+        vendor_code: vendorCode,
+        storage_path: path,
+        file_name: file.name,
+        file_size: file.size,
+      });
+      if (insertErr) {
+        // Don't leave an orphaned file with no metadata row.
+        await supabase.storage.from(BUCKET).remove([path]);
+        return { ok: false, error: insertErr.message };
+      }
+
+      await fetchInvoices(poCode);
+      return { ok: true };
+    } finally {
+      workingIds.delete(key);
+    }
+  }
+
+  async function deleteInvoice(row) {
+    workingIds.add(row.id);
+    try {
+      await supabase.storage.from(BUCKET).remove([row.storage_path]);
+      const { error } = await supabase.from("po_invoice_uploads").delete().eq("id", row.id);
+      if (error) return { ok: false, error: error.message };
+      await fetchInvoices(row.po_code);
+      return { ok: true };
+    } finally {
+      workingIds.delete(row.id);
+    }
+  }
+
+  // Bucket is private, so viewing requires a short-lived signed URL --
+  // opened via a real anchor click (not window.open) so it isn't treated
+  // as an unsolicited popup.
+  async function viewInvoice(row) {
+    const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(row.storage_path, 120);
+    if (error || !data) {
+      alert(`Couldn't open file: ${error?.message || "unknown error"}`);
+      return;
+    }
+    const a = document.createElement("a");
+    a.href = data.signedUrl;
+    a.target = "_blank";
+    a.rel = "noopener";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+
+  return { uploadsByPo, loadingPo, workingIds, fetchInvoices, uploadInvoice, deleteInvoice, viewInvoice };
+}

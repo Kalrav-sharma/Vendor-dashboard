@@ -1,6 +1,7 @@
 <script setup>
 import { computed } from "vue";
 import StatusChip from "./StatusChip.vue";
+import InvoiceUploads from "./InvoiceUploads.vue";
 import { fmtNum, fmtMoney, fmtDate } from "../format.js";
 import { usePdfDownload } from "../composables/usePdfDownload.js";
 
@@ -9,6 +10,7 @@ const props = defineProps({
   items: { type: Array, default: () => [] }, // each item pre-augmented with `invoiceText`
   invoices: { type: Array, default: () => [] }, // PO-level invoice numbers
   vendorLabelText: { type: String, default: null }, // null hides the Vendor row (vendor.html)
+  allowInvoiceUpload: { type: Boolean, default: false }, // true only from vendor.html
 });
 
 const { downloadingCodes, downloadPoPdf } = usePdfDownload();
@@ -52,4 +54,6 @@ const isDownloading = computed(() => downloadingCodes.has(props.po.po_code));
       </tbody>
     </table>
   </div></div>
+
+  <InvoiceUploads :po-code="po.po_code" :vendor-code="po.vendor_code" :allow-upload="allowInvoiceUpload" />
 </template>

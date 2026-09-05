@@ -33,7 +33,7 @@ function openPoDetailModal(poCode) {
   const items = (poItemsByPo.value[poCode] || []).map(item => ({ ...item, invoiceText: invoicesForItem(item) }));
   const grns = grnsByPo.value[poCode] || [];
   const invoices = [...new Set(grns.map(g => g.vendor_invoice_number).filter(Boolean))];
-  openModal("Purchase Order", PoDetailModal, { po, items, invoices }, poCode);
+  openModal("Purchase Order", PoDetailModal, { po, items, invoices, allowInvoiceUpload: true }, poCode);
 }
 
 function openSkuDetailModal(key) {
