@@ -34,6 +34,39 @@ const CORS_HEADERS = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+// Cached across invocations for as long as this function instance stays
+// warm (module-level state persists between calls on the same instance,
+// same as any long-lived process — it just isn't guaranteed to survive a
+// cold start). Measured live: Uniware's token is valid for ~8 hours, so
+// re-fetching it on every single download was pure wasted latency (~0.2-1.3s
+// of the reported 5-10s) — this skips that round-trip whenever the cache
+// is still fresh, refreshing it a couple of minutes before it would expire.
+let cachedUniwareToken: { token: string; expiresAt: number } | null = null;
+
+async function getUniwareToken(): Promise<string> {
+  if (cachedUniwareToken && Date.now() < cachedUniwareToken.expiresAt) {
+    return cachedUniwareToken.token;
+  }
+  const tokenResp = await fetch(
+    `${UNIWARE_BASE_URL}/oauth/token?` + new URLSearchParams({
+      grant_type: "password",
+      client_id: "my-trusted-client",
+      username: UNIWARE_USERNAME,
+      password: UNIWARE_PASSWORD,
+    }),
+  );
+  const tokenData = await tokenResp.json();
+  if (!tokenData.access_token) {
+    throw new Error("Failed to authenticate with Uniware");
+  }
+  const expiresInMs = (Number(tokenData.expires_in) || 300) * 1000;
+  cachedUniwareToken = {
+    token: tokenData.access_token,
+    expiresAt: Date.now() + expiresInMs - 120_000, // refresh 2 min early
+  };
+  return cachedUniwareToken.token;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: CORS_HEADERS });
@@ -71,22 +104,16 @@ Deno.serve(async (req) => {
       return json({ error: "Server misconfigured: missing Uniware credentials" }, 500);
     }
 
-    const tokenResp = await fetch(
-      `${UNIWARE_BASE_URL}/oauth/token?` + new URLSearchParams({
-        grant_type: "password",
-        client_id: "my-trusted-client",
-        username: UNIWARE_USERNAME,
-        password: UNIWARE_PASSWORD,
-      }),
-    );
-    const tokenData = await tokenResp.json();
-    if (!tokenData.access_token) {
+    let uniwareToken: string;
+    try {
+      uniwareToken = await getUniwareToken();
+    } catch {
       return json({ error: "Failed to authenticate with Uniware" }, 502);
     }
 
     const pdfResp = await fetch(
       `${UNIWARE_BASE_URL}/po/show?` + new URLSearchParams({ legacy: "1", code: poCode }),
-      { headers: { Authorization: `bearer ${tokenData.access_token}` } },
+      { headers: { Authorization: `bearer ${uniwareToken}` } },
     );
 
     if (!pdfResp.ok || !(pdfResp.headers.get("Content-Type") || "").includes("pdf")) {
