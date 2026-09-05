@@ -13,10 +13,12 @@ import PoDetailModal from "./components/PoDetailModal.vue";
 import SkuDetailModal from "./components/SkuDetailModal.vue";
 import SetNewPasswordForm from "./components/SetNewPasswordForm.vue";
 import BrandLogo from "./components/BrandLogo.vue";
+import ProfileMenu from "./components/ProfileMenu.vue";
 
 const ready = ref(false);
 const mustChangePassword = ref(false); // gates the whole dashboard until cleared
 const myDisplayName = ref("Vendor"); // recorded on any invoice this login uploads
+const myEmail = ref("");
 const activeNav = ref("po-tracking");
 const pageTitle = computed(() => activeNav.value === "po-tracking" ? "PO Tracking" : "SKU Level Data");
 
@@ -56,6 +58,7 @@ onMounted(async () => {
     return;
   }
   myDisplayName.value = ctx.profile.vendor_name || ctx.profile.email || "Vendor";
+  myEmail.value = ctx.profile.email || "";
   ready.value = true;
 });
 
@@ -66,6 +69,7 @@ async function handlePasswordChanged() {
   if (!ctx) return;
   mustChangePassword.value = false;
   myDisplayName.value = ctx.profile.vendor_name || ctx.profile.email || "Vendor";
+  myEmail.value = ctx.profile.email || "";
   ready.value = true;
 }
 
@@ -100,7 +104,7 @@ async function signOut() {
             <div class="scope">{{ activeNav === 'po-tracking' ? scopeLine : "SKUs with at least one open purchase order not yet fully supplied, highest pending quantity first. Click a SKU for the PO-level breakdown." }}</div>
           </div>
           <div class="who">
-            <button class="link-btn" @click="signOut">Sign out</button>
+            <ProfileMenu :display-name="myDisplayName" :email="myEmail" :on-sign-out="signOut" />
           </div>
         </header>
 
