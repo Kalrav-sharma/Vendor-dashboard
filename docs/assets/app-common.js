@@ -91,6 +91,34 @@ async function downloadPoPdf(client, poCode, buttonEl) {
   }
 }
 
+// --- Shared modal (PO detail popup, SKU detail popup) ---
+function showModal(titleHtml, bodyHtml) {
+  closeModal();
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.id = "app-modal-overlay";
+  overlay.innerHTML = `
+    <div class="modal-box">
+      <button class="modal-close-btn" onclick="closeModal()" aria-label="Close">&times;</button>
+      <div class="modal-title">${titleHtml}</div>
+      <div class="modal-body">${bodyHtml}</div>
+    </div>
+  `;
+  overlay.addEventListener("click", e => { if (e.target === overlay) closeModal(); });
+  document.body.appendChild(overlay);
+  document.addEventListener("keydown", modalEscHandler);
+}
+
+function closeModal() {
+  const el = document.getElementById("app-modal-overlay");
+  if (el) el.remove();
+  document.removeEventListener("keydown", modalEscHandler);
+}
+
+function modalEscHandler(e) {
+  if (e.key === "Escape") closeModal();
+}
+
 // Wires up a left-sidebar nav: sections = [{ navId, viewId }, ...].
 // Clicking a nav button shows its view, hides the others, marks it active.
 // Returns a `showSection(navId, onShow)` function so pages can switch
