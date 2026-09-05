@@ -27,7 +27,6 @@
             <div class="scope" id="scope-line">Loading…</div>
           </div>
           <div class="who">
-            <span id="who-line"></span><br>
             <button class="link-btn" id="signout-btn">Sign out</button>
           </div>
         </header>
@@ -88,7 +87,7 @@
     currentPos = visiblePos(pos);
 
     document.getElementById("scope-line").textContent =
-      `${escapeHtml(profile.vendor_name || profile.vendor_code)} · ${currentPos.length} purchase order${currentPos.length === 1 ? "" : "s"} on file`;
+      `${currentPos.length} purchase order${currentPos.length === 1 ? "" : "s"} on file`;
 
     grnsByPo = {};
     grnByCode = {};
@@ -124,7 +123,6 @@
     client = ctx.client;
     profile = ctx.profile;
 
-    document.getElementById("who-line").innerHTML = `<b>${escapeHtml(profile.vendor_name || profile.vendor_code)}</b>`;
     document.getElementById("signout-btn").addEventListener("click", async () => {
       await client.auth.signOut();
       window.location.href = "login.html";
