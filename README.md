@@ -18,15 +18,15 @@ to one vendor (Lexcru Water Tech, Uniware vendor code `Vendor-156`) across
 - **Supabase Edge Function** (`admin-create-vendor`) — the only place vendor
   accounts get created. Runs server-side so the highly-privileged
   `service_role` key never touches the browser.
-- **GitHub Pages** (`docs/`) — serves the static frontend: `login.html`,
-  `vendor.html` (vendor dashboard), `admin.html` (admin console). All three
-  talk to Supabase directly via `supabase-js`; RLS does the real access
-  control, not the frontend code.
-- **`frontend/`** — a Vue 3 + Vite project, mid-migration off plain
-  HTML/vanilla JS (`login.html` and `reset-password.html` are migrated so
-  far; `vendor.html`/`admin.html` are still plain HTML in `docs/`). Its
-  build output gets copied into `docs/` locally (`frontend/build-and-
-  deploy.sh`), not via a CI workflow — see `frontend/README.md` for why.
+- **GitHub Pages** (`docs/`) — serves the frontend: `index.html`,
+  `login.html`, `reset-password.html`, `vendor.html` (vendor dashboard),
+  `admin.html` (admin console). All talk to Supabase directly via
+  `supabase-js`; RLS does the real access control, not the frontend code.
+- **`frontend/`** — the actual source: a Vue 3 + Vite project (every page
+  above is built from here, migrated off plain HTML/vanilla JS as the app
+  grew more complex). Its build output gets copied into `docs/` locally
+  (`frontend/build-and-deploy.sh`), not via a CI workflow — see
+  `frontend/README.md` for why, and for the full structure.
 
 ## One-time setup
 

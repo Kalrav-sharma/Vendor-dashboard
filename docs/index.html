@@ -1,23 +1,14 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Vendor Portal</title>
-<link rel="stylesheet" href="assets/styles.css">
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
-<script src="assets/supabase-client.js"></script>
+  <script type="module" crossorigin src="/Vendor-dashboard/vite-assets/index-BckdllBf.js"></script>
+  <link rel="modulepreload" crossorigin href="/Vendor-dashboard/vite-assets/supabaseClient-BTMAcVU-.js">
+  <link rel="stylesheet" crossorigin href="/Vendor-dashboard/vite-assets/supabaseClient-vBaebQDi.css">
 </head>
 <body>
-  <div class="loading">Loading…</div>
-<script>
-  (async () => {
-    const client = getSupabaseClient();
-    const { data: { session } } = await client.auth.getSession();
-    if (!session) { window.location.href = "login.html"; return; }
-    const { data: profile } = await client.from("profiles").select("role").eq("id", session.user.id).single();
-    window.location.href = profile?.role === "admin" ? "admin.html" : "vendor.html";
-  })();
-</script>
+<div class="loading">Loading…</div>
 </body>
 </html>

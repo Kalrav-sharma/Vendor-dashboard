@@ -18,10 +18,10 @@ npm run build
 
 # Remove only what a previous run of this script put there, so a renamed/
 # removed page or a changed asset hash doesn't leave stale files behind.
-rm -f "$DOCS_DIR/login.html" "$DOCS_DIR/reset-password.html"
+rm -f "$DOCS_DIR/index.html" "$DOCS_DIR/login.html" "$DOCS_DIR/reset-password.html" "$DOCS_DIR/vendor.html" "$DOCS_DIR/admin.html"
 rm -rf "$DOCS_DIR/vite-assets"
 
-cp dist/login.html dist/reset-password.html "$DOCS_DIR/"
+cp dist/index.html dist/login.html dist/reset-password.html dist/vendor.html dist/admin.html "$DOCS_DIR/"
 cp -r dist/vite-assets "$DOCS_DIR/vite-assets"
 
-echo "Deployed frontend/dist/ -> docs/ (login.html, reset-password.html, vite-assets/)"
+echo "Deployed frontend/dist/ -> docs/ (index.html, login.html, reset-password.html, vendor.html, admin.html, vite-assets/)"

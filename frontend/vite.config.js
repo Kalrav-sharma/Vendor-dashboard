@@ -25,8 +25,11 @@ export default defineConfig({
     assetsDir: 'vite-assets',
     rollupOptions: {
       input: {
+        index: resolve(root, 'index.html'),
         login: resolve(root, 'login.html'),
         'reset-password': resolve(root, 'reset-password.html'),
+        vendor: resolve(root, 'vendor.html'),
+        admin: resolve(root, 'admin.html'),
       },
     },
   },
