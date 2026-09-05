@@ -41,12 +41,14 @@ Cost-control design (this runs every 5 minutes, forever):
          by that wider search are still skipped (see point 3), so this
          only costs extra work proportional to the new vendor's own
          history, not a re-fetch of everyone else's settled POs.
-      3. Terminal POs already in Supabase WITH their line items on file are
-         left untouched — no re-fetch, no re-write, even if re-discovered
-         by a backfill-widened search. A terminal PO recorded with zero
-         line items (a partial Uniware response the one time it was
-         fetched) is NOT considered settled and keeps getting retried
-         every run until a real item list comes back — see is_settled().
+      3. Terminal POs already in Supabase WITH their line items actually on
+         file in po_items are left untouched — no re-fetch, no re-write,
+         even if re-discovered by a backfill-widened search. A terminal PO
+         with zero real po_items rows (a partial Uniware response, or an
+         upsert that got silently dropped by a duplicate-SKU conflict
+         elsewhere in the same batch — see merge_duplicate_item_rows()) is
+         NOT considered settled and keeps getting retried every run until
+         real item rows are on file — see is_settled().
   - GRNs are looked up only for POs that got a fresh detail fetch this run
     and have inflowReceiptsCount > 0 — same discipline as PO detail.
 """
@@ -306,34 +308,83 @@ def fetch_vendor_map(session, supabase_url, key):
 
 
 def fetch_existing_po_state(session, supabase_url, key):
-    """Returns {po_code: {"facility": ..., "status": ..., "vendor_code": ...,
-    "num_items": ...}} across ALL vendors — not vendor-scoped, since one
-    facility search covers every vendor's POs anyway (Uniware's search
-    endpoint isn't vendor-filterable). num_items is carried along so a
-    terminal PO that was written with zero line items (a partial/flaky
-    Uniware response on the run that first fetched it) can be recognized
-    as still-incomplete rather than "settled" -- see is_settled() below."""
+    """Returns {po_code: {"facility": ..., "status": ..., "vendor_code": ...}}
+    across ALL vendors — not vendor-scoped, since one facility search covers
+    every vendor's POs anyway (Uniware's search endpoint isn't vendor-filterable)."""
     r = session.get(
         f"{supabase_url}/rest/v1/purchase_orders",
         headers=supabase_headers(key),
-        params={"select": "po_code,facility,status,vendor_code,num_items"},
+        params={"select": "po_code,facility,status,vendor_code"},
         timeout=REQUEST_TIMEOUT,
     )
     r.raise_for_status()
     return {row["po_code"]: row for row in r.json()}
 
 
-def is_settled(row):
+def fetch_po_item_counts(session, supabase_url, key):
+    """Returns {po_code: count} of rows actually on file in po_items.
+
+    Deliberately re-derived from po_items itself rather than trusted from
+    purchase_orders.num_items (a denormalized copy written in the same
+    build_po_row() call as the item rows) -- the two can desync. Case in
+    point: PGNU/PO2627/0404 had num_items=1 (correct, per Uniware) but
+    zero actual po_items rows, because the SHARED upsert_rows() call
+    covering every PO refreshed that run failed outright (Postgres
+    "ON CONFLICT DO UPDATE command cannot affect row a second time",
+    caused by some OTHER PO in that same run listing a duplicate SKU --
+    see merge_duplicate_item_rows()), silently dropping every PO's items
+    for that entire run while purchase_orders itself still wrote fine.
+    Trusting the real table instead of the copy makes is_settled() immune
+    to that class of bug, not just the one instance of it we found."""
+    r = session.get(
+        f"{supabase_url}/rest/v1/po_items",
+        headers=supabase_headers(key),
+        params={"select": "po_code"},
+        timeout=REQUEST_TIMEOUT,
+    )
+    r.raise_for_status()
+    counts = {}
+    for row in r.json():
+        counts[row["po_code"]] = counts.get(row["po_code"], 0) + 1
+    return counts
+
+
+def is_settled(row, item_counts):
     """A PO only counts as "done, never needs re-fetching" once it's both
-    terminal AND actually has its line items on file. Without the second
-    half of this check, a PO whose one-and-only detail fetch happened to
-    come back with an empty/missing purchaseOrderItems list (a transient
-    partial response from Uniware -- observed in practice, e.g.
-    PGNU/PO2627/0404) would get permanently stuck with "No line items on
-    file", since a terminal status alone used to be enough to skip it on
-    every future run forever. Now it keeps getting retried every run
-    until a real item list comes back."""
-    return row.get("status") in TERMINAL_STATUSES and (row.get("num_items") or 0) > 0
+    terminal AND actually has its line items on file (per the real
+    po_items table, not the denormalized num_items copy -- see
+    fetch_po_item_counts()). Without the second half of this check, a PO
+    whose po_items rows never made it into the database would get
+    permanently stuck with "No line items on file", since a terminal
+    status alone used to be enough to skip it on every future run
+    forever. Now it keeps getting retried every run until real item rows
+    are on file."""
+    return row.get("status") in TERMINAL_STATUSES and item_counts.get(row["po_code"], 0) > 0
+
+
+def merge_duplicate_item_rows(rows, key_fields, sum_fields):
+    """Collapses rows sharing the same (key_fields) into one, summing
+    sum_fields and keeping the first occurrence's other fields.
+
+    Uniware can list the same SKU as two separate line items on one
+    PO/GRN (e.g. a price revision or partial split). Left as-is, two
+    rows sharing the same upsert conflict target in the SAME batch make
+    Postgres reject the whole upsert with "ON CONFLICT DO UPDATE command
+    cannot affect row a second time" -- which silently drops every OTHER
+    PO/GRN's items in that run too, since they all share one upsert call
+    (this is what happened to PGNU/PO2627/0404: some other PO in the same
+    run had the duplicate, and its failure took 0404's own item row down
+    with it). Merging before upsert makes this impossible regardless of
+    which PO/GRN the duplicate came from."""
+    merged = {}
+    for row in rows:
+        key = tuple(row.get(f) for f in key_fields)
+        if key not in merged:
+            merged[key] = dict(row)
+        else:
+            for f in sum_fields:
+                merged[key][f] = (merged[key].get(f) or 0) + (row.get(f) or 0)
+    return list(merged.values())
 
 
 def upsert_rows(session, supabase_url, key, table, on_conflict, rows):
@@ -370,6 +421,7 @@ def main():
 
     token = get_uniware_token()
     existing = fetch_existing_po_state(session, supabase_url, supabase_key)
+    item_counts = fetch_po_item_counts(session, supabase_url, supabase_key)
     now_utc = datetime.now(timezone.utc)
 
     # A vendor with zero rows synced so far has never been backfilled --
@@ -395,12 +447,12 @@ def main():
             cursor = chunk_end
         for code in found:
             prior = existing.get(code)
-            if prior and is_settled(prior):
+            if prior and is_settled(prior, item_counts):
                 continue  # already settled, don't re-fetch just because a backfill search re-surfaced it
             codes_to_refresh[code] = facility
 
     for code, row in existing.items():
-        if not is_settled(row):
+        if not is_settled(row, item_counts):
             codes_to_refresh.setdefault(code, row["facility"])
 
     # 2. Fetch fresh PO detail for all candidates, in parallel. Anything
@@ -426,6 +478,11 @@ def main():
                 if inflow_count > 0:
                     inflow_counts[code] = (facility, vendor_code)
 
+    po_item_rows = merge_duplicate_item_rows(
+        po_item_rows, key_fields=["po_code", "item_sku"],
+        sum_fields=["quantity", "received_quantity", "pending_quantity", "rejected_quantity", "subtotal", "total"],
+    )
+
     upsert_rows(session, supabase_url, supabase_key, "purchase_orders", "po_code", po_rows)
     upsert_rows(session, supabase_url, supabase_key, "po_items", "po_code,item_sku", po_item_rows)
 
@@ -441,6 +498,10 @@ def main():
             headers, items = fut.result()
             grn_rows.extend(headers)
             grn_item_rows.extend(items)
+
+    grn_item_rows = merge_duplicate_item_rows(
+        grn_item_rows, key_fields=["grn_code", "item_sku"], sum_fields=["quantity", "rejected_quantity"],
+    )
 
     upsert_rows(session, supabase_url, supabase_key, "grns", "grn_code", grn_rows)
     upsert_rows(session, supabase_url, supabase_key, "grn_items", "grn_code,item_sku", grn_item_rows)
