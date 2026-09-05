@@ -119,10 +119,10 @@ const statusPills = computed(() => {
         <tr v-if="!rows.length">
           <td :colspan="vendorOptions ? 10 : 9" class="empty-state">No purchase orders match these filters.</td>
         </tr>
-        <tr v-for="p in rows" :key="p.po_code">
+        <tr v-for="p in rows" :key="p.po_code" class="clickable-row" @click="onOpenPo(p.po_code)">
           <td v-if="vendorOptions">{{ vendorLabel(p.vendor_code, p.vendor_name) }}</td>
           <td class="fac-code">{{ p.facility }}</td>
-          <td class="mono"><button class="link-btn-inline" @click="onOpenPo(p.po_code)">{{ p.po_code }}</button></td>
+          <td class="mono">{{ p.po_code }}</td>
           <td><StatusChip :status="p.status" /></td>
           <td class="num mono">{{ fmtNum(p.qty_ordered) }}</td>
           <td class="num mono">{{ fmtNum(p.qty_received) }}</td>
@@ -138,12 +138,15 @@ const statusPills = computed(() => {
             </template>
           </td>
           <td>
-            <button class="link-btn-inline po-copy-btn" :disabled="downloadingCodes.has(p.po_code)" @click="downloadPoPdf(p.po_code)">
+            <button
+              class="link-btn-inline po-copy-btn" :disabled="downloadingCodes.has(p.po_code)"
+              @click.stop="downloadPoPdf(p.po_code)"
+            >
               {{ downloadingCodes.has(p.po_code) ? "Fetching…" : "Download PDF" }}
             </button>
           </td>
           <td>
-            <button v-if="allowInvoiceUpload" class="link-btn-inline invoice-upload-btn" @click="openUploadModal(p)">
+            <button v-if="allowInvoiceUpload" class="link-btn-inline invoice-upload-btn" @click.stop="openUploadModal(p)">
               + Add invoice
             </button>
           </td>
