@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from "vue";
 import { useInvoiceUploads } from "../composables/useInvoiceUploads.js";
 import { fmtDate } from "../format.js";
 import InvoiceUploadModal from "./InvoiceUploadModal.vue";
+import InvoiceUploadButton from "./InvoiceUploadButton.vue";
 
 const props = defineProps({
   poCode: { type: String, required: true },
@@ -60,9 +61,7 @@ function fmtSize(bytes) {
   <div class="invoice-uploads">
     <div class="invoice-uploads-head">
       <h4>Invoice copies</h4>
-      <button v-if="allowUpload" class="link-btn-inline invoice-upload-btn" @click="uploadModalOpen = true">
-        + Upload invoice (PDF)
-      </button>
+      <InvoiceUploadButton v-if="allowUpload" :on-click="() => uploadModalOpen = true" />
     </div>
 
     <div v-if="errorMsg" class="form-error">{{ errorMsg }}</div>

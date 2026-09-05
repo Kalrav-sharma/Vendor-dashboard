@@ -3,6 +3,7 @@ import { computed, ref } from "vue";
 import StatusChip from "./StatusChip.vue";
 import InvoiceUploadModal from "./InvoiceUploadModal.vue";
 import DownloadPdfButton from "./DownloadPdfButton.vue";
+import InvoiceUploadButton from "./InvoiceUploadButton.vue";
 import { fmtNum, fmtMoney, TERMINAL_STATUSES } from "../format.js";
 
 const props = defineProps({
@@ -139,9 +140,7 @@ const statusPills = computed(() => {
             <DownloadPdfButton :po-code="p.po_code" />
           </td>
           <td class="col-tight">
-            <button v-if="allowInvoiceUpload" class="link-btn-inline invoice-upload-btn" @click.stop="openUploadModal(p)">
-              + Add invoice
-            </button>
+            <InvoiceUploadButton v-if="allowInvoiceUpload" :on-click="() => openUploadModal(p)" />
           </td>
         </tr>
       </tbody>
