@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onMounted, ref } from "vue";
-import { useInvoiceUploads } from "../composables/useInvoiceUploads.js";
+import { useInvoiceUploads, validateInvoiceFile } from "../composables/useInvoiceUploads.js";
 import { fmtDate } from "../format.js";
 
 const props = defineProps({
@@ -11,7 +11,6 @@ const props = defineProps({
 
 const { uploadsByPo, loadingPo, workingIds, fetchInvoices, uploadInvoice, deleteInvoice, viewInvoice } = useInvoiceUploads();
 
-const MAX_BYTES = 15 * 1024 * 1024;
 const errorMsg = ref("");
 
 const rows = computed(() => uploadsByPo[props.poCode] || []);
@@ -26,13 +25,9 @@ async function handleFileChosen(e) {
   if (!file) return;
   errorMsg.value = "";
 
-  if (file.type !== "application/pdf") {
-    errorMsg.value = `"${file.name}" isn't a PDF -- only PDF invoice copies can be uploaded.`;
-    return;
-  }
-
-  if (file.size > MAX_BYTES) {
-    errorMsg.value = `"${file.name}" is larger than 15 MB -- please compress it or split the invoice into parts.`;
+  const validationErr = validateInvoiceFile(file);
+  if (validationErr) {
+    errorMsg.value = validationErr;
     return;
   }
 

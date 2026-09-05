@@ -16,6 +16,20 @@ import { reactive } from "vue";
 import { supabase } from "../supabaseClient.js";
 
 const BUCKET = "po-invoices";
+export const MAX_INVOICE_BYTES = 15 * 1024 * 1024;
+
+// Shared by every place a file picker can trigger an invoice upload
+// (the PO detail modal, the PO Tracking table's row-level button) so the
+// same PDF-only / size-limit rule can't drift between them.
+export function validateInvoiceFile(file) {
+  if (file.type !== "application/pdf") {
+    return `"${file.name}" isn't a PDF -- only PDF invoice copies can be uploaded.`;
+  }
+  if (file.size > MAX_INVOICE_BYTES) {
+    return `"${file.name}" is larger than 15 MB -- please compress it or split the invoice into parts.`;
+  }
+  return null;
+}
 
 const uploadsByPo = reactive({}); // po_code -> array of rows
 const loadingPo = reactive(new Set()); // po_codes currently being (re)fetched

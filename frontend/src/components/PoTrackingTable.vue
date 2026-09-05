@@ -1,8 +1,9 @@
 <script setup>
-import { computed } from "vue";
+import { computed, reactive } from "vue";
 import StatusChip from "./StatusChip.vue";
 import { fmtNum, fmtMoney, TERMINAL_STATUSES } from "../format.js";
 import { usePdfDownload } from "../composables/usePdfDownload.js";
+import { useInvoiceUploads, validateInvoiceFile } from "../composables/useInvoiceUploads.js";
 
 const props = defineProps({
   rows: { type: Array, required: true },        // already filtered + sorted
@@ -14,9 +15,32 @@ const props = defineProps({
   showKpis: { type: Boolean, default: false },   // vendor.html shows KPI cards; admin.html doesn't
   vendorLabel: { type: Function, default: null }, // (code, rowName) => string -- required when vendorOptions is set
   onOpenPo: { type: Function, required: true },
+  allowInvoiceUpload: { type: Boolean, default: false }, // lets a row upload without opening the PO detail modal
 });
 
 const { downloadingCodes, downloadPoPdf } = usePdfDownload();
+const { workingIds, uploadInvoice } = useInvoiceUploads();
+const rowUploadErrors = reactive({});
+
+function isUploadingRow(poCode) {
+  return workingIds.has(`upload:${poCode}`);
+}
+
+async function handleRowInvoiceChosen(e, po) {
+  const file = e.target.files?.[0];
+  e.target.value = ""; // so choosing the same file again later still fires @change
+  if (!file) return;
+  rowUploadErrors[po.po_code] = "";
+
+  const validationErr = validateInvoiceFile(file);
+  if (validationErr) {
+    rowUploadErrors[po.po_code] = validationErr;
+    return;
+  }
+
+  const result = await uploadInvoice(po.po_code, po.vendor_code, file);
+  if (!result.ok) rowUploadErrors[po.po_code] = result.error;
+}
 
 function grnInfo(poCode) {
   const grns = props.grnsByPo[poCode] || [];
@@ -72,7 +96,7 @@ const statusPills = computed(() => {
           <th v-if="vendorOptions">Vendor</th>
           <th>Facility</th><th>PO code</th><th>Status</th>
           <th class="num">Qty ordered</th><th class="num">Received</th><th class="num">PO value</th>
-          <th>GRN / invoice</th><th>PO Copy</th>
+          <th>GRN / invoice</th><th>Documents</th>
         </tr>
         <tr class="filter-row">
           <td v-if="vendorOptions">
@@ -124,9 +148,16 @@ const statusPills = computed(() => {
             </template>
           </td>
           <td>
-            <button class="link-btn-inline" :disabled="downloadingCodes.has(p.po_code)" @click="downloadPoPdf(p.po_code)">
-              {{ downloadingCodes.has(p.po_code) ? "Fetching…" : "Download PDF" }}
-            </button>
+            <div class="po-doc-actions">
+              <button class="link-btn-inline" :disabled="downloadingCodes.has(p.po_code)" @click="downloadPoPdf(p.po_code)">
+                {{ downloadingCodes.has(p.po_code) ? "Fetching…" : "Download PDF" }}
+              </button>
+              <label v-if="allowInvoiceUpload" class="link-btn-inline invoice-upload-btn">
+                {{ isUploadingRow(p.po_code) ? "Uploading…" : "+ Add invoice" }}
+                <input type="file" accept="application/pdf,.pdf" hidden :disabled="isUploadingRow(p.po_code)" @change="handleRowInvoiceChosen($event, p)">
+              </label>
+            </div>
+            <div v-if="rowUploadErrors[p.po_code]" class="form-error po-doc-error">{{ rowUploadErrors[p.po_code] }}</div>
           </td>
         </tr>
       </tbody>

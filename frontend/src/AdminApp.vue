@@ -113,7 +113,7 @@ async function signOut() {
             :facility-options="facilityOptions" :status-options="statusOptions"
             :vendor-options="vendorOptions" :vendor-label="vendorLabel"
             :grns-by-po="grnsByPo" :show-kpis="false"
-            :on-open-po="openPoDetailModal"
+            :on-open-po="openPoDetailModal" :allow-invoice-upload="true"
           />
         </div>
 

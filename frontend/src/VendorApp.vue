@@ -79,7 +79,7 @@ async function signOut() {
             :rows="filteredSorted" :filters="filters"
             :facility-options="facilityOptions" :status-options="statusOptions"
             :grns-by-po="grnsByPo" :show-kpis="true"
-            :on-open-po="openPoDetailModal"
+            :on-open-po="openPoDetailModal" :allow-invoice-upload="true"
           />
         </div>
 
