@@ -68,7 +68,7 @@ a { color: var(--accent); }
 
 /* --- Any monochrome black-on-transparent icon (download, etc.) -- same
    invert-for-dark-mode treatment as the brand logos above. --- */
-.icon-mono { display: block; height: 18px; width: 18px; }
+.icon-mono { display: block; height: 17px; width: auto; }
 @media (prefers-color-scheme: dark) { .brand-logo, .icon-mono { filter: invert(1); } }
 
 .icon-btn {
