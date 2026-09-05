@@ -9,6 +9,11 @@
 // physically cannot upload/see/delete another vendor's files no matter
 // what this code does.
 //
+// Every upload also gets an AI match check (checkInvoiceMatch, via the
+// check-invoice-match Edge Function) firing right after it -- reads the
+// PDF, compares it against the PO/GRN, and writes match_status/
+// match_summary/match_details back onto the row.
+//
 // Module-level singleton (like usePdfDownload) so upload/delete
 // in-flight state survives independently of which modal instance is
 // currently mounted, keyed by po_code (and by upload row id for deletes).
@@ -61,13 +66,17 @@ export function useInvoiceUploads() {
       const { error: uploadErr } = await supabase.storage.from(BUCKET).upload(path, file);
       if (uploadErr) return { ok: false, error: uploadErr.message };
 
-      const { error: insertErr } = await supabase.from("po_invoice_uploads").insert({
-        po_code: poCode,
-        vendor_code: vendorCode,
-        storage_path: path,
-        file_name: file.name,
-        file_size: file.size,
-      });
+      const { data: inserted, error: insertErr } = await supabase
+        .from("po_invoice_uploads")
+        .insert({
+          po_code: poCode,
+          vendor_code: vendorCode,
+          storage_path: path,
+          file_name: file.name,
+          file_size: file.size,
+        })
+        .select()
+        .single();
       if (insertErr) {
         // Don't leave an orphaned file with no metadata row.
         await supabase.storage.from(BUCKET).remove([path]);
@@ -75,7 +84,35 @@ export function useInvoiceUploads() {
       }
 
       await fetchInvoices(poCode);
+      // Fire the AI match check right away -- don't block the upload UI
+      // on it finishing; the row shows "Checking…" (match_status
+      // defaults to 'pending') until this resolves and refreshes the list.
+      checkInvoiceMatch(poCode, inserted.id);
       return { ok: true };
+    } finally {
+      workingIds.delete(key);
+    }
+  }
+
+  async function checkInvoiceMatch(poCode, uploadId) {
+    const key = `check:${uploadId}`;
+    workingIds.add(key);
+    try {
+      const { data, error } = await supabase.functions.invoke("check-invoice-match", {
+        body: { upload_id: uploadId },
+      });
+      if (error || data?.error) {
+        let detail = data?.error || error?.message || "unexpected response from server";
+        if (error?.context?.json) {
+          try {
+            const errBody = await error.context.json();
+            if (errBody?.error) detail = errBody.error;
+          } catch { /* body wasn't JSON -- keep whatever we already had */ }
+        }
+        return { ok: false, error: detail };
+      }
+      await fetchInvoices(poCode);
+      return { ok: true, result: data };
     } finally {
       workingIds.delete(key);
     }
@@ -112,5 +149,5 @@ export function useInvoiceUploads() {
     a.remove();
   }
 
-  return { uploadsByPo, loadingPo, workingIds, fetchInvoices, uploadInvoice, deleteInvoice, viewInvoice };
+  return { uploadsByPo, loadingPo, workingIds, fetchInvoices, uploadInvoice, deleteInvoice, viewInvoice, checkInvoiceMatch };
 }

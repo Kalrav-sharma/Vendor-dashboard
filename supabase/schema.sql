@@ -239,8 +239,25 @@ create table if not exists public.po_invoice_uploads (
   file_name text not null,
   file_size bigint,
   uploaded_by uuid references auth.users(id) on delete set null,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  -- AI match-check result (see the check-invoice-match Edge Function) --
+  -- only that function ever writes these (via service_role), never RLS.
+  match_status text not null default 'pending'
+    check (match_status in ('pending', 'matched', 'mismatch', 'needs_review', 'error')),
+  match_summary text,
+  match_details jsonb,
+  checked_at timestamptz
 );
+
+-- po_invoice_uploads already existed before the match-check columns were
+-- added, so "create table if not exists" above won't retroactively add
+-- them on an already-deployed database -- these do, and are a no-op if
+-- already there.
+alter table public.po_invoice_uploads add column if not exists match_status text not null default 'pending'
+  check (match_status in ('pending', 'matched', 'mismatch', 'needs_review', 'error'));
+alter table public.po_invoice_uploads add column if not exists match_summary text;
+alter table public.po_invoice_uploads add column if not exists match_details jsonb;
+alter table public.po_invoice_uploads add column if not exists checked_at timestamptz;
 
 create index if not exists po_invoice_uploads_po_code_idx on public.po_invoice_uploads(po_code);
 create index if not exists po_invoice_uploads_vendor_code_idx on public.po_invoice_uploads(vendor_code);
