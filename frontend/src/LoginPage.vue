@@ -71,8 +71,6 @@ async function handleSendReset() {
   <div class="auth-shell">
     <div class="auth-card">
       <BrandLogo brand="native" class="login-logo" />
-      <h1>Vendor Portal</h1>
-      <div class="sub">Sign in to see your purchase orders and receipts.</div>
 
       <div v-if="errorMsg" class="form-error">{{ errorMsg }}</div>
 

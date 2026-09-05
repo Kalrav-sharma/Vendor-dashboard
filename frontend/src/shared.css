@@ -165,7 +165,7 @@ th.num { text-align: right; }
 .auth-card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 32px; width: 100%; max-width: 380px; }
 .auth-card h1 { font-size: 1.25rem; margin-bottom: 4px; }
 .auth-card .sub { color: var(--muted); font-size: 0.83rem; margin-bottom: 24px; }
-.login-logo { height: 26px; margin: 0 auto 20px; }
+.login-logo { height: 26px; margin: 0 auto 28px; }
 .powered-by {
   display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 26px;
   padding-top: 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.68rem;
