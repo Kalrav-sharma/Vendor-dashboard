@@ -41,8 +41,12 @@ Cost-control design (this runs every 5 minutes, forever):
          by that wider search are still skipped (see point 3), so this
          only costs extra work proportional to the new vendor's own
          history, not a re-fetch of everyone else's settled POs.
-      3. Terminal POs already in Supabase are left untouched — no re-fetch,
-         no re-write, even if re-discovered by a backfill-widened search.
+      3. Terminal POs already in Supabase WITH their line items on file are
+         left untouched — no re-fetch, no re-write, even if re-discovered
+         by a backfill-widened search. A terminal PO recorded with zero
+         line items (a partial Uniware response the one time it was
+         fetched) is NOT considered settled and keeps getting retried
+         every run until a real item list comes back — see is_settled().
   - GRNs are looked up only for POs that got a fresh detail fetch this run
     and have inflowReceiptsCount > 0 — same discipline as PO detail.
 """
@@ -302,17 +306,34 @@ def fetch_vendor_map(session, supabase_url, key):
 
 
 def fetch_existing_po_state(session, supabase_url, key):
-    """Returns {po_code: {"facility": ..., "status": ..., "vendor_code": ...}}
-    across ALL vendors — not vendor-scoped, since one facility search covers
-    every vendor's POs anyway (Uniware's search endpoint isn't vendor-filterable)."""
+    """Returns {po_code: {"facility": ..., "status": ..., "vendor_code": ...,
+    "num_items": ...}} across ALL vendors — not vendor-scoped, since one
+    facility search covers every vendor's POs anyway (Uniware's search
+    endpoint isn't vendor-filterable). num_items is carried along so a
+    terminal PO that was written with zero line items (a partial/flaky
+    Uniware response on the run that first fetched it) can be recognized
+    as still-incomplete rather than "settled" -- see is_settled() below."""
     r = session.get(
         f"{supabase_url}/rest/v1/purchase_orders",
         headers=supabase_headers(key),
-        params={"select": "po_code,facility,status,vendor_code"},
+        params={"select": "po_code,facility,status,vendor_code,num_items"},
         timeout=REQUEST_TIMEOUT,
     )
     r.raise_for_status()
     return {row["po_code"]: row for row in r.json()}
+
+
+def is_settled(row):
+    """A PO only counts as "done, never needs re-fetching" once it's both
+    terminal AND actually has its line items on file. Without the second
+    half of this check, a PO whose one-and-only detail fetch happened to
+    come back with an empty/missing purchaseOrderItems list (a transient
+    partial response from Uniware -- observed in practice, e.g.
+    PGNU/PO2627/0404) would get permanently stuck with "No line items on
+    file", since a terminal status alone used to be enough to skip it on
+    every future run forever. Now it keeps getting retried every run
+    until a real item list comes back."""
+    return row.get("status") in TERMINAL_STATUSES and (row.get("num_items") or 0) > 0
 
 
 def upsert_rows(session, supabase_url, key, table, on_conflict, rows):
@@ -374,12 +395,12 @@ def main():
             cursor = chunk_end
         for code in found:
             prior = existing.get(code)
-            if prior and prior.get("status") in TERMINAL_STATUSES:
+            if prior and is_settled(prior):
                 continue  # already settled, don't re-fetch just because a backfill search re-surfaced it
             codes_to_refresh[code] = facility
 
     for code, row in existing.items():
-        if row.get("status") not in TERMINAL_STATUSES:
+        if not is_settled(row):
             codes_to_refresh.setdefault(code, row["facility"])
 
     # 2. Fetch fresh PO detail for all candidates, in parallel. Anything
