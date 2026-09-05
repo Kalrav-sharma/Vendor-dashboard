@@ -44,6 +44,8 @@ create table if not exists public.profiles (
   vendor_code text,          -- required for role='vendor', null for admins
   vendor_name text,          -- display name only, e.g. "LEXCRU WATER TECH PVT LTD"
   email text,                -- denormalized copy of auth.users.email, for admin display only
+  contact_name text,         -- the actual person at the vendor this login is for
+  contact_mobile text,
   revoked boolean not null default false,  -- display-only mirror of the real
                               -- enforcement, which is a Supabase Auth ban set
                               -- server-side by the admin-create-vendor Edge
@@ -51,13 +53,40 @@ create table if not exists public.profiles (
                               -- login, it only lets the admin console show
                               -- correct Revoke/Restore state without needing
                               -- service_role access to check it
+  must_change_password boolean not null default false,  -- true for a vendor
+                              -- login just created with the shared default
+                              -- temp password (see admin-create-vendor's
+                              -- DEFAULT_TEMP_PASSWORD) -- the frontend gates
+                              -- on this to force a real password before
+                              -- showing anything else; cleared by
+                              -- mark_password_changed() once they set one
   created_at timestamptz not null default now()
 );
 
--- profiles already existed before `revoked` was added, so "create table if
--- not exists" above won't retroactively add the column -- this does, and
--- is a no-op if it's already there.
+-- profiles already existed before these columns were added, so "create
+-- table if not exists" above won't retroactively add them on an
+-- already-deployed database -- these do, and are a no-op if already there.
 alter table public.profiles add column if not exists revoked boolean not null default false;
+alter table public.profiles add column if not exists contact_name text;
+alter table public.profiles add column if not exists contact_mobile text;
+alter table public.profiles add column if not exists must_change_password boolean not null default false;
+
+-- SECURITY DEFINER so a vendor can clear their OWN must_change_password flag
+-- without needing a general UPDATE grant on profiles (which stays
+-- service_role/admin-only otherwise -- see the comment below the profiles
+-- RLS policy). Called from SetNewPasswordForm.vue right after
+-- supabase.auth.updateUser({password}) succeeds, whether that happened via
+-- the forced first-login change or the "forgot password" email-link flow --
+-- either way, the vendor just set a real password of their own.
+create or replace function public.mark_password_changed()
+returns void
+language sql
+security definer
+set search_path = public
+as $$
+  update public.profiles set must_change_password = false where id = auth.uid();
+$$;
+grant execute on function public.mark_password_changed() to authenticated;
 
 -- ---------------------------------------------------------------------
 -- is_admin(): SECURITY DEFINER so it can check profiles.role without

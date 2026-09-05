@@ -19,8 +19,10 @@
 //
 // Actions (body.action, defaults to "create" for backward compatibility
 // with callers that don't send it):
-//   - create:  { email, password, vendor_code, vendor_name } -- unchanged
-//     from before: creates the auth user + profiles row.
+//   - create:  { email, vendor_code, vendor_name, contact_name, contact_mobile }
+//     -- creates the auth user (password always DEFAULT_TEMP_PASSWORD below)
+//     + profiles row with must_change_password=true, and returns the temp
+//     password used so the admin console can display it.
 //   - revoke:  { user_id } -- bans the auth user via Supabase Auth's own
 //     ban_duration (real enforcement: signInWithPassword fails outright,
 //     this isn't just a hidden UI button), and mirrors it onto
@@ -108,18 +110,25 @@ Deno.serve(async (req) => {
   }
 });
 
+// Every new vendor login starts with this exact password -- deliberately a
+// single known constant rather than admin-typed or randomly generated, so
+// onboarding never depends on securely transmitting a fresh secret. This is
+// safe specifically BECAUSE profiles.must_change_password (set below) forces
+// a real password change before the vendor can see anything else -- this
+// constant is only ever a login's very first password, never its lasting
+// one. The admin console displays whatever this function returns in its
+// response, so there's nowhere else that needs updating if this changes.
+const DEFAULT_TEMP_PASSWORD = "Native@01";
+
 async function handleCreate(adminClient: ReturnType<typeof createClient>, body: any) {
-  const { email, password, vendor_code, vendor_name } = body ?? {};
-  if (!email || !password || !vendor_code) {
-    return json({ error: "email, password and vendor_code are required" }, 400);
-  }
-  if (String(password).length < 8) {
-    return json({ error: "Password must be at least 8 characters" }, 400);
+  const { email, vendor_code, vendor_name, contact_name, contact_mobile } = body ?? {};
+  if (!email || !vendor_code || !contact_name || !contact_mobile) {
+    return json({ error: "email, vendor_code, contact_name and contact_mobile are required" }, 400);
   }
 
   const { data: created, error: createErr } = await adminClient.auth.admin.createUser({
     email,
-    password,
+    password: DEFAULT_TEMP_PASSWORD,
     email_confirm: true,
   });
   if (createErr || !created?.user) {
@@ -132,6 +141,9 @@ async function handleCreate(adminClient: ReturnType<typeof createClient>, body: 
     vendor_code,
     vendor_name: vendor_name ?? null,
     email,
+    contact_name,
+    contact_mobile,
+    must_change_password: true,
   });
 
   if (insertErr) {
@@ -140,7 +152,7 @@ async function handleCreate(adminClient: ReturnType<typeof createClient>, body: 
     return json({ error: `Failed to assign vendor profile: ${insertErr.message}` }, 400);
   }
 
-  return json({ ok: true, user_id: created.user.id, email, vendor_code });
+  return json({ ok: true, user_id: created.user.id, email, vendor_code, temp_password: DEFAULT_TEMP_PASSWORD });
 }
 
 async function handleVendorAction(adminClient: ReturnType<typeof createClient>, action: string, body: any) {

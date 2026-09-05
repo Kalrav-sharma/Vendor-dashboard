@@ -12,9 +12,10 @@ const props = defineProps({
 });
 
 const email = ref("");
-const password = ref("");
 const vendorCode = ref("");
 const vendorName = ref("");
+const contactName = ref("");
+const contactMobile = ref("");
 const creating = ref(false);
 const errorMsg = ref("");
 const successMsg = ref("");
@@ -27,9 +28,10 @@ async function handleCreate() {
   const { data, error } = await supabase.functions.invoke("admin-create-vendor", {
     body: {
       email: email.value.trim(),
-      password: password.value,
       vendor_code: vendorCode.value.trim(),
       vendor_name: vendorName.value.trim(),
+      contact_name: contactName.value.trim(),
+      contact_mobile: contactMobile.value.trim(),
     },
   });
 
@@ -40,11 +42,13 @@ async function handleCreate() {
     return;
   }
 
-  successMsg.value = `Login created for ${email.value.trim()} (${vendorName.value.trim() || vendorCode.value.trim()}). Share the email + temporary password with the vendor directly — this page will not show the password again.`;
+  successMsg.value = `Login created for ${email.value.trim()} (${vendorName.value.trim() || vendorCode.value.trim()}). ` +
+    `Share these with the vendor directly: temporary password "${data.temp_password}" -- they'll be asked to set their own password the first time they log in.`;
   email.value = "";
-  password.value = "";
   vendorCode.value = "";
   vendorName.value = "";
+  contactName.value = "";
+  contactMobile.value = "";
   await props.onVendorsChanged();
 }
 
@@ -105,10 +109,6 @@ async function handleDelete(v) {
           <input id="v-email" v-model="email" type="email" required>
         </div>
         <div class="field">
-          <label for="v-password">Temporary password</label>
-          <input id="v-password" v-model="password" type="text" required minlength="8" placeholder="min 8 characters">
-        </div>
-        <div class="field">
           <label for="v-code">Uniware vendor code</label>
           <input id="v-code" v-model="vendorCode" type="text" required placeholder="e.g. Vendor-156">
         </div>
@@ -116,8 +116,17 @@ async function handleDelete(v) {
           <label for="v-name">Vendor display name</label>
           <input id="v-name" v-model="vendorName" type="text" placeholder="e.g. LEXCRU WATER TECH PVT LTD">
         </div>
+        <div class="field">
+          <label for="v-contact-name">Contact person's name</label>
+          <input id="v-contact-name" v-model="contactName" type="text" required placeholder="e.g. Rohan Mehta">
+        </div>
+        <div class="field">
+          <label for="v-contact-mobile">Contact mobile number</label>
+          <input id="v-contact-mobile" v-model="contactMobile" type="tel" required placeholder="e.g. 98765 43210">
+        </div>
       </div>
-      <button type="submit" class="primary-btn" :disabled="creating" style="width: auto; padding: 9px 20px; margin-top: 16px;">
+      <p class="field-hint">Every login starts with the same temporary password -- the vendor will be asked to set their own the first time they log in.</p>
+      <button type="submit" class="primary-btn" :disabled="creating" style="width: auto; padding: 9px 20px; margin-top: 4px;">
         {{ creating ? "Creating…" : "Create login" }}
       </button>
     </form>
@@ -128,11 +137,15 @@ async function handleDelete(v) {
     <div v-if="!vendors.length" class="empty-state">No vendor logins created yet — use the form above.</div>
     <div v-else class="table-card"><div class="table-scroll">
       <table>
-        <thead><tr><th>Vendor name</th><th>Email</th><th>Status</th><th>Created</th><th>Actions</th></tr></thead>
+        <thead><tr><th>Vendor name</th><th>Email</th><th>Contact</th><th>Status</th><th>Created</th><th>Actions</th></tr></thead>
         <tbody>
           <tr v-for="v in vendors" :key="v.id">
             <td>{{ v.vendor_name || v.vendor_code }}</td>
             <td class="mono">{{ v.email || "–" }}</td>
+            <td>
+              <div>{{ v.contact_name || "–" }}</div>
+              <div class="mono" style="color: var(--muted); font-size: 0.78rem;">{{ v.contact_mobile || "" }}</div>
+            </td>
             <td>
               <span class="chip" :class="v.revoked ? 'chip-critical' : 'chip-good'">
                 {{ v.revoked ? "Revoked" : "Active" }}

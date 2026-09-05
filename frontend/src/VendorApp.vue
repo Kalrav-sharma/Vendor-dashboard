@@ -11,8 +11,10 @@ import SkuLevelTable from "./components/SkuLevelTable.vue";
 import AppModal from "./components/AppModal.vue";
 import PoDetailModal from "./components/PoDetailModal.vue";
 import SkuDetailModal from "./components/SkuDetailModal.vue";
+import SetNewPasswordForm from "./components/SetNewPasswordForm.vue";
 
 const ready = ref(false);
+const mustChangePassword = ref(false); // gates the whole dashboard until cleared
 const myDisplayName = ref("Vendor"); // recorded on any invoice this login uploads
 const activeNav = ref("po-tracking");
 const pageTitle = computed(() => activeNav.value === "po-tracking" ? "PO Tracking" : "SKU Level Data");
@@ -48,9 +50,23 @@ function openSkuDetailModal(key) {
 onMounted(async () => {
   const ctx = await requireSession();
   if (!ctx) return;
+  if (ctx.profile.must_change_password) {
+    mustChangePassword.value = true;
+    return;
+  }
   myDisplayName.value = ctx.profile.vendor_name || ctx.profile.email || "Vendor";
   ready.value = true;
 });
+
+async function handlePasswordChanged() {
+  // Re-fetch so we pick up the freshly-cleared must_change_password and the
+  // profile fields the dashboard needs, rather than trusting stale state.
+  const ctx = await requireSession();
+  if (!ctx) return;
+  mustChangePassword.value = false;
+  myDisplayName.value = ctx.profile.vendor_name || ctx.profile.email || "Vendor";
+  ready.value = true;
+}
 
 async function signOut() {
   await supabase.auth.signOut();
@@ -59,7 +75,15 @@ async function signOut() {
 </script>
 
 <template>
-  <div v-if="ready" class="app-shell">
+  <div v-if="mustChangePassword" class="auth-shell">
+    <div class="auth-card">
+      <h1>Set a new password</h1>
+      <div class="sub">For security, please set your own password before continuing -- this account was created with a shared temporary password.</div>
+      <SetNewPasswordForm submit-label="Set password and continue" @done="handlePasswordChanged" />
+    </div>
+  </div>
+
+  <div v-else-if="ready" class="app-shell">
     <SidebarNav
       v-model="activeNav"
       brand="Vendor Portal"
