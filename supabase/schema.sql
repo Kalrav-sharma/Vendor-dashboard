@@ -83,6 +83,9 @@ create table if not exists public.purchase_orders (
   po_code text primary key,
   facility text not null,
   vendor_code text not null,
+  vendor_name text,          -- Uniware masks this in its API, so the sync
+                              -- script fills it in from its own known
+                              -- vendor_code -> vendor_name mapping instead.
   status text,
   created_at timestamptz,
   total_amount numeric,
@@ -93,6 +96,12 @@ create table if not exists public.purchase_orders (
   num_items integer,
   updated_at timestamptz not null default now()
 );
+
+-- purchase_orders already existed before vendor_name was added, so
+-- "create table if not exists" above won't retroactively add the column
+-- on an already-deployed database -- this does, and is a no-op if it's
+-- already there.
+alter table public.purchase_orders add column if not exists vendor_name text;
 
 create index if not exists purchase_orders_vendor_code_idx on public.purchase_orders(vendor_code);
 
@@ -216,3 +225,13 @@ create policy grn_items_select on public.grn_items
 -- (or another row you promote to role='admin') can invoke the admin Edge
 -- Function to create new vendor logins.
 -- ---------------------------------------------------------------------
+
+-- ---------------------------------------------------------------------
+-- One-time backfill: rows synced before vendor_name existed on
+-- purchase_orders have it null. New/updated rows get it automatically
+-- from here on (the sync script sets it), so this only needs to run
+-- once -- safe to leave in / re-run, it's a no-op once every row has it.
+-- ---------------------------------------------------------------------
+update public.purchase_orders
+set vendor_name = 'LEXCRU WATER TECH PVT LTD'
+where vendor_code = 'Vendor-156' and vendor_name is null;

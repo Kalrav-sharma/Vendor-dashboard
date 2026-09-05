@@ -49,7 +49,9 @@ UNIWARE_BASE_URL = "https://urbanclap.unicommerce.com"
 REQUEST_TIMEOUT = 30
 
 FACILITIES = ["PB-UC-GGN", "PB-UC-KOL", "PB-UC-BLR", "PB-UC-BOMBAY", "PB-UC-HYD"]
-VENDOR_CODE = "Vendor-156"  # LEXCRU WATER TECH PVT LTD
+VENDOR_CODE = "Vendor-156"
+VENDOR_NAME = "LEXCRU WATER TECH PVT LTD"  # Uniware masks vendorName in its API responses,
+                                            # so this is the only source of truth for it
 
 START_DATE = datetime(2026, 8, 1, 0, 0, 0, tzinfo=timezone.utc)
 RECENT_WINDOW_DAYS = 4  # how far back to re-search for newly created PO codes each run
@@ -222,6 +224,7 @@ def build_po_row(facility, code, po):
         "po_code": code,
         "facility": facility,
         "vendor_code": vendor_code,
+        "vendor_name": VENDOR_NAME,  # Uniware masks vendorName in the API; VENDOR_NAME is the known mapping
         "status": po.get("statusCode"),
         "created_at": created_iso,
         "total_amount": (po.get("purchaseOrderPriceSummary") or {}).get("totalAmount"),

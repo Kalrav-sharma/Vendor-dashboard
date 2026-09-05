@@ -111,6 +111,13 @@
     }
   );
 
+  // Prefer the vendor_name the sync script already stamped onto the row
+  // itself (works even if no login has been created for that vendor yet);
+  // fall back to the profiles-based lookup, then the raw code.
+  function vendorLabel(code, rowName) {
+    return rowName || vendorNameByCode[code] || code || "";
+  }
+
   function goToSkuData(poCode) {
     showSection("nav-sku-data");
     document.getElementById("sku-po-filter").value = poCode;
@@ -225,7 +232,7 @@
 
     document.getElementById("scope-line").textContent =
       `${currentPos.length} purchase order${currentPos.length === 1 ? "" : "s"} across all vendors` +
-      (filter ? ` · showing ${pos.length} for ${escapeHtml(vendorNameByCode[filter] || filter)}` : "");
+      (filter ? ` · showing ${pos.length} for ${escapeHtml(vendorLabel(filter, null))}` : "");
 
     const rows = pos.map(p => {
       const grns = grnsByPo[p.po_code] || [];
@@ -236,7 +243,7 @@
         ? `<span class="cell-empty">not yet raised</span>`
         : `<div class="invoice-list">${escapeHtml(invoices.join(", ") || "–")}</div><div class="grn-amt">${fmtMoney(recv)}${rej ? ` <span class="grn-rej">−${fmtMoney(rej)} rej.</span>` : ""}</div>`;
       return `<tr>
-        <td>${escapeHtml(vendorNameByCode[p.vendor_code] || p.vendor_code)}</td>
+        <td>${escapeHtml(vendorLabel(p.vendor_code, p.vendor_name))}</td>
         <td class="fac-code">${escapeHtml(p.facility)}</td>
         <td class="mono"><button class="link-btn-inline" onclick="goToSkuData('${p.po_code.replace(/'/g, "\\'")}')">${escapeHtml(p.po_code)}</button></td>
         <td>${statusChip(p.status)}</td>
@@ -267,7 +274,7 @@
     for (const p of currentPos) {
       const opt = document.createElement("option");
       opt.value = p.po_code;
-      opt.textContent = `${p.po_code} (${vendorNameByCode[p.vendor_code] || p.vendor_code})`;
+      opt.textContent = `${p.po_code} (${vendorLabel(p.vendor_code, p.vendor_name)})`;
       opt.dataset.poOption = "1";
       select.appendChild(opt);
     }
@@ -298,7 +305,7 @@
 
     const tableRows = rows.map(({ po, item }) => `
       <tr>
-        <td>${escapeHtml(vendorNameByCode[po?.vendor_code] || po?.vendor_code || "")}</td>
+        <td>${escapeHtml(vendorLabel(po?.vendor_code, po?.vendor_name))}</td>
         <td class="fac-code">${escapeHtml(po?.facility || "")}</td>
         <td class="mono">${escapeHtml(item.po_code)}</td>
         <td class="mono">${escapeHtml(item.item_sku)}</td>
