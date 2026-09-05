@@ -26,6 +26,17 @@
           <input type="password" id="password" required autocomplete="current-password">
         </div>
         <button type="submit" class="primary-btn" id="submit-btn">Sign in</button>
+        <button type="button" class="link-btn" id="forgot-link" style="margin-top: 12px;">Forgot password?</button>
+      </form>
+
+      <form id="reset-form" hidden>
+        <div class="sub" style="margin-top: -8px;">Enter your email and we'll send you a link to reset your password.</div>
+        <div class="field">
+          <label for="reset-email">Email</label>
+          <input type="email" id="reset-email" required autocomplete="username">
+        </div>
+        <button type="submit" class="primary-btn" id="reset-submit-btn">Send reset link</button>
+        <button type="button" class="link-btn" id="back-to-login-link" style="margin-top: 12px;">Back to sign in</button>
       </form>
     </div>
   </div>
@@ -63,6 +74,51 @@
     }
     await redirectByRole(data.user.id);
   });
+
+  // --- Forgot password ---
+  const resetForm = document.getElementById("reset-form");
+  const resetSubmitBtn = document.getElementById("reset-submit-btn");
+
+  document.getElementById("forgot-link").addEventListener("click", () => {
+    errorBox.innerHTML = "";
+    form.hidden = true;
+    resetForm.hidden = false;
+    document.getElementById("reset-email").value = document.getElementById("email").value;
+  });
+
+  document.getElementById("back-to-login-link").addEventListener("click", () => {
+    errorBox.innerHTML = "";
+    resetForm.hidden = true;
+    form.hidden = false;
+  });
+
+  resetForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    errorBox.innerHTML = "";
+    resetSubmitBtn.disabled = true;
+    resetSubmitBtn.textContent = "Sending…";
+    const email = document.getElementById("reset-email").value.trim();
+
+    // Sends Supabase's own password-recovery email; the link in it lands
+    // back on reset-password.html with a temporary recovery session.
+    const redirectTo = new URL("reset-password.html", window.location.href).href;
+    const { error } = await client.auth.resetPasswordForEmail(email, { redirectTo });
+
+    resetSubmitBtn.disabled = false;
+    resetSubmitBtn.textContent = "Send reset link";
+
+    // Supabase deliberately doesn't reveal whether the email exists (avoids
+    // leaking which emails have accounts) -- show the same message either way.
+    if (error) {
+      errorBox.innerHTML = `<div class="form-error">${error.message}</div>`;
+      return;
+    }
+    resetForm.innerHTML = `<div class="form-success">If an account exists for ${escapeHtml(email)}, a password reset link has been sent. Check your email.</div>`;
+  });
+
+  function escapeHtml(s) {
+    return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
 </script>
 </body>
 </html>

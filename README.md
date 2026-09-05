@@ -118,6 +118,20 @@ Repo → **Actions** → "Sync Uniware PO/GRN data to Supabase" → **Run
 workflow**. Don't wait for the cron — trigger it once by hand so the
 database is populated before you first open the portal.
 
+### 10. Allow the "Forgot password" redirect
+Supabase only honors a password-reset link's `redirectTo` URL if it's on an
+allowlist — otherwise it silently falls back to whatever Site URL is
+configured (often `localhost`), and the reset link goes nowhere useful.
+
+Supabase Dashboard → **Authentication → URL Configuration**:
+- **Site URL**: your Pages URL, e.g. `https://<you>.github.io/<repo>/`
+- **Redirect URLs**: add `https://<you>.github.io/<repo>/reset-password.html`
+  (or a wildcard like `https://<you>.github.io/<repo>/*`)
+
+Without this step, a vendor clicking "Forgot password?" will get a reset
+email, but the link in it won't land back on `reset-password.html`
+correctly.
+
 ## Using it day to day
 
 - **Sign in as admin** at your Pages URL → lands on `admin.html`. Use
