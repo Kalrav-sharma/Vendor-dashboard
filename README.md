@@ -22,6 +22,11 @@ to one vendor (Lexcru Water Tech, Uniware vendor code `Vendor-156`) across
   `vendor.html` (vendor dashboard), `admin.html` (admin console). All three
   talk to Supabase directly via `supabase-js`; RLS does the real access
   control, not the frontend code.
+- **`frontend/`** — a Vue 3 + Vite project, mid-migration off plain
+  HTML/vanilla JS (`login.html` and `reset-password.html` are migrated so
+  far; `vendor.html`/`admin.html` are still plain HTML in `docs/`). Its
+  build output gets copied into `docs/` locally (`frontend/build-and-
+  deploy.sh`), not via a CI workflow — see `frontend/README.md` for why.
 
 ## One-time setup
 

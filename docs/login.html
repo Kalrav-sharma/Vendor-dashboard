@@ -1,124 +1,16 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Vendor Portal — Sign in</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
-<link rel="stylesheet" href="assets/styles.css">
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
-<script src="assets/supabase-client.js"></script>
+<title>Vendor Portal — Sign in</title>
+  <script type="module" crossorigin src="/Vendor-dashboard/vite-assets/login-yo9GBK1E.js"></script>
+  <link rel="modulepreload" crossorigin href="/Vendor-dashboard/vite-assets/supabaseClient-qhjDDes6.js">
+  <link rel="stylesheet" crossorigin href="/Vendor-dashboard/vite-assets/supabaseClient-B7DOAfWx.css">
 </head>
 <body>
-  <div class="auth-shell">
-    <div class="auth-card">
-      <h1>Vendor Portal</h1>
-      <div class="sub">Sign in to see your purchase orders and receipts.</div>
-      <div id="error-box"></div>
-      <form id="login-form">
-        <div class="field">
-          <label for="email">Email</label>
-          <input type="email" id="email" required autocomplete="username">
-        </div>
-        <div class="field">
-          <label for="password">Password</label>
-          <input type="password" id="password" required autocomplete="current-password">
-        </div>
-        <button type="submit" class="primary-btn" id="submit-btn">Sign in</button>
-        <button type="button" class="link-btn" id="forgot-link" style="margin-top: 12px;">Forgot password?</button>
-      </form>
-
-      <form id="reset-form" hidden>
-        <div class="sub" style="margin-top: -8px;">Enter your email and we'll send you a link to reset your password.</div>
-        <div class="field">
-          <label for="reset-email">Email</label>
-          <input type="email" id="reset-email" required autocomplete="username">
-        </div>
-        <button type="submit" class="primary-btn" id="reset-submit-btn">Send reset link</button>
-        <button type="button" class="link-btn" id="back-to-login-link" style="margin-top: 12px;">Back to sign in</button>
-      </form>
-    </div>
-  </div>
-
-<script>
-  const client = getSupabaseClient();
-  const form = document.getElementById("login-form");
-  const errorBox = document.getElementById("error-box");
-  const submitBtn = document.getElementById("submit-btn");
-
-  // If already signed in, skip straight to the right dashboard.
-  client.auth.getSession().then(({ data: { session } }) => {
-    if (session) redirectByRole(session.user.id);
-  });
-
-  async function redirectByRole(userId) {
-    const { data: profile } = await client.from("profiles").select("role").eq("id", userId).single();
-    window.location.href = profile?.role === "admin" ? "admin.html" : "vendor.html";
-  }
-
-  form.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    errorBox.innerHTML = "";
-    submitBtn.disabled = true;
-    submitBtn.textContent = "Signing in…";
-    const email = document.getElementById("email").value.trim();
-    const password = document.getElementById("password").value;
-
-    const { data, error } = await client.auth.signInWithPassword({ email, password });
-    if (error) {
-      errorBox.innerHTML = `<div class="form-error">${error.message === "Invalid login credentials" ? "Incorrect email or password." : error.message}</div>`;
-      submitBtn.disabled = false;
-      submitBtn.textContent = "Sign in";
-      return;
-    }
-    await redirectByRole(data.user.id);
-  });
-
-  // --- Forgot password ---
-  const resetForm = document.getElementById("reset-form");
-  const resetSubmitBtn = document.getElementById("reset-submit-btn");
-
-  document.getElementById("forgot-link").addEventListener("click", () => {
-    errorBox.innerHTML = "";
-    form.hidden = true;
-    resetForm.hidden = false;
-    document.getElementById("reset-email").value = document.getElementById("email").value;
-  });
-
-  document.getElementById("back-to-login-link").addEventListener("click", () => {
-    errorBox.innerHTML = "";
-    resetForm.hidden = true;
-    form.hidden = false;
-  });
-
-  resetForm.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    errorBox.innerHTML = "";
-    resetSubmitBtn.disabled = true;
-    resetSubmitBtn.textContent = "Sending…";
-    const email = document.getElementById("reset-email").value.trim();
-
-    // Sends Supabase's own password-recovery email; the link in it lands
-    // back on reset-password.html with a temporary recovery session.
-    const redirectTo = new URL("reset-password.html", window.location.href).href;
-    const { error } = await client.auth.resetPasswordForEmail(email, { redirectTo });
-
-    resetSubmitBtn.disabled = false;
-    resetSubmitBtn.textContent = "Send reset link";
-
-    // Supabase deliberately doesn't reveal whether the email exists (avoids
-    // leaking which emails have accounts) -- show the same message either way.
-    if (error) {
-      errorBox.innerHTML = `<div class="form-error">${error.message}</div>`;
-      return;
-    }
-    resetForm.innerHTML = `<div class="form-success">If an account exists for ${escapeHtml(email)}, a password reset link has been sent. Check your email.</div>`;
-  });
-
-  function escapeHtml(s) {
-    return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-  }
-</script>
+<div id="app"></div>
 </body>
 </html>

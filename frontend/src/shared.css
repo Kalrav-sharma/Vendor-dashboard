@@ -1,0 +1,71 @@
+/* Design tokens + auth-page styles, ported from docs/assets/styles.css so
+   the Vue-built pages look identical to the legacy plain-HTML pages during
+   the staged migration. This file and docs/assets/styles.css are two
+   copies of the same tokens for now -- once vendor.html/admin.html are
+   migrated too, this becomes the single source of truth and the legacy
+   copy goes away. */
+
+:root {
+  --paper: #F3F1EC;
+  --surface: #FFFFFF;
+  --ink: #1C2320;
+  --muted: #6B7069;
+  --line: #E1DED4;
+  --accent: #1F6F78;
+  --accent-soft: #DEEEEC;
+  --good: #22683F;
+  --good-soft: #DFEEE3;
+  --open: #8A5A0A;
+  --open-soft: #F3E7CF;
+  --critical: #A5291E;
+  --critical-soft: #F7E1DE;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #15181A;
+    --surface: #1D2123;
+    --ink: #EDEBE3;
+    --muted: #9A9F97;
+    --line: #2C312E;
+    --accent: #5FB8BF;
+    --accent-soft: #1E3436;
+    --good: #6FCB8E;
+    --good-soft: #1C3325;
+    --open: #E3B15C;
+    --open-soft: #3A2E12;
+    --critical: #F0897C;
+    --critical-soft: #3B1D19;
+  }
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--paper); color: var(--ink);
+  font-family: "IBM Plex Sans", -apple-system, "Segoe UI", sans-serif;
+}
+a { color: var(--accent); }
+
+button.link-btn {
+  background: none; border: none; color: var(--accent); font-size: 0.8rem; cursor: pointer;
+  text-decoration: underline; padding: 0; font-family: inherit;
+}
+
+.auth-shell { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
+.auth-card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 32px; width: 100%; max-width: 380px; }
+.auth-card h1 { font-size: 1.25rem; margin-bottom: 4px; }
+.auth-card .sub { color: var(--muted); font-size: 0.83rem; margin-bottom: 24px; }
+.field { margin-bottom: 14px; }
+.field label { display: block; font-size: 0.78rem; color: var(--muted); margin-bottom: 5px; font-weight: 500; }
+.field input {
+  width: 100%; padding: 9px 11px; border: 1px solid var(--line); border-radius: 7px;
+  background: var(--paper); color: var(--ink); font-size: 0.9rem; font-family: inherit;
+}
+.field input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+button.primary-btn {
+  width: 100%; padding: 10px; border: none; border-radius: 7px; background: var(--accent);
+  color: var(--surface); font-size: 0.88rem; font-weight: 600; cursor: pointer; font-family: inherit;
+  margin-top: 6px;
+}
+button.primary-btn:disabled { opacity: 0.6; cursor: default; }
+.form-error { background: var(--critical-soft); color: var(--critical); border-radius: 7px; padding: 8px 12px; font-size: 0.8rem; margin-bottom: 14px; }
+.form-success { background: var(--good-soft); color: var(--good); border-radius: 7px; padding: 8px 12px; font-size: 0.8rem; margin-bottom: 14px; }
