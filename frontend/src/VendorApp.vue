@@ -4,6 +4,7 @@ import { supabase, requireSession } from "./supabaseClient.js";
 import { usePurchaseOrders } from "./composables/usePurchaseOrders.js";
 import { usePoFilters } from "./composables/usePoFilters.js";
 import { useSkuAggregates } from "./composables/useSkuAggregates.js";
+import { useSkuFilters } from "./composables/useSkuFilters.js";
 import { useModal } from "./composables/useModal.js";
 import SidebarNav from "./components/SidebarNav.vue";
 import PoTrackingTable from "./components/PoTrackingTable.vue";
@@ -25,6 +26,7 @@ const pageTitle = computed(() => activeNav.value === "po-tracking" ? "PO Trackin
 const { currentPos, grnsByPo, poItemsByPo, grnItemsByPoSku, grnByCode, lastUpdated, invoicesForItem } = usePurchaseOrders();
 const { filters, filteredSorted, facilityOptions, statusOptions } = usePoFilters(currentPos, grnsByPo);
 const { sortedRows: skuRows } = useSkuAggregates(currentPos, poItemsByPo, { multiVendor: false });
+const { filters: skuFilters, filteredSorted: skuFilteredSorted } = useSkuFilters(skuRows);
 
 const scopeLine = computed(() => `${currentPos.value.length} purchase order${currentPos.value.length === 1 ? "" : "s"} on file`);
 const lastCheckedText = computed(() => lastUpdated.value
@@ -118,7 +120,7 @@ async function signOut() {
         </div>
 
         <div v-show="activeNav === 'sku-data'">
-          <SkuLevelTable :rows="skuRows" :on-open-sku="openSkuDetailModal" />
+          <SkuLevelTable :rows="skuFilteredSorted" :filters="skuFilters" :on-open-sku="openSkuDetailModal" />
         </div>
 
         <footer class="page-foot">Data refreshes automatically every ~5 minutes from Uniware. {{ lastCheckedText }}</footer>

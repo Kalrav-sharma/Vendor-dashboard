@@ -4,6 +4,7 @@ import { supabase, requireSession } from "./supabaseClient.js";
 import { usePurchaseOrders } from "./composables/usePurchaseOrders.js";
 import { usePoFilters } from "./composables/usePoFilters.js";
 import { useSkuAggregates } from "./composables/useSkuAggregates.js";
+import { useSkuFilters } from "./composables/useSkuFilters.js";
 import { useVendors } from "./composables/useVendors.js";
 import { useModal } from "./composables/useModal.js";
 import SidebarNav from "./components/SidebarNav.vue";
@@ -31,6 +32,7 @@ const { filters, filteredSorted, facilityOptions, statusOptions } = usePoFilters
 const { sortedRows: skuRows } = useSkuAggregates(currentPos, poItemsByPo, { multiVendor: true });
 
 const vendorOptions = computed(() => vendors.value.map(v => ({ code: v.vendor_code, label: v.vendor_name || v.vendor_code })));
+const { filters: skuFilters, filteredSorted: skuFilteredSorted } = useSkuFilters(skuRows, vendorLabel);
 
 const scopeLine = computed(() => {
   const total = currentPos.value.length;
@@ -122,7 +124,8 @@ async function signOut() {
 
         <div v-show="activeNav === 'sku-data'">
           <SkuLevelTable
-            :rows="skuRows" :show-vendor-column="true" :vendor-label="vendorLabel"
+            :rows="skuFilteredSorted" :filters="skuFilters"
+            :vendor-options="vendorOptions" :vendor-label="vendorLabel"
             :on-open-sku="openSkuDetailModal"
           />
         </div>
