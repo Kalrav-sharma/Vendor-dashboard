@@ -56,7 +56,7 @@ export function useInvoiceUploads() {
     }
   }
 
-  async function uploadInvoice(poCode, vendorCode, file) {
+  async function uploadInvoice(poCode, vendorCode, file, uploaderLabel) {
     const key = `upload:${poCode}`;
     workingIds.add(key);
     try {
@@ -66,6 +66,8 @@ export function useInvoiceUploads() {
       const { error: uploadErr } = await supabase.storage.from(BUCKET).upload(path, file);
       if (uploadErr) return { ok: false, error: uploadErr.message };
 
+      const { data: { user } } = await supabase.auth.getUser();
+
       const { data: inserted, error: insertErr } = await supabase
         .from("po_invoice_uploads")
         .insert({
@@ -74,6 +76,8 @@ export function useInvoiceUploads() {
           storage_path: path,
           file_name: file.name,
           file_size: file.size,
+          uploaded_by: user?.id || null,
+          uploaded_by_name: uploaderLabel || null,
         })
         .select()
         .single();

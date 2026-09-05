@@ -16,6 +16,7 @@ const props = defineProps({
   vendorLabel: { type: Function, default: null }, // (code, rowName) => string -- required when vendorOptions is set
   onOpenPo: { type: Function, required: true },
   allowInvoiceUpload: { type: Boolean, default: false }, // lets a row upload without opening the PO detail modal
+  uploaderLabel: { type: String, default: "" }, // current user's display name, recorded on an uploaded row
 });
 
 const { downloadingCodes, downloadPoPdf } = usePdfDownload();
@@ -155,6 +156,7 @@ const statusPills = computed(() => {
     :model-value="!!uploadModalPoCode"
     :po-code="uploadModalPoCode || ''"
     :vendor-code="uploadModalVendorCode || ''"
+    :uploader-label="uploaderLabel"
     @update:model-value="(v) => { if (!v) uploadModalPoCode = null }"
   />
 </template>

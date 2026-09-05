@@ -6,6 +6,7 @@ const props = defineProps({
   modelValue: { type: Boolean, required: true }, // v-model: open/closed
   poCode: { type: String, required: true },
   vendorCode: { type: String, required: true },
+  uploaderLabel: { type: String, default: "" }, // current user's display name, recorded on the uploaded row
 });
 const emit = defineEmits(["update:modelValue"]);
 
@@ -37,7 +38,7 @@ async function handleFile(file) {
   }
 
   uploading.value = true;
-  const result = await uploadInvoice(props.poCode, props.vendorCode, file);
+  const result = await uploadInvoice(props.poCode, props.vendorCode, file, props.uploaderLabel);
   uploading.value = false;
 
   if (!result.ok) {

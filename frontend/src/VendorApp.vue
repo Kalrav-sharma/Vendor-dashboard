@@ -13,6 +13,7 @@ import PoDetailModal from "./components/PoDetailModal.vue";
 import SkuDetailModal from "./components/SkuDetailModal.vue";
 
 const ready = ref(false);
+const myDisplayName = ref("Vendor"); // recorded on any invoice this login uploads
 const activeNav = ref("po-tracking");
 const pageTitle = computed(() => activeNav.value === "po-tracking" ? "PO Tracking" : "SKU Level Data");
 
@@ -33,7 +34,9 @@ function openPoDetailModal(poCode) {
   const items = (poItemsByPo.value[poCode] || []).map(item => ({ ...item, invoiceText: invoicesForItem(item) }));
   const grns = grnsByPo.value[poCode] || [];
   const invoices = [...new Set(grns.map(g => g.vendor_invoice_number).filter(Boolean))];
-  openModal("Purchase Order", PoDetailModal, { po, items, invoices, allowInvoiceUpload: true }, poCode);
+  openModal("Purchase Order", PoDetailModal, {
+    po, items, invoices, allowInvoiceUpload: true, uploaderLabel: myDisplayName.value,
+  }, poCode);
 }
 
 function openSkuDetailModal(key) {
@@ -45,6 +48,7 @@ function openSkuDetailModal(key) {
 onMounted(async () => {
   const ctx = await requireSession();
   if (!ctx) return;
+  myDisplayName.value = ctx.profile.vendor_name || ctx.profile.email || "Vendor";
   ready.value = true;
 });
 
@@ -79,7 +83,7 @@ async function signOut() {
             :rows="filteredSorted" :filters="filters"
             :facility-options="facilityOptions" :status-options="statusOptions"
             :grns-by-po="grnsByPo" :show-kpis="true"
-            :on-open-po="openPoDetailModal" :allow-invoice-upload="true"
+            :on-open-po="openPoDetailModal" :allow-invoice-upload="true" :uploader-label="myDisplayName"
           />
         </div>
 

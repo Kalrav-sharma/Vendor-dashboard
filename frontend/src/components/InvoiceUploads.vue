@@ -8,6 +8,7 @@ const props = defineProps({
   poCode: { type: String, required: true },
   vendorCode: { type: String, required: true },
   allowUpload: { type: Boolean, default: false }, // true from both vendor.html and admin.html
+  uploaderLabel: { type: String, default: "" }, // current user's display name, recorded on the uploaded row
 });
 
 const {
@@ -75,7 +76,10 @@ function fmtSize(bytes) {
         <div class="invoice-upload-row-main">
           <button class="link-btn-inline" @click="viewInvoice(row)">{{ row.file_name }}</button>
           <span class="chip" :class="matchChipClass(row.match_status)">{{ matchChipLabel(row.match_status) }}</span>
-          <span class="invoice-upload-meta mono">{{ fmtSize(row.file_size) }} · {{ fmtDate(row.created_at) }}</span>
+          <span class="invoice-upload-meta">
+            Uploaded by {{ row.uploaded_by_name || "Unknown" }} ·
+            <span class="mono">{{ fmtSize(row.file_size) }} · {{ fmtDate(row.created_at) }}</span>
+          </span>
           <button class="link-btn-inline invoice-upload-remove" :disabled="workingIds.has(row.id)" @click="handleDelete(row)">
             {{ workingIds.has(row.id) ? "Removing…" : "Remove" }}
           </button>
@@ -98,6 +102,8 @@ function fmtSize(bytes) {
       </li>
     </ul>
 
-    <InvoiceUploadModal v-model="uploadModalOpen" :po-code="poCode" :vendor-code="vendorCode" />
+    <InvoiceUploadModal
+      v-model="uploadModalOpen" :po-code="poCode" :vendor-code="vendorCode" :uploader-label="uploaderLabel"
+    />
   </div>
 </template>

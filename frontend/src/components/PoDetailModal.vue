@@ -11,6 +11,7 @@ const props = defineProps({
   invoices: { type: Array, default: () => [] }, // PO-level invoice numbers
   vendorLabelText: { type: String, default: null }, // null hides the Vendor row (vendor.html)
   allowInvoiceUpload: { type: Boolean, default: false }, // true from both vendor.html and admin.html
+  uploaderLabel: { type: String, default: "" }, // current user's display name, recorded on an uploaded row
 });
 
 const { downloadingCodes, downloadPoPdf } = usePdfDownload();
@@ -55,5 +56,8 @@ const isDownloading = computed(() => downloadingCodes.has(props.po.po_code));
     </table>
   </div></div>
 
-  <InvoiceUploads :po-code="po.po_code" :vendor-code="po.vendor_code" :allow-upload="allowInvoiceUpload" />
+  <InvoiceUploads
+    :po-code="po.po_code" :vendor-code="po.vendor_code"
+    :allow-upload="allowInvoiceUpload" :uploader-label="uploaderLabel"
+  />
 </template>

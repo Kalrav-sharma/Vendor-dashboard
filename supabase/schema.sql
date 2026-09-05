@@ -239,6 +239,9 @@ create table if not exists public.po_invoice_uploads (
   file_name text not null,
   file_size bigint,
   uploaded_by uuid references auth.users(id) on delete set null,
+  uploaded_by_name text,  -- denormalized display name (profiles.vendor_name/email at
+                          -- upload time) so the UI can show "who" without an RLS-gated
+                          -- join back to profiles (see useInvoiceUploads.js)
   created_at timestamptz not null default now(),
   -- AI match-check result (see the check-invoice-match Edge Function) --
   -- only that function ever writes these (via service_role), never RLS.
@@ -258,6 +261,7 @@ alter table public.po_invoice_uploads add column if not exists match_status text
 alter table public.po_invoice_uploads add column if not exists match_summary text;
 alter table public.po_invoice_uploads add column if not exists match_details jsonb;
 alter table public.po_invoice_uploads add column if not exists checked_at timestamptz;
+alter table public.po_invoice_uploads add column if not exists uploaded_by_name text;
 
 create index if not exists po_invoice_uploads_po_code_idx on public.po_invoice_uploads(po_code);
 create index if not exists po_invoice_uploads_vendor_code_idx on public.po_invoice_uploads(vendor_code);

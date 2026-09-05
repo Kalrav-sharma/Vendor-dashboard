@@ -49,7 +49,8 @@ function openPoDetailModal(poCode) {
   const grns = grnsByPo.value[poCode] || [];
   const invoices = [...new Set(grns.map(g => g.vendor_invoice_number).filter(Boolean))];
   openModal("Purchase Order", PoDetailModal, {
-    po, items, invoices, vendorLabelText: vendorLabel(po.vendor_code, po.vendor_name), allowInvoiceUpload: true,
+    po, items, invoices, vendorLabelText: vendorLabel(po.vendor_code, po.vendor_name),
+    allowInvoiceUpload: true, uploaderLabel: whoLine.value,
   }, poCode);
 }
 
@@ -113,7 +114,7 @@ async function signOut() {
             :facility-options="facilityOptions" :status-options="statusOptions"
             :vendor-options="vendorOptions" :vendor-label="vendorLabel"
             :grns-by-po="grnsByPo" :show-kpis="false"
-            :on-open-po="openPoDetailModal" :allow-invoice-upload="true"
+            :on-open-po="openPoDetailModal" :allow-invoice-upload="true" :uploader-label="whoLine"
           />
         </div>
 
