@@ -167,8 +167,13 @@ td { padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: mi
 tbody tr:last-child td { border-bottom: none; }
 tbody tr:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); }
 .clickable-row { cursor: pointer; }
-.num { text-align: right; }
-th.num { text-align: right; }
+/* width:1% + nowrap tells the table's auto layout "shrink this column to
+   fit its content, don't stretch it" -- without it, a numeric column with
+   short values (e.g. "71,200") could still end up much wider than its
+   content whenever the table has slack width to distribute, leaving the
+   right-aligned number and header looking like they're floating in the
+   middle of the column instead of hugging its right edge. */
+.num { text-align: right; white-space: nowrap; width: 1%; }
 
 .filter-row td { padding: 5px 8px; background: var(--paper); border-bottom: 1px solid var(--line); }
 .filter-row select, .filter-row input {
