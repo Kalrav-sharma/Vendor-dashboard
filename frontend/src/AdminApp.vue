@@ -13,9 +13,11 @@ import ManageVendors from "./components/ManageVendors.vue";
 import AppModal from "./components/AppModal.vue";
 import PoDetailModal from "./components/PoDetailModal.vue";
 import SkuDetailModal from "./components/SkuDetailModal.vue";
+import ProfileMenu from "./components/ProfileMenu.vue";
 
 const ready = ref(false);
 const whoLine = ref("Admin");
+const myEmail = ref("");
 const activeNav = ref("po-tracking");
 const pageTitle = computed(() => ({
   "po-tracking": "PO Tracking",
@@ -70,6 +72,7 @@ onMounted(async () => {
     return;
   }
   whoLine.value = ctx.profile.vendor_name || "Admin";
+  myEmail.value = ctx.profile.email || "";
   await refreshVendors();
   ready.value = true;
 });
@@ -103,8 +106,7 @@ async function signOut() {
             </div>
           </div>
           <div class="who">
-            <span><b>{{ whoLine }}</b></span><br>
-            <button class="link-btn" @click="signOut">Sign out</button>
+            <ProfileMenu :display-name="whoLine" :email="myEmail" :on-sign-out="signOut" />
           </div>
         </header>
 
