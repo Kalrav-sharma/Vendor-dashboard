@@ -53,6 +53,8 @@
 <script>
   const POLL_INTERVAL_MS = 60 * 1000;
   let client, profile, currentPos = [], poItemsByPo = {}, grnsByPo = {}, grnByCode = {}, grnItemsByPoSku = {};
+  let poShellBuilt = false;
+  let poFilters = { search: "", facility: "", poCode: "", status: "", qtyOrdered: "", qtyReceived: "", poValue: "", grn: "" };
 
   const showSection = setupSidebarNav(
     [
@@ -113,7 +115,12 @@
       (grnItemsByPoSku[key] ||= []).push(gi);
     }
 
-    renderPoTracking();
+    if (!poShellBuilt) {
+      renderPoTracking();
+      poShellBuilt = true;
+    } else {
+      renderPoTableBody();
+    }
     populateSkuFilter();
     renderSkuData();
 
@@ -136,19 +143,119 @@
     setInterval(loadAndRender, POLL_INTERVAL_MS);
   }
 
+  function poRowFields(p) {
+    const grns = grnsByPo[p.po_code] || [];
+    const invoices = [...new Set(grns.map(g => g.vendor_invoice_number).filter(Boolean))];
+    return {
+      facility: p.facility || "",
+      poCode: p.po_code || "",
+      status: (STATUS_META[p.status] || [p.status])[0] || "",
+      qtyOrdered: fmtNum(p.qty_ordered),
+      qtyReceived: fmtNum(p.qty_received),
+      poValue: fmtMoney(p.total_amount),
+      grn: invoices.length ? invoices.join(", ") : "not yet raised",
+    };
+  }
+
+  function poMatchesFilters(fields) {
+    const f = poFilters;
+    if (f.facility && fields.facility !== f.facility) return false;
+    if (f.status && fields.status !== f.status) return false;
+    for (const key of ["poCode", "qtyOrdered", "qtyReceived", "poValue", "grn"]) {
+      if (f[key] && !fields[key].toLowerCase().includes(f[key].toLowerCase())) return false;
+    }
+    if (f.search) {
+      const q = f.search.toLowerCase();
+      if (!Object.values(fields).some(v => String(v).toLowerCase().includes(q))) return false;
+    }
+    return true;
+  }
+
+  // Builds the outer shell (KPI container + table incl. the filter-input
+  // row) ONCE. Filter inputs are only ever created here, never recreated
+  // by renderPoTableBody() -- otherwise every keystroke would rebuild the
+  // input the user is actively typing into and steal focus after each
+  // character. Only called on initial load; subsequent 60s poll refreshes
+  // just call renderPoTableBody() directly, reusing this same shell.
   function renderPoTracking() {
-    const openCount = currentPos.filter(p => !TERMINAL_STATUSES.has(p.status)).length;
-    const totalOrdered = currentPos.reduce((s, p) => s + (Number(p.qty_ordered) || 0), 0);
-    const totalReceived = currentPos.reduce((s, p) => s + (Number(p.qty_received) || 0), 0);
-    const totalAmount = currentPos.reduce((s, p) => s + (Number(p.total_amount) || 0), 0);
-    const totalGrnAmount = Object.values(grnsByPo).flat().reduce((s, g) => s + (Number(g.total_received_amount) || 0), 0);
+    const facilities = [...new Set(currentPos.map(p => p.facility).filter(Boolean))].sort();
+    const statuses = [...new Set(currentPos.map(p => (STATUS_META[p.status] || [p.status])[0]).filter(Boolean))].sort();
+
+    const opt = (value, label) => `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`;
+    const selectOptions = (values, current) =>
+      opt("", "All") + values.map(v => `<option value="${escapeHtml(v)}" ${current === v ? "selected" : ""}>${escapeHtml(v)}</option>`).join("");
+
+    document.getElementById("po-content").innerHTML = `
+      <div id="po-kpis-pills"></div>
+      <div class="field" style="max-width: 340px; margin-bottom: 14px;">
+        <label for="po-top-search">Search PO code, facility, status, invoice…</label>
+        <input type="text" id="po-top-search" placeholder="Type to search…" value="${escapeHtml(poFilters.search)}">
+      </div>
+      <div class="table-card"><div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Facility</th><th>PO code</th><th>Status</th>
+            <th class="num">Qty ordered</th><th class="num">Received</th><th class="num">PO value</th><th>GRN / invoice</th><th>PO Copy</th>
+          </tr>
+          <tr class="filter-row">
+            <td><select id="pf-facility">${selectOptions(facilities, poFilters.facility)}</select></td>
+            <td><input type="text" id="pf-poCode" placeholder="Filter…" value="${escapeHtml(poFilters.poCode)}"></td>
+            <td><select id="pf-status">${selectOptions(statuses, poFilters.status)}</select></td>
+            <td><input type="text" id="pf-qtyOrdered" placeholder="Filter…" value="${escapeHtml(poFilters.qtyOrdered)}"></td>
+            <td><input type="text" id="pf-qtyReceived" placeholder="Filter…" value="${escapeHtml(poFilters.qtyReceived)}"></td>
+            <td><input type="text" id="pf-poValue" placeholder="Filter…" value="${escapeHtml(poFilters.poValue)}"></td>
+            <td><input type="text" id="pf-grn" placeholder="Filter…" value="${escapeHtml(poFilters.grn)}"></td>
+            <td></td>
+          </tr>
+        </thead>
+        <tbody id="po-tbody"></tbody>
+      </table>
+      </div></div>
+    `;
+
+    document.getElementById("po-top-search").addEventListener("input", e => { poFilters.search = e.target.value; renderPoTableBody(); });
+    document.getElementById("pf-facility").addEventListener("change", e => { poFilters.facility = e.target.value; renderPoTableBody(); });
+    document.getElementById("pf-poCode").addEventListener("input", e => { poFilters.poCode = e.target.value; renderPoTableBody(); });
+    document.getElementById("pf-status").addEventListener("change", e => { poFilters.status = e.target.value; renderPoTableBody(); });
+    document.getElementById("pf-qtyOrdered").addEventListener("input", e => { poFilters.qtyOrdered = e.target.value; renderPoTableBody(); });
+    document.getElementById("pf-qtyReceived").addEventListener("input", e => { poFilters.qtyReceived = e.target.value; renderPoTableBody(); });
+    document.getElementById("pf-poValue").addEventListener("input", e => { poFilters.poValue = e.target.value; renderPoTableBody(); });
+    document.getElementById("pf-grn").addEventListener("input", e => { poFilters.grn = e.target.value; renderPoTableBody(); });
+
+    renderPoTableBody();
+  }
+
+  // Recomputes the filtered set and updates ONLY the KPI/pills container
+  // and the tbody -- safe to call on every keystroke, never touches the
+  // filter inputs themselves.
+  function renderPoTableBody() {
+    const filtered = currentPos.filter(p => poMatchesFilters(poRowFields(p)));
+
+    const openCount = filtered.filter(p => !TERMINAL_STATUSES.has(p.status)).length;
+    const totalOrdered = filtered.reduce((s, p) => s + (Number(p.qty_ordered) || 0), 0);
+    const totalReceived = filtered.reduce((s, p) => s + (Number(p.qty_received) || 0), 0);
+    const totalAmount = filtered.reduce((s, p) => s + (Number(p.total_amount) || 0), 0);
+    const totalGrnAmount = filtered.reduce((s, p) => s + (grnsByPo[p.po_code] || []).reduce((s2, g) => s2 + (Number(g.total_received_amount) || 0), 0), 0);
 
     const statusCounts = {};
-    for (const p of currentPos) statusCounts[p.status] = (statusCounts[p.status] || 0) + 1;
+    for (const p of filtered) statusCounts[p.status] = (statusCounts[p.status] || 0) + 1;
     const statusPills = Object.entries(statusCounts).sort((a, b) => b[1] - a[1])
       .map(([s, c]) => `<div class="stat-pill">${statusChip(s)}<span class="stat-count">${c}</span></div>`).join("");
 
-    const rows = currentPos.map(p => {
+    document.getElementById("po-kpis-pills").innerHTML = `
+      <div class="kpis">
+        <div class="kpi"><div class="label">Purchase orders</div><div class="value">${filtered.length}</div></div>
+        <div class="kpi"><div class="label">Still open</div><div class="value">${openCount}</div></div>
+        <div class="kpi"><div class="label">Units ordered</div><div class="value">${fmtNum(totalOrdered)}</div></div>
+        <div class="kpi"><div class="label">Units received</div><div class="value">${fmtNum(totalReceived)}</div></div>
+        <div class="kpi"><div class="label">PO value</div><div class="value">${fmtMoney(totalAmount)}</div></div>
+        <div class="kpi"><div class="label">GRN value received</div><div class="value">${fmtMoney(totalGrnAmount)}</div></div>
+      </div>
+      <div class="stat-pills">${statusPills}</div>
+    `;
+
+    const rows = filtered.map(p => {
       const grns = grnsByPo[p.po_code] || [];
       const invoices = [...new Set(grns.map(g => g.vendor_invoice_number).filter(Boolean))];
       const recv = grns.reduce((s, g) => s + (Number(g.total_received_amount) || 0), 0);
@@ -168,26 +275,7 @@
       </tr>`;
     }).join("");
 
-    document.getElementById("po-content").innerHTML = `
-      <div class="kpis">
-        <div class="kpi"><div class="label">Purchase orders</div><div class="value">${currentPos.length}</div></div>
-        <div class="kpi"><div class="label">Still open</div><div class="value">${openCount}</div></div>
-        <div class="kpi"><div class="label">Units ordered</div><div class="value">${fmtNum(totalOrdered)}</div></div>
-        <div class="kpi"><div class="label">Units received</div><div class="value">${fmtNum(totalReceived)}</div></div>
-        <div class="kpi"><div class="label">PO value</div><div class="value">${fmtMoney(totalAmount)}</div></div>
-        <div class="kpi"><div class="label">GRN value received</div><div class="value">${fmtMoney(totalGrnAmount)}</div></div>
-      </div>
-      <div class="stat-pills">${statusPills}</div>
-      <div class="table-card"><div class="table-scroll">
-      <table>
-        <thead><tr>
-          <th>Facility</th><th>PO code</th><th>Status</th>
-          <th class="num">Qty ordered</th><th class="num">Received</th><th class="num">PO value</th><th>GRN / invoice</th><th>PO Copy</th>
-        </tr></thead>
-        <tbody>${rows || `<tr><td colspan="8" class="empty-state">No purchase orders yet.</td></tr>`}</tbody>
-      </table>
-      </div></div>
-    `;
+    document.getElementById("po-tbody").innerHTML = rows || `<tr><td colspan="8" class="empty-state">No purchase orders match these filters.</td></tr>`;
   }
 
   function populateSkuFilter() {

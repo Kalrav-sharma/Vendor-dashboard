@@ -114,6 +114,13 @@ tbody tr:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); 
 .num { text-align: right; }
 th.num { text-align: right; }
 
+.filter-row td { padding: 5px 8px; background: var(--paper); border-bottom: 1px solid var(--line); }
+.filter-row select, .filter-row input {
+  width: 100%; font-size: 0.76rem; padding: 4px 6px; border: 1px solid var(--line); border-radius: 5px;
+  background: var(--surface); color: var(--ink); font-family: inherit; min-width: 70px;
+}
+.filter-row select:focus, .filter-row input:focus { outline: 2px solid var(--accent); outline-offset: 0; }
+
 .fac-code { font-family: "IBM Plex Mono", monospace; font-size: 0.78rem; color: var(--muted); }
 .cell-empty { color: var(--muted); font-size: 0.78rem; font-style: italic; }
 .invoice-list { font-family: "IBM Plex Mono", monospace; font-size: 0.74rem; }

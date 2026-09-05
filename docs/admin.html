@@ -34,12 +34,6 @@
         </header>
 
         <div id="view-po-tracking">
-          <div class="field" style="max-width: 280px; margin-bottom: 16px;">
-            <label for="vendor-filter">Filter by vendor</label>
-            <select id="vendor-filter">
-              <option value="">All vendors</option>
-            </select>
-          </div>
           <div id="po-content"><div class="loading">Loading…</div></div>
         </div>
 
@@ -95,6 +89,8 @@
   let client, vendors = [], vendorNameByCode = {}, currentPos = [];
   let poItemsByPo = {}, grnsByPo = {}, grnByCode = {}, grnItemsByPoSku = {};
   const POLL_INTERVAL_MS = 60 * 1000;
+  let poShellBuilt = false;
+  let poFilters = { search: "", vendor: "", facility: "", poCode: "", status: "", qtyOrdered: "", qtyReceived: "", poValue: "", grn: "" };
 
   const showSection = setupSidebarNav(
     [
@@ -143,7 +139,6 @@
     });
 
     await refreshAll();
-    document.getElementById("vendor-filter").addEventListener("change", renderPoTracking);
     document.getElementById("sku-po-filter").addEventListener("change", renderSkuData);
     setInterval(refreshAll, POLL_INTERVAL_MS);
   }
@@ -178,7 +173,16 @@
       </table></div></div>`;
     }
 
-    const select = document.getElementById("vendor-filter");
+    refreshVendorFilterOptions();
+  }
+
+  // Repopulates just the Vendor column filter's <option>s (e.g. right
+  // after creating a new vendor login) without rebuilding the rest of the
+  // filter-row shell. No-op before the shell exists yet (initial load
+  // calls loadVendors() before renderPoTracking() has run once).
+  function refreshVendorFilterOptions() {
+    const select = document.getElementById("pf-vendor");
+    if (!select) return;
     const previousValue = select.value;
     select.querySelectorAll("option[data-vendor-option]").forEach(opt => opt.remove());
     for (const v of vendors) {
@@ -225,20 +229,117 @@
       (grnItemsByPoSku[key] ||= []).push(gi);
     }
 
-    renderPoTracking();
+    if (!poShellBuilt) {
+      renderPoTracking();
+      poShellBuilt = true;
+    } else {
+      renderPoTableBody();
+    }
     populateSkuFilter();
     renderSkuData();
   }
 
+  function poRowFields(p) {
+    const grns = grnsByPo[p.po_code] || [];
+    const invoices = [...new Set(grns.map(g => g.vendor_invoice_number).filter(Boolean))];
+    return {
+      vendor: vendorLabel(p.vendor_code, p.vendor_name),
+      facility: p.facility || "",
+      poCode: p.po_code || "",
+      status: (STATUS_META[p.status] || [p.status])[0] || "",
+      qtyOrdered: fmtNum(p.qty_ordered),
+      qtyReceived: fmtNum(p.qty_received),
+      poValue: fmtMoney(p.total_amount),
+      grn: invoices.length ? invoices.join(", ") : "not yet raised",
+    };
+  }
+
+  function poMatchesFilters(p, fields) {
+    const f = poFilters;
+    if (f.vendor && p.vendor_code !== f.vendor) return false;
+    if (f.facility && fields.facility !== f.facility) return false;
+    if (f.status && fields.status !== f.status) return false;
+    for (const key of ["poCode", "qtyOrdered", "qtyReceived", "poValue", "grn"]) {
+      if (f[key] && !fields[key].toLowerCase().includes(f[key].toLowerCase())) return false;
+    }
+    if (f.search) {
+      const q = f.search.toLowerCase();
+      if (!Object.values(fields).some(v => String(v).toLowerCase().includes(q))) return false;
+    }
+    return true;
+  }
+
+  // Builds the outer shell (filter-row inputs included) ONCE -- see the
+  // matching comment in vendor.html's renderPoTracking for why: rebuilding
+  // these on every keystroke would steal focus from whatever the admin is
+  // actively typing into. Only called on initial load; later poll
+  // refreshes call renderPoTableBody() directly against this same shell.
   function renderPoTracking() {
-    const filter = document.getElementById("vendor-filter").value;
-    const pos = filter ? currentPos.filter(p => p.vendor_code === filter) : currentPos;
+    const facilities = [...new Set(currentPos.map(p => p.facility).filter(Boolean))].sort();
+    const statuses = [...new Set(currentPos.map(p => (STATUS_META[p.status] || [p.status])[0]).filter(Boolean))].sort();
+
+    const selectOptions = (values, current) =>
+      `<option value="">All</option>` + values.map(v => `<option value="${escapeHtml(v)}" ${current === v ? "selected" : ""}>${escapeHtml(v)}</option>`).join("");
+    const vendorOptions = `<option value="">All</option>` + vendors.map(v =>
+      `<option value="${escapeHtml(v.vendor_code)}" data-vendor-option="1" ${poFilters.vendor === v.vendor_code ? "selected" : ""}>${escapeHtml(v.vendor_name || v.vendor_code)}</option>`
+    ).join("");
+
+    document.getElementById("po-content").innerHTML = `
+      <div id="po-kpis-pills"></div>
+      <div class="field" style="max-width: 340px; margin-bottom: 14px;">
+        <label for="po-top-search">Search vendor, PO code, facility, status, invoice…</label>
+        <input type="text" id="po-top-search" placeholder="Type to search…" value="${escapeHtml(poFilters.search)}">
+      </div>
+      <div class="table-card"><div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Vendor</th><th>Facility</th><th>PO code</th><th>Status</th>
+            <th class="num">Qty ordered</th><th class="num">Received</th><th class="num">PO value</th><th>GRN / invoice</th><th>PO Copy</th>
+          </tr>
+          <tr class="filter-row">
+            <td><select id="pf-vendor">${vendorOptions}</select></td>
+            <td><select id="pf-facility">${selectOptions(facilities, poFilters.facility)}</select></td>
+            <td><input type="text" id="pf-poCode" placeholder="Filter…" value="${escapeHtml(poFilters.poCode)}"></td>
+            <td><select id="pf-status">${selectOptions(statuses, poFilters.status)}</select></td>
+            <td><input type="text" id="pf-qtyOrdered" placeholder="Filter…" value="${escapeHtml(poFilters.qtyOrdered)}"></td>
+            <td><input type="text" id="pf-qtyReceived" placeholder="Filter…" value="${escapeHtml(poFilters.qtyReceived)}"></td>
+            <td><input type="text" id="pf-poValue" placeholder="Filter…" value="${escapeHtml(poFilters.poValue)}"></td>
+            <td><input type="text" id="pf-grn" placeholder="Filter…" value="${escapeHtml(poFilters.grn)}"></td>
+            <td></td>
+          </tr>
+        </thead>
+        <tbody id="po-tbody"></tbody>
+      </table>
+      </div></div>
+    `;
+
+    document.getElementById("po-top-search").addEventListener("input", e => { poFilters.search = e.target.value; renderPoTableBody(); });
+    document.getElementById("pf-vendor").addEventListener("change", e => { poFilters.vendor = e.target.value; renderPoTableBody(); });
+    document.getElementById("pf-facility").addEventListener("change", e => { poFilters.facility = e.target.value; renderPoTableBody(); });
+    document.getElementById("pf-poCode").addEventListener("input", e => { poFilters.poCode = e.target.value; renderPoTableBody(); });
+    document.getElementById("pf-status").addEventListener("change", e => { poFilters.status = e.target.value; renderPoTableBody(); });
+    document.getElementById("pf-qtyOrdered").addEventListener("input", e => { poFilters.qtyOrdered = e.target.value; renderPoTableBody(); });
+    document.getElementById("pf-qtyReceived").addEventListener("input", e => { poFilters.qtyReceived = e.target.value; renderPoTableBody(); });
+    document.getElementById("pf-poValue").addEventListener("input", e => { poFilters.poValue = e.target.value; renderPoTableBody(); });
+    document.getElementById("pf-grn").addEventListener("input", e => { poFilters.grn = e.target.value; renderPoTableBody(); });
+
+    renderPoTableBody();
+  }
+
+  // Recomputes the filtered set and updates ONLY the KPI/pills container
+  // and the tbody -- safe on every keystroke, never touches the filter
+  // inputs themselves (see renderPoTracking above).
+  function renderPoTableBody() {
+    const filtered = currentPos.filter(p => poMatchesFilters(p, poRowFields(p)));
 
     document.getElementById("scope-line").textContent =
       `${currentPos.length} purchase order${currentPos.length === 1 ? "" : "s"} across all vendors` +
-      (filter ? ` · showing ${pos.length} for ${escapeHtml(vendorLabel(filter, null))}` : "");
+      (filtered.length !== currentPos.length ? ` · showing ${filtered.length} matching current filters` : "");
 
-    const rows = pos.map(p => {
+    document.getElementById("po-kpis-pills").innerHTML = "";
+
+    const rows = filtered.map(p => {
       const grns = grnsByPo[p.po_code] || [];
       const invoices = [...new Set(grns.map(g => g.vendor_invoice_number).filter(Boolean))];
       const recv = grns.reduce((s, g) => s + (Number(g.total_received_amount) || 0), 0);
@@ -259,17 +360,7 @@
       </tr>`;
     }).join("");
 
-    document.getElementById("po-content").innerHTML = `
-      <div class="table-card"><div class="table-scroll">
-      <table>
-        <thead><tr>
-          <th>Vendor</th><th>Facility</th><th>PO code</th><th>Status</th>
-          <th class="num">Qty ordered</th><th class="num">Received</th><th class="num">PO value</th><th>GRN / invoice</th><th>PO Copy</th>
-        </tr></thead>
-        <tbody>${rows || `<tr><td colspan="9" class="empty-state">No purchase orders.</td></tr>`}</tbody>
-      </table>
-      </div></div>
-    `;
+    document.getElementById("po-tbody").innerHTML = rows || `<tr><td colspan="9" class="empty-state">No purchase orders match these filters.</td></tr>`;
   }
 
   function populateSkuFilter() {
