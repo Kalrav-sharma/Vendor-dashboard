@@ -6,7 +6,7 @@ import { fmtDate } from "../format.js";
 const props = defineProps({
   poCode: { type: String, required: true },
   vendorCode: { type: String, required: true },
-  allowUpload: { type: Boolean, default: false }, // vendor.html only -- admin.html gets a read-only list
+  allowUpload: { type: Boolean, default: false }, // true from both vendor.html and admin.html
 });
 
 const { uploadsByPo, loadingPo, workingIds, fetchInvoices, uploadInvoice, deleteInvoice, viewInvoice } = useInvoiceUploads();

@@ -10,7 +10,7 @@ const props = defineProps({
   items: { type: Array, default: () => [] }, // each item pre-augmented with `invoiceText`
   invoices: { type: Array, default: () => [] }, // PO-level invoice numbers
   vendorLabelText: { type: String, default: null }, // null hides the Vendor row (vendor.html)
-  allowInvoiceUpload: { type: Boolean, default: false }, // true only from vendor.html
+  allowInvoiceUpload: { type: Boolean, default: false }, // true from both vendor.html and admin.html
 });
 
 const { downloadingCodes, downloadPoPdf } = usePdfDownload();

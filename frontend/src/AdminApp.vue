@@ -49,7 +49,7 @@ function openPoDetailModal(poCode) {
   const grns = grnsByPo.value[poCode] || [];
   const invoices = [...new Set(grns.map(g => g.vendor_invoice_number).filter(Boolean))];
   openModal("Purchase Order", PoDetailModal, {
-    po, items, invoices, vendorLabelText: vendorLabel(po.vendor_code, po.vendor_name),
+    po, items, invoices, vendorLabelText: vendorLabel(po.vendor_code, po.vendor_name), allowInvoiceUpload: true,
   }, poCode);
 }
 

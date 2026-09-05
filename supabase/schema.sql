@@ -258,14 +258,19 @@ create policy po_invoice_uploads_select on public.po_invoice_uploads
 -- A vendor can only insert rows tagged with their own vendor_code, and
 -- only against a PO that actually belongs to that same vendor_code --
 -- so this can't be used to attach an invoice file to someone else's PO.
+-- An admin can insert on behalf of any vendor (same PO/vendor_code
+-- consistency check still applies -- just not restricted to their own).
 drop policy if exists po_invoice_uploads_insert on public.po_invoice_uploads;
 create policy po_invoice_uploads_insert on public.po_invoice_uploads
   for insert
   with check (
-    vendor_code = (select p.vendor_code from public.profiles p where p.id = auth.uid())
-    and exists (
+    exists (
       select 1 from public.purchase_orders po
       where po.po_code = po_invoice_uploads.po_code and po.vendor_code = po_invoice_uploads.vendor_code
+    )
+    and (
+      public.is_admin()
+      or vendor_code = (select p.vendor_code from public.profiles p where p.id = auth.uid())
     )
   );
 
@@ -297,7 +302,10 @@ create policy po_invoices_insert on storage.objects
   for insert
   with check (
     bucket_id = 'po-invoices'
-    and (storage.foldername(name))[1] = (select p.vendor_code from public.profiles p where p.id = auth.uid())
+    and (
+      public.is_admin()
+      or (storage.foldername(name))[1] = (select p.vendor_code from public.profiles p where p.id = auth.uid())
+    )
   );
 
 drop policy if exists po_invoices_select on storage.objects;
