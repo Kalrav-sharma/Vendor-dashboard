@@ -52,19 +52,31 @@ and `grns` tables with RLS policies already attached.
    This is the only account that ever gets `role='admin'` this way — every
    vendor account after this gets created through the admin console itself.
 
-### 4. Deploy the Edge Function
-Easiest path, no CLI needed: Project → **Edge Functions** → **Create a new
-function** → name it exactly `admin-create-vendor` → paste in the contents
-of `supabase/functions/admin-create-vendor/index.ts` → Deploy.
+### 4. Deploy the Edge Functions
+There are two. Easiest path, no CLI needed: Project → **Edge Functions** →
+**Create a new function** for each, name it exactly as below, paste in the
+matching file's contents, Deploy.
+
+- `admin-create-vendor` ← `supabase/functions/admin-create-vendor/index.ts`
+  — the only place vendor accounts get created.
+- `get-po-pdf` ← `supabase/functions/get-po-pdf/index.ts` — fetches the
+  real, official Uniware PO PDF on demand (confirmed working: Uniware's own
+  `/po/show?legacy=1&code=...` endpoint accepts the same OAuth token our
+  read-only sync account already uses, no browser/cookie session needed).
+  Authorization for this one piggybacks on the same RLS as everything
+  else — it queries `purchase_orders` as the calling user, so a vendor
+  requesting a PO they don't own just gets "not found."
 
 (If you'd rather use the CLI: `supabase login`, `supabase link --project-ref
 <your-project-ref>`, then `supabase functions deploy admin-create-vendor`
-from this repo root.)
+and `supabase functions deploy get-po-pdf` from this repo root.)
 
-Then set its one required secret — Project → Edge Functions →
-`admin-create-vendor` → Secrets (or `supabase secrets set
-SUPABASE_SERVICE_ROLE_KEY=<key>`):
-- `SUPABASE_SERVICE_ROLE_KEY` = the service_role key from step 1.
+Then set each function's required secrets — Project → Edge Functions →
+(function name) → Secrets (or `supabase secrets set NAME=value`):
+- `admin-create-vendor` needs `SUPABASE_SERVICE_ROLE_KEY` = the service_role
+  key from step 1.
+- `get-po-pdf` needs `UNIWARE_USERNAME` and `UNIWARE_PASSWORD` = the same
+  read-only Uniware account already used by the GitHub Actions sync script.
 
 (`SUPABASE_URL` and `SUPABASE_ANON_KEY` are auto-injected by Supabase into
 every Edge Function — you don't set those yourself.)

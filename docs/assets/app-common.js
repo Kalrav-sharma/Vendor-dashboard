@@ -44,6 +44,44 @@ function visiblePos(pos) {
   return pos.filter(p => !HIDDEN_STATUSES.has(p.status));
 }
 
+// --- Real Uniware PO PDF download ---
+// Calls the get-po-pdf Edge Function, which fetches the actual official
+// Uniware document (not something we generate) and streams it back --
+// authorization is enforced by the same RLS every other query relies on,
+// so this can only ever return a PO the caller is allowed to see.
+async function downloadPoPdf(client, poCode, buttonEl) {
+  const originalLabel = buttonEl ? buttonEl.textContent : null;
+  if (buttonEl) {
+    buttonEl.disabled = true;
+    buttonEl.textContent = "Fetching…";
+  }
+  try {
+    const { data, error } = await client.functions.invoke(
+      `get-po-pdf?po_code=${encodeURIComponent(poCode)}`,
+      { method: "GET" }
+    );
+    if (error || !(data instanceof Blob)) {
+      alert(`Couldn't fetch the PO PDF: ${error?.message || "unexpected response from server"}`);
+      return;
+    }
+    const blobUrl = URL.createObjectURL(data);
+    const a = document.createElement("a");
+    a.href = blobUrl;
+    a.download = `PO_${poCode.replace(/[^A-Za-z0-9_-]/g, "_")}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(blobUrl);
+  } catch (e) {
+    alert(`Couldn't fetch the PO PDF: ${e.message || e}`);
+  } finally {
+    if (buttonEl) {
+      buttonEl.disabled = false;
+      buttonEl.textContent = originalLabel;
+    }
+  }
+}
+
 // Wires up a left-sidebar nav: sections = [{ navId, viewId }, ...].
 // Clicking a nav button shows its view, hides the others, marks it active.
 // Returns a `showSection(navId, onShow)` function so pages can switch

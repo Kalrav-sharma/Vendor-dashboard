@@ -71,6 +71,10 @@
     renderSkuData();
   }
 
+  function handleDownloadPdf(poCode, btn) {
+    downloadPoPdf(client, poCode, btn);
+  }
+
   async function loadAndRender() {
     const [{ data: pos, error: poErr }, { data: grns }, { data: poItems }, { data: grnItems }] = await Promise.all([
       client.from("purchase_orders").select("*").order("created_at", { ascending: false }),
@@ -160,6 +164,7 @@
         <td class="num mono">${fmtNum(p.qty_received)}</td>
         <td class="num mono">${fmtMoney(p.total_amount)}</td>
         <td>${grnCell}</td>
+        <td><button class="link-btn-inline" onclick="handleDownloadPdf('${p.po_code.replace(/'/g, "\\'")}', this)">Download PDF</button></td>
       </tr>`;
     }).join("");
 
@@ -177,9 +182,9 @@
       <table>
         <thead><tr>
           <th>Facility</th><th>PO code</th><th>Status</th>
-          <th class="num">Qty ordered</th><th class="num">Received</th><th class="num">PO value</th><th>GRN / invoice</th>
+          <th class="num">Qty ordered</th><th class="num">Received</th><th class="num">PO value</th><th>GRN / invoice</th><th>PO Copy</th>
         </tr></thead>
-        <tbody>${rows || `<tr><td colspan="7" class="empty-state">No purchase orders yet.</td></tr>`}</tbody>
+        <tbody>${rows || `<tr><td colspan="8" class="empty-state">No purchase orders yet.</td></tr>`}</tbody>
       </table>
       </div></div>
     `;
