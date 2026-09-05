@@ -161,6 +161,7 @@ button.primary-btn:disabled { opacity: 0.6; cursor: default; }
 footer.page-foot { margin-top: 16px; color: var(--muted); font-size: 0.74rem; text-align: center; }
 
 .po-doc-actions { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.po-doc-actions button, .po-doc-actions label { white-space: nowrap; }
 .po-doc-error { margin-top: 4px; padding: 4px 8px; font-size: 0.72rem; white-space: normal; }
 
 /* --- PO detail: vendor-uploaded invoice copies --- */
