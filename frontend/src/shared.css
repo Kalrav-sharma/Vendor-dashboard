@@ -187,6 +187,11 @@ tbody tr:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); 
    middle of the column instead of hugging its right edge. */
 .num { text-align: right; white-space: nowrap; width: 1%; }
 
+/* Same shrink-to-content trick as .num, for icon-only columns that don't
+   need the extra width a text-based column would (PO copy / Invoice
+   upload) -- frees that space for columns that actually want it. */
+.col-tight { white-space: nowrap; width: 1%; }
+
 .filter-row td { padding: 5px 8px; background: var(--paper); border-bottom: 1px solid var(--line); }
 .filter-row select, .filter-row input {
   width: 100%; font-size: 0.76rem; padding: 4px 6px; border: 1px solid var(--line); border-radius: 5px;

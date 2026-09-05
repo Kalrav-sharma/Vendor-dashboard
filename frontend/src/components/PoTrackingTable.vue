@@ -83,7 +83,7 @@ const statusPills = computed(() => {
           <th v-if="vendorOptions">Vendor</th>
           <th>Facility</th><th>PO code</th><th>Status</th>
           <th class="num">Qty ordered</th><th class="num">Received</th><th class="num">PO value</th>
-          <th>GRN / invoice</th><th>PO Copy</th><th>Invoice Upload</th>
+          <th>GRN / invoice</th><th class="col-tight">PO</th><th class="col-tight">Invoice</th>
         </tr>
         <tr class="filter-row">
           <td v-if="vendorOptions">
@@ -135,10 +135,10 @@ const statusPills = computed(() => {
               </div>
             </template>
           </td>
-          <td>
+          <td class="col-tight">
             <DownloadPdfButton :po-code="p.po_code" />
           </td>
-          <td>
+          <td class="col-tight">
             <button v-if="allowInvoiceUpload" class="link-btn-inline invoice-upload-btn" @click.stop="openUploadModal(p)">
               + Add invoice
             </button>
