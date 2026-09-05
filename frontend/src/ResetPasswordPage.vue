@@ -2,6 +2,7 @@
 import { ref, onMounted } from "vue";
 import { supabase } from "./supabaseClient.js";
 import SetNewPasswordForm from "./components/SetNewPasswordForm.vue";
+import BrandLogo from "./components/BrandLogo.vue";
 
 const status = ref("checking"); // "checking" | "ready" | "invalid"
 
@@ -47,6 +48,7 @@ async function handleDone() {
 <template>
   <div class="auth-shell">
     <div class="auth-card">
+      <BrandLogo brand="native" class="login-logo" />
       <h1>Reset your password</h1>
       <div class="sub">
         <template v-if="status === 'checking'">Checking your reset link…</template>

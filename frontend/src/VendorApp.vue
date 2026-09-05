@@ -12,6 +12,7 @@ import AppModal from "./components/AppModal.vue";
 import PoDetailModal from "./components/PoDetailModal.vue";
 import SkuDetailModal from "./components/SkuDetailModal.vue";
 import SetNewPasswordForm from "./components/SetNewPasswordForm.vue";
+import BrandLogo from "./components/BrandLogo.vue";
 
 const ready = ref(false);
 const mustChangePassword = ref(false); // gates the whole dashboard until cleared
@@ -77,6 +78,7 @@ async function signOut() {
 <template>
   <div v-if="mustChangePassword" class="auth-shell">
     <div class="auth-card">
+      <BrandLogo brand="native" class="login-logo" />
       <h1>Set a new password</h1>
       <div class="sub">For security, please set your own password before continuing -- this account was created with a shared temporary password.</div>
       <SetNewPasswordForm submit-label="Set password and continue" @done="handlePasswordChanged" />

@@ -1,43 +1,71 @@
+/* --- Brand type: Open Sauce Sans (self-hosted, see assets/fonts/OFL.txt) --- */
+@font-face {
+  font-family: "Open Sauce Sans";
+  src: url("./assets/fonts/OpenSauceSans-Regular.ttf") format("truetype");
+  font-weight: 400; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: "Open Sauce Sans";
+  src: url("./assets/fonts/OpenSauceSans-Medium.ttf") format("truetype");
+  font-weight: 500; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: "Open Sauce Sans";
+  src: url("./assets/fonts/OpenSauceSans-SemiBold.ttf") format("truetype");
+  font-weight: 600; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: "Open Sauce Sans";
+  src: url("./assets/fonts/OpenSauceSans-Bold.ttf") format("truetype");
+  font-weight: 700; font-style: normal; font-display: swap;
+}
+
+/* --- Brand palette: Native purple + Grey 90, from Desktop/Native brand theme --- */
 :root {
-  --paper: #F3F1EC;
+  --paper: #F6F4FB;
   --surface: #FFFFFF;
-  --ink: #1C2320;
-  --muted: #6B7069;
-  --line: #E1DED4;
-  --accent: #1F6F78;
-  --accent-soft: #DEEEEC;
-  --good: #22683F;
-  --good-soft: #DFEEE3;
+  --ink: #262626;
+  --muted: #6E6B78;
+  --line: #E6E1F2;
+  --accent: #6E42E5;
+  --accent-soft: #EFE9FC;
+  --good: #1F7A4D;
+  --good-soft: #DFF3E7;
   --open: #8A5A0A;
-  --open-soft: #F3E7CF;
-  --critical: #A5291E;
-  --critical-soft: #F7E1DE;
+  --open-soft: #F5E9D0;
+  --critical: #C33A3A;
+  --critical-soft: #FBE7E7;
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --paper: #15181A;
-    --surface: #1D2123;
-    --ink: #EDEBE3;
-    --muted: #9A9F97;
-    --line: #2C312E;
-    --accent: #5FB8BF;
-    --accent-soft: #1E3436;
-    --good: #6FCB8E;
-    --good-soft: #1C3325;
+    --paper: #17151E;
+    --surface: #211D2C;
+    --ink: #F1EEF7;
+    --muted: #A6A1B3;
+    --line: #332E42;
+    --accent: #9A7CF2;
+    --accent-soft: #322A48;
+    --good: #5FD08A;
+    --good-soft: #1E3327;
     --open: #E3B15C;
     --open-soft: #3A2E12;
-    --critical: #F0897C;
-    --critical-soft: #3B1D19;
+    --critical: #F08585;
+    --critical-soft: #3B1D1D;
   }
 }
 
 * { box-sizing: border-box; }
 body {
   margin: 0; background: var(--paper); color: var(--ink);
-  font-family: "IBM Plex Sans", -apple-system, "Segoe UI", sans-serif;
+  font-family: "Open Sauce Sans", -apple-system, "Segoe UI", sans-serif;
 }
 .mono { font-family: "IBM Plex Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; }
 a { color: var(--accent); }
+
+/* --- Brand logos (Native / Urban Company) -- black artwork on transparent,
+   inverted to white for dark backgrounds/dark mode. --- */
+.brand-logo { display: block; height: 20px; width: auto; }
+@media (prefers-color-scheme: dark) { .brand-logo { filter: invert(1); } }
 
 /* --- App shell: left sidebar nav + main content --- */
 .app-shell { display: flex; min-height: 100vh; align-items: stretch; }
@@ -45,7 +73,9 @@ a { color: var(--accent); }
   width: 200px; flex-shrink: 0; background: var(--surface); border-right: 1px solid var(--line);
   padding: 20px 0; position: sticky; top: 0; height: 100vh; overflow-y: auto;
 }
-.sidebar .brand { padding: 0 20px 16px; font-weight: 600; font-size: 0.92rem; border-bottom: 1px solid var(--line); margin-bottom: 10px; }
+.sidebar .brand { padding: 0 20px 16px; border-bottom: 1px solid var(--line); margin-bottom: 10px; }
+.sidebar-logo { height: 18px; margin-bottom: 8px; }
+.sidebar-app-name { font-weight: 600; font-size: 0.92rem; }
 .nav-item {
   display: block; width: 100%; text-align: left; padding: 10px 20px; background: none; border: none;
   color: var(--muted); font-size: 0.84rem; font-family: inherit; cursor: pointer; border-left: 3px solid transparent;
@@ -135,6 +165,13 @@ th.num { text-align: right; }
 .auth-card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 32px; width: 100%; max-width: 380px; }
 .auth-card h1 { font-size: 1.25rem; margin-bottom: 4px; }
 .auth-card .sub { color: var(--muted); font-size: 0.83rem; margin-bottom: 24px; }
+.login-logo { height: 26px; margin: 0 auto 20px; }
+.powered-by {
+  display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 26px;
+  padding-top: 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.68rem;
+  text-transform: uppercase; letter-spacing: 0.05em;
+}
+.powered-by .brand-logo { height: 14px; }
 .field { margin-bottom: 14px; }
 .field label { display: block; font-size: 0.78rem; color: var(--muted); margin-bottom: 5px; font-weight: 500; }
 .field input {

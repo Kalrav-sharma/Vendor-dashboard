@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted } from "vue";
 import { supabase } from "./supabaseClient.js";
+import BrandLogo from "./components/BrandLogo.vue";
 
 const view = ref("login"); // "login" | "reset"
 const email = ref("");
@@ -69,6 +70,7 @@ async function handleSendReset() {
 <template>
   <div class="auth-shell">
     <div class="auth-card">
+      <BrandLogo brand="native" class="login-logo" />
       <h1>Vendor Portal</h1>
       <div class="sub">Sign in to see your purchase orders and receipts.</div>
 
@@ -103,6 +105,11 @@ async function handleSendReset() {
         </template>
         <button type="button" class="link-btn" style="margin-top: 12px;" @click="backToLogin">Back to sign in</button>
       </form>
+
+      <div class="powered-by">
+        <span>Powered by</span>
+        <BrandLogo brand="uc" />
+      </div>
     </div>
   </div>
 </template>
