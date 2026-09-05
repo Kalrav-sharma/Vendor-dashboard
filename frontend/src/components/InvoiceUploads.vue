@@ -1,7 +1,8 @@
 <script setup>
 import { computed, onMounted, ref } from "vue";
-import { useInvoiceUploads, validateInvoiceFile } from "../composables/useInvoiceUploads.js";
+import { useInvoiceUploads } from "../composables/useInvoiceUploads.js";
 import { fmtDate } from "../format.js";
+import InvoiceUploadModal from "./InvoiceUploadModal.vue";
 
 const props = defineProps({
   poCode: { type: String, required: true },
@@ -11,15 +12,15 @@ const props = defineProps({
 
 const {
   uploadsByPo, loadingPo, workingIds,
-  fetchInvoices, uploadInvoice, deleteInvoice, viewInvoice, checkInvoiceMatch,
+  fetchInvoices, deleteInvoice, viewInvoice, checkInvoiceMatch,
 } = useInvoiceUploads();
 
 const errorMsg = ref("");
 const expandedId = ref(null);
+const uploadModalOpen = ref(false);
 
 const rows = computed(() => uploadsByPo[props.poCode] || []);
 const isLoading = computed(() => loadingPo.has(props.poCode));
-const isUploading = computed(() => workingIds.has(`upload:${props.poCode}`));
 
 const MATCH_CHIP = {
   pending: ["Checking…", "chip-muted"],
@@ -34,22 +35,6 @@ function isChecking(id) { return workingIds.has(`check:${id}`); }
 function toggleDetails(id) { expandedId.value = expandedId.value === id ? null : id; }
 
 onMounted(() => fetchInvoices(props.poCode));
-
-async function handleFileChosen(e) {
-  const file = e.target.files?.[0];
-  e.target.value = ""; // so choosing the same file again later still fires @change
-  if (!file) return;
-  errorMsg.value = "";
-
-  const validationErr = validateInvoiceFile(file);
-  if (validationErr) {
-    errorMsg.value = validationErr;
-    return;
-  }
-
-  const result = await uploadInvoice(props.poCode, props.vendorCode, file);
-  if (!result.ok) errorMsg.value = result.error;
-}
 
 async function handleDelete(row) {
   if (!window.confirm(`Remove "${row.file_name}" from this PO? This can't be undone.`)) return;
@@ -74,10 +59,9 @@ function fmtSize(bytes) {
   <div class="invoice-uploads">
     <div class="invoice-uploads-head">
       <h4>Invoice copies</h4>
-      <label v-if="allowUpload" class="link-btn-inline invoice-upload-btn">
-        {{ isUploading ? "Uploading…" : "+ Upload invoice (PDF)" }}
-        <input type="file" accept="application/pdf,.pdf" :disabled="isUploading" hidden @change="handleFileChosen">
-      </label>
+      <button v-if="allowUpload" class="link-btn-inline invoice-upload-btn" @click="uploadModalOpen = true">
+        + Upload invoice (PDF)
+      </button>
     </div>
 
     <div v-if="errorMsg" class="form-error">{{ errorMsg }}</div>
@@ -113,5 +97,7 @@ function fmtSize(bytes) {
         </ul>
       </li>
     </ul>
+
+    <InvoiceUploadModal v-model="uploadModalOpen" :po-code="poCode" :vendor-code="vendorCode" />
   </div>
 </template>

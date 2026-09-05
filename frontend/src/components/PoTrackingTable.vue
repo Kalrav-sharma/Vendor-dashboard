@@ -1,9 +1,9 @@
 <script setup>
-import { computed, reactive } from "vue";
+import { computed, ref } from "vue";
 import StatusChip from "./StatusChip.vue";
+import InvoiceUploadModal from "./InvoiceUploadModal.vue";
 import { fmtNum, fmtMoney, TERMINAL_STATUSES } from "../format.js";
 import { usePdfDownload } from "../composables/usePdfDownload.js";
-import { useInvoiceUploads, validateInvoiceFile } from "../composables/useInvoiceUploads.js";
 
 const props = defineProps({
   rows: { type: Array, required: true },        // already filtered + sorted
@@ -19,27 +19,15 @@ const props = defineProps({
 });
 
 const { downloadingCodes, downloadPoPdf } = usePdfDownload();
-const { workingIds, uploadInvoice } = useInvoiceUploads();
-const rowUploadErrors = reactive({});
 
-function isUploadingRow(poCode) {
-  return workingIds.has(`upload:${poCode}`);
-}
-
-async function handleRowInvoiceChosen(e, po) {
-  const file = e.target.files?.[0];
-  e.target.value = ""; // so choosing the same file again later still fires @change
-  if (!file) return;
-  rowUploadErrors[po.po_code] = "";
-
-  const validationErr = validateInvoiceFile(file);
-  if (validationErr) {
-    rowUploadErrors[po.po_code] = validationErr;
-    return;
-  }
-
-  const result = await uploadInvoice(po.po_code, po.vendor_code, file);
-  if (!result.ok) rowUploadErrors[po.po_code] = result.error;
+// One shared upload popup instance for the whole table, opened for
+// whichever row's button was clicked -- avoids mounting N modal
+// instances (one per row) just so one at a time can ever be visible.
+const uploadModalPoCode = ref(null);
+const uploadModalVendorCode = ref(null);
+function openUploadModal(po) {
+  uploadModalPoCode.value = po.po_code;
+  uploadModalVendorCode.value = po.vendor_code;
 }
 
 function grnInfo(poCode) {
@@ -154,14 +142,19 @@ const statusPills = computed(() => {
             </button>
           </td>
           <td>
-            <label v-if="allowInvoiceUpload" class="link-btn-inline invoice-upload-btn">
-              {{ isUploadingRow(p.po_code) ? "Uploading…" : "+ Add invoice" }}
-              <input type="file" accept="application/pdf,.pdf" hidden :disabled="isUploadingRow(p.po_code)" @change="handleRowInvoiceChosen($event, p)">
-            </label>
-            <div v-if="rowUploadErrors[p.po_code]" class="form-error po-doc-error">{{ rowUploadErrors[p.po_code] }}</div>
+            <button v-if="allowInvoiceUpload" class="link-btn-inline invoice-upload-btn" @click="openUploadModal(p)">
+              + Add invoice
+            </button>
           </td>
         </tr>
       </tbody>
     </table>
   </div></div>
+
+  <InvoiceUploadModal
+    :model-value="!!uploadModalPoCode"
+    :po-code="uploadModalPoCode || ''"
+    :vendor-code="uploadModalVendorCode || ''"
+    @update:model-value="(v) => { if (!v) uploadModalPoCode = null }"
+  />
 </template>

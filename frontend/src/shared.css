@@ -161,7 +161,6 @@ button.primary-btn:disabled { opacity: 0.6; cursor: default; }
 footer.page-foot { margin-top: 16px; color: var(--muted); font-size: 0.74rem; text-align: center; }
 
 .po-copy-btn, .invoice-upload-btn { white-space: nowrap; }
-.po-doc-error { margin-top: 4px; padding: 4px 8px; font-size: 0.72rem; white-space: normal; }
 
 /* --- PO detail: vendor-uploaded invoice copies --- */
 .invoice-uploads { margin-top: 22px; }
@@ -197,3 +196,16 @@ footer.page-foot { margin-top: 16px; color: var(--muted); font-size: 0.74rem; te
 .modal-body .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 24px; font-size: 0.85rem; margin-bottom: 18px; }
 .modal-body .meta-grid b { font-weight: 600; }
 @media (max-width: 560px) { .modal-body .meta-grid { grid-template-columns: 1fr; } }
+
+/* --- Invoice upload popup (drag-and-drop + browse) --- */
+.upload-modal-box { max-width: 420px; }
+.upload-dropzone {
+  border: 2px dashed var(--line); border-radius: 10px; padding: 32px 20px; text-align: center;
+  color: var(--muted); font-size: 0.85rem; transition: border-color 0.15s, background 0.15s;
+}
+.upload-dropzone p { margin: 0; }
+.upload-dropzone-or { margin: 10px 0 !important; font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.05em; }
+.upload-dropzone-active { border-color: var(--accent); background: var(--accent-soft); }
+.upload-browse-btn { display: inline-block; cursor: pointer; font-size: 0.85rem; }
+.upload-modal-status { margin-top: 14px; color: var(--muted); font-size: 0.83rem; text-align: center; }
+.upload-modal-box .form-error { margin: 14px 0 0; }
