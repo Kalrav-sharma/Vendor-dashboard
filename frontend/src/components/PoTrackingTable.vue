@@ -2,8 +2,8 @@
 import { computed, ref } from "vue";
 import StatusChip from "./StatusChip.vue";
 import InvoiceUploadModal from "./InvoiceUploadModal.vue";
+import DownloadPdfButton from "./DownloadPdfButton.vue";
 import { fmtNum, fmtMoney, TERMINAL_STATUSES } from "../format.js";
-import { usePdfDownload } from "../composables/usePdfDownload.js";
 
 const props = defineProps({
   rows: { type: Array, required: true },        // already filtered + sorted
@@ -18,8 +18,6 @@ const props = defineProps({
   allowInvoiceUpload: { type: Boolean, default: false }, // lets a row upload without opening the PO detail modal
   uploaderLabel: { type: String, default: "" }, // current user's display name, recorded on an uploaded row
 });
-
-const { downloadingCodes, downloadPoPdf } = usePdfDownload();
 
 // One shared upload popup instance for the whole table, opened for
 // whichever row's button was clicked -- avoids mounting N modal
@@ -138,12 +136,7 @@ const statusPills = computed(() => {
             </template>
           </td>
           <td>
-            <button
-              class="link-btn-inline po-copy-btn" :disabled="downloadingCodes.has(p.po_code)"
-              @click.stop="downloadPoPdf(p.po_code)"
-            >
-              {{ downloadingCodes.has(p.po_code) ? "Fetching…" : "Download PDF" }}
-            </button>
+            <DownloadPdfButton :po-code="p.po_code" />
           </td>
           <td>
             <button v-if="allowInvoiceUpload" class="link-btn-inline invoice-upload-btn" @click.stop="openUploadModal(p)">

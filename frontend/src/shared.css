@@ -65,7 +65,19 @@ a { color: var(--accent); }
 /* --- Brand logos (Native / Urban Company) -- black artwork on transparent,
    inverted to white for dark backgrounds/dark mode. --- */
 .brand-logo { display: block; height: 20px; width: auto; }
-@media (prefers-color-scheme: dark) { .brand-logo { filter: invert(1); } }
+
+/* --- Any monochrome black-on-transparent icon (download, etc.) -- same
+   invert-for-dark-mode treatment as the brand logos above. --- */
+.icon-mono { display: block; height: 18px; width: 18px; }
+@media (prefers-color-scheme: dark) { .brand-logo, .icon-mono { filter: invert(1); } }
+
+.icon-btn {
+  background: none; border: none; padding: 5px; margin: -5px; border-radius: 6px; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; line-height: 0;
+}
+.icon-btn:hover { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.icon-btn:disabled { opacity: 0.5; cursor: default; }
+.icon-btn:disabled:hover { background: none; }
 
 /* --- App shell: left sidebar nav + main content --- */
 .app-shell { display: flex; min-height: 100vh; align-items: stretch; }
@@ -228,7 +240,7 @@ button.primary-btn:disabled { opacity: 0.6; cursor: default; }
 
 footer.page-foot { margin-top: 16px; color: var(--muted); font-size: 0.74rem; text-align: center; }
 
-.po-copy-btn, .invoice-upload-btn { white-space: nowrap; }
+.invoice-upload-btn { white-space: nowrap; }
 
 /* --- PO detail: vendor-uploaded invoice copies --- */
 .invoice-uploads { margin-top: 22px; }

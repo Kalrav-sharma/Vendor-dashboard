@@ -1,11 +1,10 @@
 <script setup>
-import { computed } from "vue";
 import StatusChip from "./StatusChip.vue";
 import InvoiceUploads from "./InvoiceUploads.vue";
+import DownloadPdfButton from "./DownloadPdfButton.vue";
 import { fmtNum, fmtMoney, fmtDate } from "../format.js";
-import { usePdfDownload } from "../composables/usePdfDownload.js";
 
-const props = defineProps({
+defineProps({
   po: { type: Object, required: true },
   items: { type: Array, default: () => [] }, // each item pre-augmented with `invoiceText`
   invoices: { type: Array, default: () => [] }, // PO-level invoice numbers
@@ -13,9 +12,6 @@ const props = defineProps({
   allowInvoiceUpload: { type: Boolean, default: false }, // true from both vendor.html and admin.html
   uploaderLabel: { type: String, default: "" }, // current user's display name, recorded on an uploaded row
 });
-
-const { downloadingCodes, downloadPoPdf } = usePdfDownload();
-const isDownloading = computed(() => downloadingCodes.has(props.po.po_code));
 </script>
 
 <template>
@@ -26,11 +22,7 @@ const isDownloading = computed(() => downloadingCodes.has(props.po.po_code));
     <div><b>Created:</b> {{ fmtDate(po.created_at) }}</div>
     <div><b>PO value:</b> {{ fmtMoney(po.total_amount) }}</div>
     <div><b>Invoice no(s):</b> {{ invoices.length ? invoices.join(", ") : "not yet raised" }}</div>
-    <div>
-      <button class="link-btn-inline" :disabled="isDownloading" @click="downloadPoPdf(po.po_code)">
-        {{ isDownloading ? "Fetching…" : "Download PDF" }}
-      </button>
-    </div>
+    <div><b>PO copy:</b> <DownloadPdfButton :po-code="po.po_code" /></div>
   </div>
 
   <div class="table-card"><div class="table-scroll">
