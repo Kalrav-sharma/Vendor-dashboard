@@ -17,6 +17,10 @@
 --                        vendor_code is denormalized here (copied from the
 --                        parent PO) purely so its RLS policy doesn't need a
 --                        join, not because it can differ from the PO's.
+--   po_items           — one row per SKU line item on a PO (qty ordered/
+--                        received/pending/rejected, pricing). Same write
+--                        path and denormalized vendor_code as purchase_orders.
+--   grn_items          — one row per SKU line item on a GRN. Same pattern.
 --
 -- Access model:
 --   - A vendor login can SELECT only rows whose vendor_code matches their
@@ -125,6 +129,73 @@ alter table public.grns enable row level security;
 
 drop policy if exists grns_select on public.grns;
 create policy grns_select on public.grns
+  for select
+  using (
+    public.is_admin()
+    or vendor_code = (select p.vendor_code from public.profiles p where p.id = auth.uid())
+  );
+
+-- ---------------------------------------------------------------------
+-- po_items — one row per SKU line item on a PO. Powers the "SKU Level
+-- Data" section (clicking a PO in PO Tracking filters this by po_code).
+-- ---------------------------------------------------------------------
+create table if not exists public.po_items (
+  id bigint generated always as identity primary key,
+  po_code text not null references public.purchase_orders(po_code) on delete cascade,
+  vendor_code text not null,  -- denormalized from the parent PO, for a join-free RLS check
+  item_sku text not null,
+  item_name text,
+  quantity numeric,
+  received_quantity numeric,
+  pending_quantity numeric,
+  rejected_quantity numeric,
+  unit_price numeric,
+  max_retail_price numeric,
+  subtotal numeric,
+  total numeric,
+  updated_at timestamptz not null default now(),
+  unique (po_code, item_sku)
+);
+
+create index if not exists po_items_po_code_idx on public.po_items(po_code);
+create index if not exists po_items_vendor_code_idx on public.po_items(vendor_code);
+
+alter table public.po_items enable row level security;
+
+drop policy if exists po_items_select on public.po_items;
+create policy po_items_select on public.po_items
+  for select
+  using (
+    public.is_admin()
+    or vendor_code = (select p.vendor_code from public.profiles p where p.id = auth.uid())
+  );
+
+-- ---------------------------------------------------------------------
+-- grn_items — one row per SKU line item on a GRN. Same purpose as
+-- po_items, for the receipt side of the SKU-level breakdown.
+-- ---------------------------------------------------------------------
+create table if not exists public.grn_items (
+  id bigint generated always as identity primary key,
+  grn_code text not null references public.grns(grn_code) on delete cascade,
+  po_code text not null references public.purchase_orders(po_code) on delete cascade,
+  vendor_code text not null,  -- denormalized, for a join-free RLS check
+  item_sku text not null,
+  item_name text,
+  quantity numeric,           -- received quantity for this SKU on this GRN
+  rejected_quantity numeric,
+  unit_price numeric,
+  updated_at timestamptz not null default now(),
+  unique (grn_code, item_sku)
+);
+
+create index if not exists grn_items_grn_code_idx on public.grn_items(grn_code);
+create index if not exists grn_items_po_code_idx on public.grn_items(po_code);
+create index if not exists grn_items_vendor_code_idx on public.grn_items(vendor_code);
+
+alter table public.grn_items enable row level security;
+
+drop policy if exists grn_items_select on public.grn_items;
+create policy grn_items_select on public.grn_items
   for select
   using (
     public.is_admin()

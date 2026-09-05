@@ -2,9 +2,12 @@
 """
 Pulls Lexcru Water Tech Pvt Ltd purchase orders + GRNs from Uniware across
 the 5 Native facilities (created Aug 1 2026 onward), and upserts them into
-Supabase Postgres tables (purchase_orders, grns). The vendor/admin portal
-pages under docs/ read directly from Supabase (via supabase-js + Row Level
-Security) — this script's only job is keeping that database current.
+Supabase Postgres tables (purchase_orders, grns, and their SKU-level line
+items po_items / grn_items — Uniware returns these in the same detail
+responses already being fetched, so this costs no extra API calls). The
+vendor/admin portal pages under docs/ read directly from Supabase (via
+supabase-js + Row Level Security) — this script's only job is keeping that
+database current.
 
 Designed to run unattended on a schedule (GitHub Actions cron, every 5 min)
 with zero human/LLM involvement per run. Credentials come from environment
@@ -141,6 +144,7 @@ def fetch_grn_codes_for_po(session, token, facility, po_code):
 
 
 def fetch_grn_detail(session, token, facility, grn_code):
+    """Returns (header_dict, item_rows) — item_rows is [] on any failure."""
     try:
         r = session.post(
             f"{UNIWARE_BASE_URL}/services/rest/v1/purchase/inflowReceipt/getInflowReceipt",
@@ -149,39 +153,61 @@ def fetch_grn_detail(session, token, facility, grn_code):
             timeout=REQUEST_TIMEOUT,
         )
         ir = r.json().get("inflowReceipt", r.json())
-        created_ms = ir.get("created")
-        created_iso = None
-        if created_ms:
-            try:
-                created_iso = datetime.fromtimestamp(int(created_ms) / 1000, tz=timezone.utc).isoformat()
-            except (TypeError, ValueError, OSError):
-                created_iso = None
-        return {
-            "grn_code": ir.get("code"),
-            "status": ir.get("statusCode"),
-            "created_at": created_iso,
-            "vendor_invoice_number": ir.get("vendorInvoiceNumber"),
-            "vendor_invoice_date": ir.get("vendorInvoiceDate"),
-            "total_received_amount": ir.get("totalReceivedAmount"),
-            "total_rejected_amount": ir.get("totalRejectedAmount"),
-        }
     except Exception as e:
         print(f"WARN: GRN detail fetch failed for {facility}/{grn_code}: {e}", file=sys.stderr)
-        return None
+        return None, []
+
+    created_ms = ir.get("created")
+    created_iso = None
+    if created_ms:
+        try:
+            created_iso = datetime.fromtimestamp(int(created_ms) / 1000, tz=timezone.utc).isoformat()
+        except (TypeError, ValueError, OSError):
+            created_iso = None
+
+    header = {
+        "grn_code": ir.get("code"),
+        "status": ir.get("statusCode"),
+        "created_at": created_iso,
+        "vendor_invoice_number": ir.get("vendorInvoiceNumber"),
+        "vendor_invoice_date": ir.get("vendorInvoiceDate"),
+        "total_received_amount": ir.get("totalReceivedAmount"),
+        "total_rejected_amount": ir.get("totalRejectedAmount"),
+    }
+
+    item_rows = [
+        {
+            "item_sku": it.get("itemSKU"),
+            "item_name": it.get("itemTypeName"),
+            "quantity": it.get("quantity"),
+            "rejected_quantity": it.get("rejectedQuantity"),
+            "unit_price": it.get("unitPrice"),
+        }
+        for it in (ir.get("inflowReceiptItems") or [])
+    ]
+    return header, item_rows
 
 
 def fetch_grns_for_po(session, token, facility, po_code):
-    grns = []
+    grn_rows = []
+    grn_item_rows = []
     for grn_code in fetch_grn_codes_for_po(session, token, facility, po_code):
-        detail = fetch_grn_detail(session, token, facility, grn_code)
-        if detail:
-            detail["po_code"] = po_code
-            detail["vendor_code"] = VENDOR_CODE
-            grns.append(detail)
-    return grns
+        header, items = fetch_grn_detail(session, token, facility, grn_code)
+        if not header:
+            continue
+        header["po_code"] = po_code
+        header["vendor_code"] = VENDOR_CODE
+        grn_rows.append(header)
+        for it in items:
+            it["grn_code"] = header["grn_code"]
+            it["po_code"] = po_code
+            it["vendor_code"] = VENDOR_CODE
+            grn_item_rows.append(it)
+    return grn_rows, grn_item_rows
 
 
 def build_po_row(facility, code, po):
+    """Returns (po_row, inflow_receipts_count, item_rows)."""
     items = po.get("purchaseOrderItems") or []
     created_ms = po.get("created") or po.get("createdDate")
     created_iso = None
@@ -190,10 +216,12 @@ def build_po_row(facility, code, po):
             created_iso = datetime.fromtimestamp(int(created_ms) / 1000, tz=timezone.utc).isoformat()
         except (TypeError, ValueError, OSError):
             created_iso = None
-    return {
+
+    vendor_code = po.get("vendorCode")
+    po_row = {
         "po_code": code,
         "facility": facility,
-        "vendor_code": po.get("vendorCode"),
+        "vendor_code": vendor_code,
         "status": po.get("statusCode"),
         "created_at": created_iso,
         "total_amount": (po.get("purchaseOrderPriceSummary") or {}).get("totalAmount"),
@@ -202,7 +230,27 @@ def build_po_row(facility, code, po):
         "qty_pending": sum(it.get("pendingQuantity", 0) or 0 for it in items),
         "qty_rejected": sum(it.get("rejectedQuantity", 0) or 0 for it in items),
         "num_items": len(items),
-    }, po.get("inflowReceiptsCount") or 0
+    }
+
+    item_rows = [
+        {
+            "po_code": code,
+            "vendor_code": vendor_code,
+            "item_sku": it.get("itemSKU"),
+            "item_name": it.get("itemTypeName"),
+            "quantity": it.get("quantity"),
+            "received_quantity": it.get("receivedQuantity"),
+            "pending_quantity": it.get("pendingQuantity"),
+            "rejected_quantity": it.get("rejectedQuantity"),
+            "unit_price": it.get("unitPrice"),
+            "max_retail_price": it.get("maxRetailPrice"),
+            "subtotal": it.get("subtotal"),
+            "total": it.get("total"),
+        }
+        for it in items
+    ]
+
+    return po_row, po.get("inflowReceiptsCount") or 0, item_rows
 
 
 # ---------------------------------------------------------------------
@@ -286,6 +334,7 @@ def main():
 
     # 2. Fetch fresh PO detail for all candidates, in parallel.
     po_rows = []
+    po_item_rows = []
     inflow_counts = {}  # po_code -> inflowReceiptsCount, for step 3
     with ThreadPoolExecutor(max_workers=10) as ex:
         futs = {
@@ -296,24 +345,30 @@ def main():
             facility, code = futs[fut]
             po = fut.result()
             if po and po.get("vendorCode") == VENDOR_CODE:
-                row, inflow_count = build_po_row(facility, code, po)
+                row, inflow_count, item_rows = build_po_row(facility, code, po)
                 po_rows.append(row)
+                po_item_rows.extend(item_rows)
                 if inflow_count > 0:
                     inflow_counts[code] = facility
 
     upsert_rows(session, supabase_url, supabase_key, "purchase_orders", "po_code", po_rows)
+    upsert_rows(session, supabase_url, supabase_key, "po_items", "po_code,item_sku", po_item_rows)
 
     # 3. GRNs for any PO refreshed this run that has at least one receipt.
     grn_rows = []
+    grn_item_rows = []
     with ThreadPoolExecutor(max_workers=10) as ex:
         futs = {
             ex.submit(fetch_grns_for_po, session, token, facility, code): code
             for code, facility in inflow_counts.items()
         }
         for fut in as_completed(futs):
-            grn_rows.extend(fut.result())
+            headers, items = fut.result()
+            grn_rows.extend(headers)
+            grn_item_rows.extend(items)
 
     upsert_rows(session, supabase_url, supabase_key, "grns", "grn_code", grn_rows)
+    upsert_rows(session, supabase_url, supabase_key, "grn_items", "grn_code,item_sku", grn_item_rows)
 
     # Always touch a heartbeat file (with a fresh timestamp, so it always
     # differs) so the GitHub Actions workflow always has something to
@@ -322,7 +377,8 @@ def main():
     with open(HEARTBEAT_PATH, "w") as f:
         f.write(datetime.now(IST).isoformat() + "\n")
 
-    print(f"Refreshed {len(po_rows)} PO(s), {len(grn_rows)} GRN(s) this run "
+    print(f"Refreshed {len(po_rows)} PO(s) ({len(po_item_rows)} line items), "
+          f"{len(grn_rows)} GRN(s) ({len(grn_item_rows)} line items) this run "
           f"({'first run / full backfill' if is_first_run else 'incremental'}).")
 
 

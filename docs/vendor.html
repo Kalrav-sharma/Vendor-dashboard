@@ -9,75 +9,111 @@
 <link rel="stylesheet" href="assets/styles.css">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="assets/supabase-client.js"></script>
+<script src="assets/app-common.js"></script>
 </head>
 <body>
-  <div class="wrap">
-    <header class="page-head">
-      <div>
-        <h1>My Purchase Orders</h1>
-        <div class="scope" id="scope-line">Loading…</div>
-      </div>
-      <div class="who">
-        <span id="who-line"></span><br>
-        <button class="link-btn" id="signout-btn">Sign out</button>
-      </div>
-    </header>
+  <div class="app-shell">
+    <nav class="sidebar">
+      <div class="brand">Vendor Portal</div>
+      <button class="nav-item active" id="nav-po-tracking">PO Tracking</button>
+      <button class="nav-item" id="nav-sku-data">SKU Level Data</button>
+    </nav>
 
-    <div id="content">
-      <div class="loading">Loading your data…</div>
+    <div class="main-content">
+      <div class="wrap">
+        <header class="page-head">
+          <div>
+            <h1 id="page-title">PO Tracking</h1>
+            <div class="scope" id="scope-line">Loading…</div>
+          </div>
+          <div class="who">
+            <span id="who-line"></span><br>
+            <button class="link-btn" id="signout-btn">Sign out</button>
+          </div>
+        </header>
+
+        <div id="view-po-tracking">
+          <div id="po-content"><div class="loading">Loading your data…</div></div>
+        </div>
+
+        <div id="view-sku-data" hidden>
+          <div class="field" style="max-width: 320px; margin-bottom: 16px;">
+            <label for="sku-po-filter">Filter by PO code</label>
+            <select id="sku-po-filter">
+              <option value="">All purchase orders</option>
+            </select>
+          </div>
+          <div id="sku-content"><div class="loading">Loading…</div></div>
+        </div>
+
+        <footer class="page-foot">Data refreshes automatically every ~5 minutes from Uniware. <span id="last-updated"></span></footer>
+      </div>
     </div>
-
-    <footer class="page-foot">Data refreshes automatically every ~5 minutes from Uniware. <span id="last-updated"></span></footer>
   </div>
 
 <script>
-  const TERMINAL = new Set(["COMPLETE", "REJECTED", "CANCELLED", "CLOSED"]);
-  const STATUS_META = {
-    COMPLETE: ["Complete", "good"],
-    APPROVED: ["Approved · open", "open"],
-    CREATED: ["Created · open", "open"],
-    REJECTED: ["Rejected", "critical"],
-    CANCELLED: ["Cancelled", "muted"],
-  };
-
-  function fmtNum(n) { return (n === null || n === undefined) ? "–" : Number(n).toLocaleString("en-IN"); }
-  function fmtMoney(n) { return (n === null || n === undefined) ? "–" : "₹" + Number(n).toLocaleString("en-IN", { maximumFractionDigits: 0 }); }
-  function fmtDate(iso) {
-    if (!iso) return "–";
-    const d = new Date(iso);
-    return d.toLocaleDateString("en-IN", { day: "2-digit", month: "short" }) + ", " +
-           d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
-  }
-  function statusChip(status) {
-    const [label, cls] = STATUS_META[status] || [status || "Unknown", "muted"];
-    return `<span class="chip chip-${cls}">${label}</span>`;
-  }
-  function escapeHtml(s) {
-    return String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-  }
-
   const POLL_INTERVAL_MS = 60 * 1000;
+  let client, profile, currentPos = [], poItemsByPo = {}, grnsByPo = {}, grnByCode = {}, grnItemsByPoSku = {};
 
-  async function loadAndRender(client, profile) {
-    const [{ data: pos, error: poErr }, { data: grns, error: grnErr }] = await Promise.all([
+  const showSection = setupSidebarNav(
+    [
+      { navId: "nav-po-tracking", viewId: "view-po-tracking" },
+      { navId: "nav-sku-data", viewId: "view-sku-data" },
+    ],
+    (navId) => {
+      document.getElementById("page-title").textContent =
+        navId === "nav-po-tracking" ? "PO Tracking" : "SKU Level Data";
+    }
+  );
+
+  function goToSkuData(poCode) {
+    showSection("nav-sku-data");
+    document.getElementById("sku-po-filter").value = poCode;
+    renderSkuData();
+  }
+
+  async function loadAndRender() {
+    const [{ data: pos, error: poErr }, { data: grns }, { data: poItems }, { data: grnItems }] = await Promise.all([
       client.from("purchase_orders").select("*").order("created_at", { ascending: false }),
       client.from("grns").select("*"),
+      client.from("po_items").select("*"),
+      client.from("grn_items").select("*"),
     ]);
 
     if (poErr) {
-      document.getElementById("content").innerHTML = `<div class="alert">Failed to load purchase orders: ${escapeHtml(poErr.message)}</div>`;
+      document.getElementById("po-content").innerHTML = `<div class="alert">Failed to load purchase orders: ${escapeHtml(poErr.message)}</div>`;
       return;
     }
 
-    document.getElementById("scope-line").textContent =
-      `Vendor code ${profile.vendor_code} · ${pos.length} purchase order${pos.length === 1 ? "" : "s"} on file`;
+    currentPos = visiblePos(pos);
 
-    const grnsByPo = {};
+    document.getElementById("scope-line").textContent =
+      `${escapeHtml(profile.vendor_name || profile.vendor_code)} · ${currentPos.length} purchase order${currentPos.length === 1 ? "" : "s"} on file`;
+
+    grnsByPo = {};
+    grnByCode = {};
     for (const g of (grns || [])) {
       (grnsByPo[g.po_code] ||= []).push(g);
+      grnByCode[g.grn_code] = g;
     }
 
-    render(pos, grnsByPo);
+    const visibleCodes = new Set(currentPos.map(p => p.po_code));
+    poItemsByPo = {};
+    for (const it of (poItems || [])) {
+      if (visibleCodes.has(it.po_code)) (poItemsByPo[it.po_code] ||= []).push(it);
+    }
+
+    grnItemsByPoSku = {};
+    for (const gi of (grnItems || [])) {
+      if (!visibleCodes.has(gi.po_code)) continue;
+      const key = gi.po_code + "|" + gi.item_sku;
+      (grnItemsByPoSku[key] ||= []).push(gi);
+    }
+
+    renderPoTracking();
+    populateSkuFilter();
+    renderSkuData();
+
     document.getElementById("last-updated").textContent =
       "Page last checked " + new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
   }
@@ -85,7 +121,8 @@
   async function main() {
     const ctx = await requireSession();
     if (!ctx) return;
-    const { client, profile } = ctx;
+    client = ctx.client;
+    profile = ctx.profile;
 
     document.getElementById("who-line").innerHTML = `<b>${escapeHtml(profile.vendor_name || profile.vendor_code)}</b>`;
     document.getElementById("signout-btn").addEventListener("click", async () => {
@@ -93,35 +130,23 @@
       window.location.href = "login.html";
     });
 
-    await loadAndRender(client, profile);
-    setInterval(() => loadAndRender(client, profile), POLL_INTERVAL_MS);
+    await loadAndRender();
+    setInterval(loadAndRender, POLL_INTERVAL_MS);
   }
 
-  function render(pos, grnsByPo) {
-    const openCount = pos.filter(p => !TERMINAL.has(p.status)).length;
-    const totalOrdered = pos.reduce((s, p) => s + (Number(p.qty_ordered) || 0), 0);
-    const totalReceived = pos.reduce((s, p) => s + (Number(p.qty_received) || 0), 0);
-    const totalAmount = pos.reduce((s, p) => s + (Number(p.total_amount) || 0), 0);
+  function renderPoTracking() {
+    const openCount = currentPos.filter(p => !TERMINAL_STATUSES.has(p.status)).length;
+    const totalOrdered = currentPos.reduce((s, p) => s + (Number(p.qty_ordered) || 0), 0);
+    const totalReceived = currentPos.reduce((s, p) => s + (Number(p.qty_received) || 0), 0);
+    const totalAmount = currentPos.reduce((s, p) => s + (Number(p.total_amount) || 0), 0);
     const totalGrnAmount = Object.values(grnsByPo).flat().reduce((s, g) => s + (Number(g.total_received_amount) || 0), 0);
-    const rejected = pos.filter(p => p.status === "REJECTED");
 
     const statusCounts = {};
-    for (const p of pos) statusCounts[p.status] = (statusCounts[p.status] || 0) + 1;
+    for (const p of currentPos) statusCounts[p.status] = (statusCounts[p.status] || 0) + 1;
     const statusPills = Object.entries(statusCounts).sort((a, b) => b[1] - a[1])
       .map(([s, c]) => `<div class="stat-pill">${statusChip(s)}<span class="stat-count">${c}</span></div>`).join("");
 
-    let alertHtml = "";
-    if (rejected.length) {
-      const items = rejected.map(p =>
-        `<li><span class="mono">${escapeHtml(p.po_code)}</span> · ${escapeHtml(p.facility)} · ${fmtMoney(p.total_amount)} · ${fmtNum(p.qty_ordered)} units</li>`
-      ).join("");
-      alertHtml = `<div class="alert">
-        <div class="alert-head"><span class="alert-icon">!</span><strong>${rejected.length} purchase order${rejected.length === 1 ? "" : "s"} rejected</strong></div>
-        <ul>${items}</ul>
-      </div>`;
-    }
-
-    const rows = pos.map(p => {
+    const rows = currentPos.map(p => {
       const grns = grnsByPo[p.po_code] || [];
       const invoices = [...new Set(grns.map(g => g.vendor_invoice_number).filter(Boolean))];
       const recv = grns.reduce((s, g) => s + (Number(g.total_received_amount) || 0), 0);
@@ -131,9 +156,8 @@
         : `<div class="invoice-list">${escapeHtml(invoices.join(", ") || "–")}</div><div class="grn-amt">${fmtMoney(recv)}${rej ? ` <span class="grn-rej">−${fmtMoney(rej)} rej.</span>` : ""}</div>`;
       return `<tr>
         <td class="fac-code">${escapeHtml(p.facility)}</td>
-        <td class="mono">${escapeHtml(p.po_code)}</td>
+        <td class="mono"><button class="link-btn-inline" onclick="goToSkuData('${p.po_code.replace(/'/g, "\\'")}')">${escapeHtml(p.po_code)}</button></td>
         <td>${statusChip(p.status)}</td>
-        <td class="mono">${fmtDate(p.created_at)}</td>
         <td class="num mono">${fmtNum(p.qty_ordered)}</td>
         <td class="num mono">${fmtNum(p.qty_received)}</td>
         <td class="num mono">${fmtMoney(p.total_amount)}</td>
@@ -141,9 +165,9 @@
       </tr>`;
     }).join("");
 
-    document.getElementById("content").innerHTML = `
+    document.getElementById("po-content").innerHTML = `
       <div class="kpis">
-        <div class="kpi"><div class="label">Purchase orders</div><div class="value">${pos.length}</div></div>
+        <div class="kpi"><div class="label">Purchase orders</div><div class="value">${currentPos.length}</div></div>
         <div class="kpi"><div class="label">Still open</div><div class="value">${openCount}</div></div>
         <div class="kpi"><div class="label">Units ordered</div><div class="value">${fmtNum(totalOrdered)}</div></div>
         <div class="kpi"><div class="label">Units received</div><div class="value">${fmtNum(totalReceived)}</div></div>
@@ -151,18 +175,84 @@
         <div class="kpi"><div class="label">GRN value received</div><div class="value">${fmtMoney(totalGrnAmount)}</div></div>
       </div>
       <div class="stat-pills">${statusPills}</div>
-      ${alertHtml}
       <div class="table-card"><div class="table-scroll">
       <table>
         <thead><tr>
-          <th>Facility</th><th>PO code</th><th>Status</th><th>Created</th>
+          <th>Facility</th><th>PO code</th><th>Status</th>
           <th class="num">Qty ordered</th><th class="num">Received</th><th class="num">PO value</th><th>GRN / invoice</th>
         </tr></thead>
-        <tbody>${rows || `<tr><td colspan="8" class="empty-state">No purchase orders yet.</td></tr>`}</tbody>
+        <tbody>${rows || `<tr><td colspan="7" class="empty-state">No purchase orders yet.</td></tr>`}</tbody>
       </table>
       </div></div>
     `;
   }
+
+  function populateSkuFilter() {
+    const select = document.getElementById("sku-po-filter");
+    const previousValue = select.value;
+    select.querySelectorAll("option[data-po-option]").forEach(opt => opt.remove());
+    for (const p of currentPos) {
+      const opt = document.createElement("option");
+      opt.value = p.po_code;
+      opt.textContent = `${p.po_code} (${p.facility})`;
+      opt.dataset.poOption = "1";
+      select.appendChild(opt);
+    }
+    if ([...select.options].some(o => o.value === previousValue)) {
+      select.value = previousValue;
+    }
+  }
+
+  function invoicesForItem(item) {
+    const key = item.po_code + "|" + item.item_sku;
+    const grnItems = grnItemsByPoSku[key] || [];
+    const invoices = [...new Set(
+      grnItems.map(gi => grnByCode[gi.grn_code]?.vendor_invoice_number).filter(Boolean)
+    )];
+    return invoices.join(", ") || "–";
+  }
+
+  function renderSkuData() {
+    const filterCode = document.getElementById("sku-po-filter").value;
+    const codes = filterCode ? [filterCode] : Object.keys(poItemsByPo);
+    const rows = [];
+    for (const code of codes) {
+      const po = currentPos.find(p => p.po_code === code);
+      for (const item of (poItemsByPo[code] || [])) {
+        rows.push({ po, item });
+      }
+    }
+
+    const tableRows = rows.map(({ po, item }) => `
+      <tr>
+        <td class="fac-code">${escapeHtml(po?.facility || "")}</td>
+        <td class="mono">${escapeHtml(item.po_code)}</td>
+        <td class="mono">${escapeHtml(item.item_sku)}</td>
+        <td>${escapeHtml(item.item_name || "–")}</td>
+        <td class="num mono">${fmtNum(item.quantity)}</td>
+        <td class="num mono">${fmtNum(item.received_quantity)}</td>
+        <td class="num mono">${fmtNum(item.pending_quantity)}</td>
+        <td class="num mono">${fmtNum(item.rejected_quantity)}</td>
+        <td class="num mono">${fmtMoney(item.unit_price)}</td>
+        <td class="num mono">${fmtMoney(item.total)}</td>
+        <td class="mono invoice-list">${escapeHtml(invoicesForItem(item))}</td>
+      </tr>`).join("");
+
+    document.getElementById("sku-content").innerHTML = `
+      <div class="table-card"><div class="table-scroll">
+      <table>
+        <thead><tr>
+          <th>Facility</th><th>PO code</th><th>SKU</th><th>Item</th>
+          <th class="num">Qty ord</th><th class="num">Recv</th><th class="num">Pending</th><th class="num">Rejected</th>
+          <th class="num">Unit price</th><th class="num">Total</th><th>Invoice No(s)</th>
+        </tr></thead>
+        <tbody>${tableRows || `<tr><td colspan="11" class="empty-state">No SKU data for this selection.</td></tr>`}</tbody>
+      </table>
+      </div></div>
+    `;
+  }
+
+  document.getElementById("sku-po-filter").addEventListener("change", renderSkuData);
 
   main();
 </script>

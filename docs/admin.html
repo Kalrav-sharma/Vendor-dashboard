@@ -9,93 +9,113 @@
 <link rel="stylesheet" href="assets/styles.css">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="assets/supabase-client.js"></script>
+<script src="assets/app-common.js"></script>
 </head>
 <body>
-  <div class="wrap">
-    <header class="page-head">
-      <div>
-        <h1>Admin Console</h1>
-        <div class="scope" id="scope-line">Loading…</div>
-      </div>
-      <div class="who">
-        <span id="who-line"></span><br>
-        <button class="link-btn" id="signout-btn">Sign out</button>
-      </div>
-    </header>
+  <div class="app-shell">
+    <nav class="sidebar">
+      <div class="brand">Admin Console</div>
+      <button class="nav-item active" id="nav-po-tracking">PO Tracking</button>
+      <button class="nav-item" id="nav-sku-data">SKU Level Data</button>
+      <button class="nav-item" id="nav-manage-vendors">Manage Vendors</button>
+    </nav>
 
-    <div class="panel">
-      <h2>Create vendor login</h2>
-      <div id="create-msg"></div>
-      <form id="create-form">
-        <div class="panel-grid">
-          <div class="field">
-            <label for="v-email">Email</label>
-            <input type="email" id="v-email" required>
+    <div class="main-content">
+      <div class="wrap">
+        <header class="page-head">
+          <div>
+            <h1 id="page-title">PO Tracking</h1>
+            <div class="scope" id="scope-line">Loading…</div>
           </div>
-          <div class="field">
-            <label for="v-password">Temporary password</label>
-            <input type="text" id="v-password" required minlength="8" placeholder="min 8 characters">
+          <div class="who">
+            <span id="who-line"></span><br>
+            <button class="link-btn" id="signout-btn">Sign out</button>
           </div>
-          <div class="field">
-            <label for="v-code">Uniware vendor code</label>
-            <input type="text" id="v-code" required placeholder="e.g. Vendor-156">
+        </header>
+
+        <div id="view-po-tracking">
+          <div class="field" style="max-width: 280px; margin-bottom: 16px;">
+            <label for="vendor-filter">Filter by vendor</label>
+            <select id="vendor-filter">
+              <option value="">All vendors</option>
+            </select>
           </div>
-          <div class="field">
-            <label for="v-name">Vendor display name</label>
-            <input type="text" id="v-name" placeholder="e.g. LEXCRU WATER TECH PVT LTD">
+          <div id="po-content"><div class="loading">Loading…</div></div>
+        </div>
+
+        <div id="view-sku-data" hidden>
+          <div class="field" style="max-width: 340px; margin-bottom: 16px;">
+            <label for="sku-po-filter">Filter by PO code</label>
+            <select id="sku-po-filter">
+              <option value="">All purchase orders</option>
+            </select>
+          </div>
+          <div id="sku-content"><div class="loading">Loading…</div></div>
+        </div>
+
+        <div id="view-manage-vendors" hidden>
+          <div class="panel">
+            <h2>Create vendor login</h2>
+            <div id="create-msg"></div>
+            <form id="create-form">
+              <div class="panel-grid">
+                <div class="field">
+                  <label for="v-email">Email</label>
+                  <input type="email" id="v-email" required>
+                </div>
+                <div class="field">
+                  <label for="v-password">Temporary password</label>
+                  <input type="text" id="v-password" required minlength="8" placeholder="min 8 characters">
+                </div>
+                <div class="field">
+                  <label for="v-code">Uniware vendor code</label>
+                  <input type="text" id="v-code" required placeholder="e.g. Vendor-156">
+                </div>
+                <div class="field">
+                  <label for="v-name">Vendor display name</label>
+                  <input type="text" id="v-name" placeholder="e.g. LEXCRU WATER TECH PVT LTD">
+                </div>
+              </div>
+              <button type="submit" class="primary-btn" id="create-btn" style="width: auto; padding: 9px 20px; margin-top: 16px;">Create login</button>
+            </form>
+          </div>
+
+          <div class="panel">
+            <h2>Vendors on the portal</h2>
+            <div id="vendors-list" class="loading">Loading…</div>
           </div>
         </div>
-        <button type="submit" class="primary-btn" id="create-btn" style="width: auto; padding: 9px 20px; margin-top: 16px;">Create login</button>
-      </form>
-    </div>
 
-    <div class="panel">
-      <h2>Vendors on the portal</h2>
-      <div id="vendors-list" class="loading">Loading…</div>
-    </div>
-
-    <div class="panel">
-      <h2>All purchase orders</h2>
-      <div class="field" style="max-width: 280px; margin-bottom: 16px;">
-        <label for="vendor-filter">Filter by vendor</label>
-        <select id="vendor-filter">
-          <option value="">All vendors</option>
-        </select>
+        <footer class="page-foot">Data refreshes automatically every ~5 minutes from Uniware. <span id="last-updated"></span></footer>
       </div>
-      <div id="content"><div class="loading">Loading…</div></div>
     </div>
-
-    <footer class="page-foot">Data refreshes automatically every ~5 minutes from Uniware. <span id="last-updated"></span></footer>
   </div>
 
 <script>
-  const TERMINAL = new Set(["COMPLETE", "REJECTED", "CANCELLED", "CLOSED"]);
-  const STATUS_META = {
-    COMPLETE: ["Complete", "good"],
-    APPROVED: ["Approved · open", "open"],
-    CREATED: ["Created · open", "open"],
-    REJECTED: ["Rejected", "critical"],
-    CANCELLED: ["Cancelled", "muted"],
-  };
-
-  function fmtNum(n) { return (n === null || n === undefined) ? "–" : Number(n).toLocaleString("en-IN"); }
-  function fmtMoney(n) { return (n === null || n === undefined) ? "–" : "₹" + Number(n).toLocaleString("en-IN", { maximumFractionDigits: 0 }); }
-  function fmtDate(iso) {
-    if (!iso) return "–";
-    const d = new Date(iso);
-    return d.toLocaleDateString("en-IN", { day: "2-digit", month: "short" }) + ", " +
-           d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
-  }
-  function statusChip(status) {
-    const [label, cls] = STATUS_META[status] || [status || "Unknown", "muted"];
-    return `<span class="chip chip-${cls}">${label}</span>`;
-  }
-  function escapeHtml(s) {
-    return String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-  }
-
-  let allPos = [], grnsByPo = {}, client;
+  let client, vendors = [], vendorNameByCode = {}, currentPos = [];
+  let poItemsByPo = {}, grnsByPo = {}, grnByCode = {}, grnItemsByPoSku = {};
   const POLL_INTERVAL_MS = 60 * 1000;
+
+  const showSection = setupSidebarNav(
+    [
+      { navId: "nav-po-tracking", viewId: "view-po-tracking" },
+      { navId: "nav-sku-data", viewId: "view-sku-data" },
+      { navId: "nav-manage-vendors", viewId: "view-manage-vendors" },
+    ],
+    (navId) => {
+      document.getElementById("page-title").textContent = {
+        "nav-po-tracking": "PO Tracking",
+        "nav-sku-data": "SKU Level Data",
+        "nav-manage-vendors": "Manage Vendors",
+      }[navId];
+    }
+  );
+
+  function goToSkuData(poCode) {
+    showSection("nav-sku-data");
+    document.getElementById("sku-po-filter").value = poCode;
+    renderSkuData();
+  }
 
   async function main() {
     const ctx = await requireSession();
@@ -112,73 +132,100 @@
     });
 
     await refreshAll();
-    document.getElementById("vendor-filter").addEventListener("change", renderTable);
+    document.getElementById("vendor-filter").addEventListener("change", renderPoTracking);
+    document.getElementById("sku-po-filter").addEventListener("change", renderSkuData);
     setInterval(refreshAll, POLL_INTERVAL_MS);
   }
 
   async function refreshAll() {
-    await Promise.all([loadVendors(), loadPurchaseOrders()]);
+    await loadVendors();
+    await loadData();
     document.getElementById("last-updated").textContent =
       "Page last checked " + new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
   }
 
   async function loadVendors() {
-    const { data: vendors, error } = await client.from("profiles").select("*").eq("role", "vendor").order("created_at", { ascending: false });
+    const { data, error } = await client.from("profiles").select("*").eq("role", "vendor").order("created_at", { ascending: false });
     const box = document.getElementById("vendors-list");
     if (error) {
       box.innerHTML = `<div class="alert">Failed to load vendors: ${escapeHtml(error.message)}</div>`;
       return;
     }
+    vendors = data;
+    vendorNameByCode = Object.fromEntries(vendors.map(v => [v.vendor_code, v.vendor_name || v.vendor_code]));
+
     if (!vendors.length) {
       box.innerHTML = `<div class="empty-state">No vendor logins created yet — use the form above.</div>`;
     } else {
       box.innerHTML = `<div class="table-card"><div class="table-scroll"><table>
-        <thead><tr><th>Vendor code</th><th>Vendor name</th><th>Email</th><th>Created</th></tr></thead>
+        <thead><tr><th>Vendor name</th><th>Email</th><th>Created</th></tr></thead>
         <tbody>${vendors.map(v => `<tr>
-          <td class="mono">${escapeHtml(v.vendor_code)}</td>
-          <td>${escapeHtml(v.vendor_name || "–")}</td>
+          <td>${escapeHtml(v.vendor_name || v.vendor_code)}</td>
           <td class="mono">${escapeHtml(v.email || "–")}</td>
           <td class="mono">${fmtDate(v.created_at)}</td>
         </tr>`).join("")}</tbody>
       </table></div></div>`;
     }
+
     const select = document.getElementById("vendor-filter");
     const previousValue = select.value;
     select.querySelectorAll("option[data-vendor-option]").forEach(opt => opt.remove());
     for (const v of vendors) {
       const opt = document.createElement("option");
       opt.value = v.vendor_code;
-      opt.textContent = `${v.vendor_code} — ${v.vendor_name || ""}`;
+      opt.textContent = v.vendor_name || v.vendor_code;
       opt.dataset.vendorOption = "1";
       select.appendChild(opt);
     }
-    if ([...select.options].some(o => o.value === previousValue)) {
-      select.value = previousValue;
-    }
+    if ([...select.options].some(o => o.value === previousValue)) select.value = previousValue;
   }
 
-  async function loadPurchaseOrders() {
-    const [{ data: pos, error: poErr }, { data: grns }] = await Promise.all([
+  async function loadData() {
+    const [{ data: pos, error: poErr }, { data: grns }, { data: poItems }, { data: grnItems }] = await Promise.all([
       client.from("purchase_orders").select("*").order("created_at", { ascending: false }),
       client.from("grns").select("*"),
+      client.from("po_items").select("*"),
+      client.from("grn_items").select("*"),
     ]);
     if (poErr) {
-      document.getElementById("content").innerHTML = `<div class="alert">Failed to load purchase orders: ${escapeHtml(poErr.message)}</div>`;
+      document.getElementById("po-content").innerHTML = `<div class="alert">Failed to load purchase orders: ${escapeHtml(poErr.message)}</div>`;
       return;
     }
-    allPos = pos;
+
+    currentPos = visiblePos(pos);
+    const visibleCodes = new Set(currentPos.map(p => p.po_code));
+
     grnsByPo = {};
-    for (const g of (grns || [])) (grnsByPo[g.po_code] ||= []).push(g);
-    renderTable();
+    grnByCode = {};
+    for (const g of (grns || [])) {
+      (grnsByPo[g.po_code] ||= []).push(g);
+      grnByCode[g.grn_code] = g;
+    }
+
+    poItemsByPo = {};
+    for (const it of (poItems || [])) {
+      if (visibleCodes.has(it.po_code)) (poItemsByPo[it.po_code] ||= []).push(it);
+    }
+
+    grnItemsByPoSku = {};
+    for (const gi of (grnItems || [])) {
+      if (!visibleCodes.has(gi.po_code)) continue;
+      const key = gi.po_code + "|" + gi.item_sku;
+      (grnItemsByPoSku[key] ||= []).push(gi);
+    }
+
+    renderPoTracking();
+    populateSkuFilter();
+    renderSkuData();
   }
 
-  function renderTable() {
+  function renderPoTracking() {
     const filter = document.getElementById("vendor-filter").value;
-    const pos = filter ? allPos.filter(p => p.vendor_code === filter) : allPos;
+    const pos = filter ? currentPos.filter(p => p.vendor_code === filter) : currentPos;
 
     document.getElementById("scope-line").textContent =
-      `${allPos.length} purchase order${allPos.length === 1 ? "" : "s"} across all vendors` +
-      (filter ? ` · showing ${pos.length} for ${filter}` : "");
+      `${currentPos.length} purchase order${currentPos.length === 1 ? "" : "s"} across all vendors` +
+      (filter ? ` · showing ${pos.length} for ${escapeHtml(vendorNameByCode[filter] || filter)}` : "");
 
     const rows = pos.map(p => {
       const grns = grnsByPo[p.po_code] || [];
@@ -189,11 +236,10 @@
         ? `<span class="cell-empty">not yet raised</span>`
         : `<div class="invoice-list">${escapeHtml(invoices.join(", ") || "–")}</div><div class="grn-amt">${fmtMoney(recv)}${rej ? ` <span class="grn-rej">−${fmtMoney(rej)} rej.</span>` : ""}</div>`;
       return `<tr>
-        <td class="mono">${escapeHtml(p.vendor_code)}</td>
+        <td>${escapeHtml(vendorNameByCode[p.vendor_code] || p.vendor_code)}</td>
         <td class="fac-code">${escapeHtml(p.facility)}</td>
-        <td class="mono">${escapeHtml(p.po_code)}</td>
+        <td class="mono"><button class="link-btn-inline" onclick="goToSkuData('${p.po_code.replace(/'/g, "\\'")}')">${escapeHtml(p.po_code)}</button></td>
         <td>${statusChip(p.status)}</td>
-        <td class="mono">${fmtDate(p.created_at)}</td>
         <td class="num mono">${fmtNum(p.qty_ordered)}</td>
         <td class="num mono">${fmtNum(p.qty_received)}</td>
         <td class="num mono">${fmtMoney(p.total_amount)}</td>
@@ -201,14 +247,80 @@
       </tr>`;
     }).join("");
 
-    document.getElementById("content").innerHTML = `
+    document.getElementById("po-content").innerHTML = `
       <div class="table-card"><div class="table-scroll">
       <table>
         <thead><tr>
-          <th>Vendor</th><th>Facility</th><th>PO code</th><th>Status</th><th>Created</th>
+          <th>Vendor</th><th>Facility</th><th>PO code</th><th>Status</th>
           <th class="num">Qty ordered</th><th class="num">Received</th><th class="num">PO value</th><th>GRN / invoice</th>
         </tr></thead>
-        <tbody>${rows || `<tr><td colspan="9" class="empty-state">No purchase orders.</td></tr>`}</tbody>
+        <tbody>${rows || `<tr><td colspan="8" class="empty-state">No purchase orders.</td></tr>`}</tbody>
+      </table>
+      </div></div>
+    `;
+  }
+
+  function populateSkuFilter() {
+    const select = document.getElementById("sku-po-filter");
+    const previousValue = select.value;
+    select.querySelectorAll("option[data-po-option]").forEach(opt => opt.remove());
+    for (const p of currentPos) {
+      const opt = document.createElement("option");
+      opt.value = p.po_code;
+      opt.textContent = `${p.po_code} (${vendorNameByCode[p.vendor_code] || p.vendor_code})`;
+      opt.dataset.poOption = "1";
+      select.appendChild(opt);
+    }
+    if ([...select.options].some(o => o.value === previousValue)) {
+      select.value = previousValue;
+    }
+  }
+
+  function invoicesForItem(item) {
+    const key = item.po_code + "|" + item.item_sku;
+    const grnItems = grnItemsByPoSku[key] || [];
+    const invoices = [...new Set(
+      grnItems.map(gi => grnByCode[gi.grn_code]?.vendor_invoice_number).filter(Boolean)
+    )];
+    return invoices.join(", ") || "–";
+  }
+
+  function renderSkuData() {
+    const filterCode = document.getElementById("sku-po-filter").value;
+    const codes = filterCode ? [filterCode] : Object.keys(poItemsByPo);
+    const rows = [];
+    for (const code of codes) {
+      const po = currentPos.find(p => p.po_code === code);
+      for (const item of (poItemsByPo[code] || [])) {
+        rows.push({ po, item });
+      }
+    }
+
+    const tableRows = rows.map(({ po, item }) => `
+      <tr>
+        <td>${escapeHtml(vendorNameByCode[po?.vendor_code] || po?.vendor_code || "")}</td>
+        <td class="fac-code">${escapeHtml(po?.facility || "")}</td>
+        <td class="mono">${escapeHtml(item.po_code)}</td>
+        <td class="mono">${escapeHtml(item.item_sku)}</td>
+        <td>${escapeHtml(item.item_name || "–")}</td>
+        <td class="num mono">${fmtNum(item.quantity)}</td>
+        <td class="num mono">${fmtNum(item.received_quantity)}</td>
+        <td class="num mono">${fmtNum(item.pending_quantity)}</td>
+        <td class="num mono">${fmtNum(item.rejected_quantity)}</td>
+        <td class="num mono">${fmtMoney(item.unit_price)}</td>
+        <td class="num mono">${fmtMoney(item.total)}</td>
+        <td class="mono invoice-list">${escapeHtml(invoicesForItem(item))}</td>
+      </tr>`).join("");
+
+    document.getElementById("sku-content").innerHTML = `
+      <div class="table-card"><div class="table-scroll">
+      <table>
+        <thead><tr>
+          <th>Vendor</th><th>Facility</th><th>PO code</th><th>SKU</th><th>Item</th>
+          <th class="num">Qty ord</th><th class="num">Recv</th><th class="num">Pending</th><th class="num">Rejected</th>
+          <th class="num">Unit price</th><th class="num">Total</th><th>Invoice No(s)</th>
+        </tr></thead>
+        <tbody>${tableRows || `<tr><td colspan="12" class="empty-state">No SKU data for this selection.</td></tr>`}</tbody>
       </table>
       </div></div>
     `;
@@ -239,7 +351,7 @@
       return;
     }
 
-    msgBox.innerHTML = `<div class="form-success">Login created for ${escapeHtml(email)} (${escapeHtml(vendor_code)}). Share the email + temporary password with the vendor directly — this page will not show the password again.</div>`;
+    msgBox.innerHTML = `<div class="form-success">Login created for ${escapeHtml(email)} (${escapeHtml(vendor_name || vendor_code)}). Share the email + temporary password with the vendor directly — this page will not show the password again.</div>`;
     document.getElementById("create-form").reset();
     await loadVendors();
   });
