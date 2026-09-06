@@ -157,8 +157,9 @@ const statusPills = computed(() => {
             <div class="invoice-upload-cell">
               <InvoiceUploadButton v-if="allowInvoiceUpload" :on-click="() => openUploadModal(p)" />
               <span
-                v-if="invoiceUploadStatus(p.po_code).pending" class="chip chip-critical invoice-pending-chip"
-                :title="`${invoiceUploadStatus(p.po_code).uploaded} of ${invoiceUploadStatus(p.po_code).expected} invoice PDF(s) uploaded -- upload the rest`"
+                v-if="invoiceUploadStatus(p.po_code).expected > 0"
+                class="chip invoice-pending-chip" :class="invoiceUploadStatus(p.po_code).pending ? 'chip-critical' : 'chip-good'"
+                :title="`${invoiceUploadStatus(p.po_code).uploaded} of ${invoiceUploadStatus(p.po_code).expected} invoice PDF(s) uploaded` + (invoiceUploadStatus(p.po_code).pending ? ' -- upload the rest' : '')"
               >
                 {{ invoiceUploadStatus(p.po_code).uploaded }}/{{ invoiceUploadStatus(p.po_code).expected }}
               </span>
