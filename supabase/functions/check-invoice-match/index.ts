@@ -92,72 +92,86 @@ Deno.serve(async (req) => {
     // whose vendor_code they belong to (already authorized above).
     const adminClient = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
-    const { data: fileBlob, error: downloadErr } = await adminClient.storage.from(BUCKET).download(upload.storage_path);
-    if (downloadErr || !fileBlob) {
-      return await recordResult(adminClient, upload.id, "error", "Couldn't read the uploaded file back from storage.", null);
-    }
-
-    const [{ data: po }, { data: grns }] = await Promise.all([
-      adminClient.from("purchase_orders").select("po_code, total_amount, qty_ordered").eq("po_code", upload.po_code).single(),
-      adminClient.from("grns").select("*").eq("po_code", upload.po_code),
-    ]);
-    const grnsList = grns || [];
-
-    let extracted;
+    // From here on we have a real upload row -- guaranteed to record SOME
+    // result (an "error" status if nothing else) before returning, no
+    // matter what fails below. Without this, an unanticipated failure
+    // (a bad query, a bug in the comparison logic, anything) would hit
+    // the outer catch and return an error to the caller while leaving
+    // match_status stuck at its default 'pending' forever -- exactly the
+    // rows-stuck-on-"Checking…" bug this replaces.
     try {
-      const pdfBase64 = arrayBufferToBase64(await fileBlob.arrayBuffer());
-      extracted = await extractInvoiceData(pdfBase64);
+      const { data: fileBlob, error: downloadErr } = await adminClient.storage.from(BUCKET).download(upload.storage_path);
+      if (downloadErr || !fileBlob) {
+        return await recordResult(adminClient, upload.id, "error", "Couldn't read the uploaded file back from storage.", null);
+      }
+
+      const [{ data: po }, { data: grns }] = await Promise.all([
+        adminClient.from("purchase_orders").select("po_code, total_amount, qty_ordered").eq("po_code", upload.po_code).single(),
+        adminClient.from("grns").select("*").eq("po_code", upload.po_code),
+      ]);
+      const grnsList = grns || [];
+
+      let extracted;
+      try {
+        const pdfBase64 = arrayBufferToBase64(await fileBlob.arrayBuffer());
+        extracted = await extractInvoiceData(pdfBase64);
+      } catch (e) {
+        return await recordResult(
+          adminClient, upload.id, "error",
+          `Couldn't read the invoice PDF: ${e instanceof Error ? e.message : String(e)}`, null
+        );
+      }
+
+      const matchingGrn = grnsList.find((g) => {
+        const gNo = normalizeCode(g.vendor_invoice_number);
+        return gNo && gNo === normalizeCode(extracted.invoice_number);
+      });
+
+      let grnItems: any[] = [];
+      if (matchingGrn) {
+        const { data } = await adminClient
+          .from("grn_items").select("quantity").eq("grn_code", matchingGrn.grn_code);
+        grnItems = data || [];
+      }
+
+      const { status, summary, discrepancies, referenceLabel } = compareInvoiceToReference(
+        extracted, po, matchingGrn, grnItems, grnsList
+      );
+
+      // Many vendor invoices don't print a due date or payment terms at
+      // all -- rather than leave the Payment Dashboard blank, fall back
+      // to Kalrav's stated default: 45 days from the invoice date.
+      // Flagged as estimated so it's never confused with a date actually
+      // printed on the invoice.
+      let dueDate = extracted.invoice_due_date || null;
+      let dueDateEstimated = false;
+      if (!dueDate && extracted.invoice_date) {
+        const invoiceDate = new Date(extracted.invoice_date);
+        if (!isNaN(invoiceDate.getTime())) {
+          invoiceDate.setUTCDate(invoiceDate.getUTCDate() + 45);
+          dueDate = invoiceDate.toISOString().slice(0, 10);
+          dueDateEstimated = true;
+        }
+      }
+
+      return await recordResult(adminClient, upload.id, status, summary, {
+        extracted, reference: referenceLabel, discrepancies,
+        // Explicit, easy-to-read fields for the Payment Dashboard --
+        // pulled from the same data already used for the comparison
+        // above, so there's no second source of truth to drift out of sync.
+        invoice_value: Number.isFinite(extracted.grand_total) && extracted.grand_total >= 0 ? Number(extracted.grand_total) : null,
+        invoice_due_date: dueDate,
+        invoice_due_date_estimated: dueDateEstimated,
+        grn_value: matchingGrn?.total_received_amount ?? null,
+        grn_code: matchingGrn?.grn_code ?? null,
+        po_value: po?.total_amount ?? null,
+      });
     } catch (e) {
       return await recordResult(
         adminClient, upload.id, "error",
-        `Couldn't read the invoice PDF: ${e instanceof Error ? e.message : String(e)}`, null
+        `Unexpected error while checking this invoice: ${e instanceof Error ? e.message : String(e)}`, null
       );
     }
-
-    const matchingGrn = grnsList.find((g) => {
-      const gNo = normalizeCode(g.vendor_invoice_number);
-      return gNo && gNo === normalizeCode(extracted.invoice_number);
-    });
-
-    let grnItems: any[] = [];
-    if (matchingGrn) {
-      const { data } = await adminClient
-        .from("grn_items").select("quantity").eq("grn_code", matchingGrn.grn_code);
-      grnItems = data || [];
-    }
-
-    const { status, summary, discrepancies, referenceLabel } = compareInvoiceToReference(
-      extracted, po, matchingGrn, grnItems, grnsList
-    );
-
-    // Many vendor invoices don't print a due date or payment terms at
-    // all -- rather than leave the Payment Dashboard blank, fall back to
-    // Kalrav's stated default: 45 days from the invoice date. Flagged as
-    // estimated so it's never confused with a date actually printed on
-    // the invoice.
-    let dueDate = extracted.invoice_due_date || null;
-    let dueDateEstimated = false;
-    if (!dueDate && extracted.invoice_date) {
-      const invoiceDate = new Date(extracted.invoice_date);
-      if (!isNaN(invoiceDate.getTime())) {
-        invoiceDate.setUTCDate(invoiceDate.getUTCDate() + 45);
-        dueDate = invoiceDate.toISOString().slice(0, 10);
-        dueDateEstimated = true;
-      }
-    }
-
-    return await recordResult(adminClient, upload.id, status, summary, {
-      extracted, reference: referenceLabel, discrepancies,
-      // Explicit, easy-to-read fields for the Payment Dashboard -- pulled
-      // from the same data already used for the comparison above, so
-      // there's no second source of truth to drift out of sync.
-      invoice_value: Number.isFinite(extracted.grand_total) && extracted.grand_total >= 0 ? Number(extracted.grand_total) : null,
-      invoice_due_date: dueDate,
-      invoice_due_date_estimated: dueDateEstimated,
-      grn_value: matchingGrn?.total_received_amount ?? null,
-      grn_code: matchingGrn?.grn_code ?? null,
-      po_value: po?.total_amount ?? null,
-    });
   } catch (e) {
     return json({ error: `Unexpected error: ${e instanceof Error ? e.message : String(e)}` }, 500);
   }
@@ -345,12 +359,17 @@ function compareInvoiceToReference(extracted: any, po: any, grn: any, grnItems: 
 }
 
 async function recordResult(adminClient: any, uploadId: number, status: string, summary: string, details: any) {
-  await adminClient.from("po_invoice_uploads").update({
+  const { error } = await adminClient.from("po_invoice_uploads").update({
     match_status: status,
     match_summary: summary,
     match_details: details,
     checked_at: new Date().toISOString(),
   }).eq("id", uploadId);
+  // If the write itself fails, say so rather than returning ok:true while
+  // the row silently keeps its old (or default 'pending') status.
+  if (error) {
+    return json({ error: `Checked, but failed to save the result: ${error.message}` }, 500);
+  }
   return json({ ok: true, match_status: status, match_summary: summary, match_details: details });
 }
 
