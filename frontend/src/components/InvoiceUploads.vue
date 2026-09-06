@@ -82,8 +82,8 @@ function fmtSize(bytes) {
             {{ workingIds.has(row.id) ? "Removing…" : "Remove" }}
           </button>
         </div>
-        <div v-if="row.match_status !== 'pending'" class="invoice-match-row">
-          <span>{{ row.match_summary || "Not yet checked." }}</span>
+        <div class="invoice-match-row">
+          <span>{{ row.match_summary || (isChecking(row.id) ? "Checking…" : "Not yet checked.") }}</span>
           <button
             v-if="row.match_details?.discrepancies?.length"
             class="link-btn-inline" @click="toggleDetails(row.id)"
