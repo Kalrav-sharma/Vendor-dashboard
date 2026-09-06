@@ -17,7 +17,7 @@
 // Module-level singleton (like usePdfDownload) so upload/delete
 // in-flight state survives independently of which modal instance is
 // currently mounted, keyed by po_code (and by upload row id for deletes).
-import { reactive } from "vue";
+import { reactive, ref } from "vue";
 import { supabase } from "../supabaseClient.js";
 
 const BUCKET = "po-invoices";
@@ -37,10 +37,22 @@ export function validateInvoiceFile(file) {
 }
 
 const uploadsByPo = reactive({}); // po_code -> array of rows
+const allUploads = ref([]); // flat list of every upload this login can see -- for the Payment Dashboard
 const loadingPo = reactive(new Set()); // po_codes currently being (re)fetched
 const workingIds = reactive(new Set()); // po_code (as `upload:<po_code>`) or row id currently mid-action
 
 export function useInvoiceUploads() {
+  // Flat, unkeyed fetch for the Payment Dashboard -- every upload this
+  // login can see (RLS scopes a vendor to their own, same as everywhere
+  // else), independent of which PO's detail modal has been opened.
+  async function fetchAllUploads() {
+    const { data, error } = await supabase
+      .from("po_invoice_uploads").select("*").order("created_at", { ascending: false });
+    if (!error) allUploads.value = data;
+    return { data, error };
+  }
+
+
   // Bulk, count-only fetch for the PO Tracking table's pending-invoice
   // badge -- one query for every PO code not already known (whether from
   // a prior call here or from a modal's own fetchInvoices), instead of a
@@ -172,7 +184,7 @@ export function useInvoiceUploads() {
   }
 
   return {
-    uploadsByPo, loadingPo, workingIds,
-    fetchInvoices, fetchUploadCounts, uploadInvoice, deleteInvoice, viewInvoice, checkInvoiceMatch,
+    uploadsByPo, allUploads, loadingPo, workingIds,
+    fetchInvoices, fetchUploadCounts, fetchAllUploads, uploadInvoice, deleteInvoice, viewInvoice, checkInvoiceMatch,
   };
 }

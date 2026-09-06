@@ -7,10 +7,12 @@ import { useSkuAggregates } from "./composables/useSkuAggregates.js";
 import { useSkuFilters } from "./composables/useSkuFilters.js";
 import { useVendors } from "./composables/useVendors.js";
 import { useModal } from "./composables/useModal.js";
+import { useInvoiceUploads } from "./composables/useInvoiceUploads.js";
 import { dedupeInvoiceNumbers } from "./format.js";
 import SidebarNav from "./components/SidebarNav.vue";
 import PoTrackingTable from "./components/PoTrackingTable.vue";
 import SkuLevelTable from "./components/SkuLevelTable.vue";
+import PaymentDashboardTable from "./components/PaymentDashboardTable.vue";
 import ManageVendors from "./components/ManageVendors.vue";
 import AppModal from "./components/AppModal.vue";
 import PoDetailModal from "./components/PoDetailModal.vue";
@@ -24,6 +26,7 @@ const activeNav = ref("po-tracking");
 const pageTitle = computed(() => ({
   "po-tracking": "PO Tracking",
   "sku-data": "SKU Level Data",
+  "payment-dashboard": "Payment Dashboard",
   "manage-vendors": "Manage Vendors",
 }[activeNav.value]));
 
@@ -44,6 +47,7 @@ const vendorOptions = computed(() => {
   return [...byCode.values()];
 });
 const { filters: skuFilters, filteredSorted: skuFilteredSorted } = useSkuFilters(skuRows, vendorLabel);
+const { allUploads, fetchAllUploads } = useInvoiceUploads();
 
 const scopeLine = computed(() => {
   const total = currentPos.value.length;
@@ -87,6 +91,7 @@ onMounted(async () => {
   whoLine.value = ctx.profile.vendor_name || "Admin";
   myEmail.value = ctx.profile.email || "";
   await refreshVendors();
+  await fetchAllUploads();
   ready.value = true;
 });
 
@@ -104,6 +109,7 @@ async function signOut() {
       :items="[
         { id: 'po-tracking', label: 'PO Tracking' },
         { id: 'sku-data', label: 'SKU Level Data' },
+        { id: 'payment-dashboard', label: 'Payment Dashboard' },
         { id: 'manage-vendors', label: 'Manage Vendors' },
       ]"
     />
@@ -116,6 +122,7 @@ async function signOut() {
             <div class="scope">
               <template v-if="activeNav === 'po-tracking'">{{ scopeLine }}</template>
               <template v-else-if="activeNav === 'sku-data'">SKUs with at least one open purchase order not yet fully supplied, highest pending quantity first, across all vendors. Click a SKU for the PO-level breakdown.</template>
+              <template v-else-if="activeNav === 'payment-dashboard'">Every invoice uploaded across all vendors, with its reconciliation and payment status. Click a PO to see its details.</template>
             </div>
           </div>
           <div class="who">
@@ -138,6 +145,13 @@ async function signOut() {
             :rows="skuFilteredSorted" :filters="skuFilters"
             :vendor-options="vendorOptions" :vendor-label="vendorLabel"
             :on-open-sku="openSkuDetailModal"
+          />
+        </div>
+
+        <div v-show="activeNav === 'payment-dashboard'">
+          <PaymentDashboardTable
+            :rows="allUploads" :vendor-options="vendorOptions" :vendor-label="vendorLabel"
+            :on-open-po="openPoDetailModal"
           />
         </div>
 

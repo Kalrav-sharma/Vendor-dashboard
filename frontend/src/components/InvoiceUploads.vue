@@ -4,6 +4,7 @@ import { useInvoiceUploads } from "../composables/useInvoiceUploads.js";
 import { fmtDate } from "../format.js";
 import InvoiceUploadModal from "./InvoiceUploadModal.vue";
 import InvoiceUploadButton from "./InvoiceUploadButton.vue";
+import MatchStatusChip from "./MatchStatusChip.vue";
 
 const props = defineProps({
   poCode: { type: String, required: true },
@@ -26,15 +27,6 @@ const rows = computed(() => uploadsByPo[props.poCode] || []);
 const isLoading = computed(() => loadingPo.has(props.poCode));
 const pendingCount = computed(() => Math.max(0, props.expectedInvoiceCount - rows.value.length));
 
-const MATCH_CHIP = {
-  pending: ["Checking…", "chip-muted"],
-  matched: ["Matches PO/GRN", "chip-good"],
-  mismatch: ["Mismatch found", "chip-critical"],
-  needs_review: ["Needs review", "chip-open"],
-  error: ["Check failed", "chip-critical"],
-};
-function matchChipLabel(status) { return (MATCH_CHIP[status] || MATCH_CHIP.pending)[0]; }
-function matchChipClass(status) { return (MATCH_CHIP[status] || MATCH_CHIP.pending)[1]; }
 function isChecking(id) { return workingIds.has(`check:${id}`); }
 function toggleDetails(id) { expandedId.value = expandedId.value === id ? null : id; }
 
@@ -81,7 +73,7 @@ function fmtSize(bytes) {
       <li v-for="row in rows" :key="row.id">
         <div class="invoice-upload-row-main">
           <button class="link-btn-inline" @click="viewInvoice(row)">{{ row.file_name }}</button>
-          <span class="chip" :class="matchChipClass(row.match_status)">{{ matchChipLabel(row.match_status) }}</span>
+          <MatchStatusChip :status="row.match_status" />
           <span class="invoice-upload-meta">
             Uploaded by {{ row.uploaded_by_name || "Unknown" }} ·
             <span class="mono">{{ fmtSize(row.file_size) }} · {{ fmtDate(row.created_at) }}</span>

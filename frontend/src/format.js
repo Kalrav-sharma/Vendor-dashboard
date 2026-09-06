@@ -33,12 +33,39 @@ export function fmtDate(iso) {
          d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
 }
 
+// For a plain date (no meaningful time component) like an OCR-extracted
+// invoice due date -- "YYYY-MM-DD" in, "20 Sep 2026" out.
+export function fmtDateOnly(dateStr) {
+  if (!dateStr) return "–";
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return dateStr; // fall back to the raw string rather than "Invalid Date"
+  return d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+}
+
 export function statusLabel(status) {
   return (STATUS_META[status] || [status || "Unknown"])[0];
 }
 
 export function statusClass(status) {
   return (STATUS_META[status] || [null, "muted"])[1];
+}
+
+// Invoice-vs-PO/GRN reconciliation status (see check-invoice-match Edge
+// Function) -- same [label, chip color] pattern as STATUS_META above.
+export const MATCH_STATUS_META = {
+  pending: ["Checking…", "muted"],
+  matched: ["Matches PO/GRN", "good"],
+  mismatch: ["Mismatch found", "critical"],
+  needs_review: ["Needs review", "open"],
+  error: ["Check failed", "critical"],
+};
+
+export function matchStatusLabel(status) {
+  return (MATCH_STATUS_META[status] || MATCH_STATUS_META.pending)[0];
+}
+
+export function matchStatusClass(status) {
+  return (MATCH_STATUS_META[status] || MATCH_STATUS_META.pending)[1];
 }
 
 export function visiblePos(pos) {
