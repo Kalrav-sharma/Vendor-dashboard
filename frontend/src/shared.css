@@ -245,6 +245,7 @@ button.primary-btn:disabled { opacity: 0.6; cursor: default; }
 @media (max-width: 800px) { .panel-grid { grid-template-columns: 1fr 1fr; } }
 .panel-grid .field { margin-bottom: 0; }
 .field-hint { color: var(--muted); font-size: 0.78rem; margin: 10px 0 0; }
+.due-date-estimated-mark { color: var(--open); cursor: default; }
 
 footer.page-foot { margin-top: 16px; color: var(--muted); font-size: 0.74rem; text-align: center; }
 

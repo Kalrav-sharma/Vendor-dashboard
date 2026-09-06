@@ -130,13 +130,30 @@ Deno.serve(async (req) => {
       extracted, po, matchingGrn, grnItems, grnsList
     );
 
+    // Many vendor invoices don't print a due date or payment terms at
+    // all -- rather than leave the Payment Dashboard blank, fall back to
+    // Kalrav's stated default: 45 days from the invoice date. Flagged as
+    // estimated so it's never confused with a date actually printed on
+    // the invoice.
+    let dueDate = extracted.invoice_due_date || null;
+    let dueDateEstimated = false;
+    if (!dueDate && extracted.invoice_date) {
+      const invoiceDate = new Date(extracted.invoice_date);
+      if (!isNaN(invoiceDate.getTime())) {
+        invoiceDate.setUTCDate(invoiceDate.getUTCDate() + 45);
+        dueDate = invoiceDate.toISOString().slice(0, 10);
+        dueDateEstimated = true;
+      }
+    }
+
     return await recordResult(adminClient, upload.id, status, summary, {
       extracted, reference: referenceLabel, discrepancies,
       // Explicit, easy-to-read fields for the Payment Dashboard -- pulled
       // from the same data already used for the comparison above, so
       // there's no second source of truth to drift out of sync.
       invoice_value: Number.isFinite(extracted.grand_total) && extracted.grand_total >= 0 ? Number(extracted.grand_total) : null,
-      invoice_due_date: extracted.invoice_due_date || null,
+      invoice_due_date: dueDate,
+      invoice_due_date_estimated: dueDateEstimated,
       grn_value: matchingGrn?.total_received_amount ?? null,
       grn_code: matchingGrn?.grn_code ?? null,
       po_value: po?.total_amount ?? null,

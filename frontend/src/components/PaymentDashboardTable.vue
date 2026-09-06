@@ -15,6 +15,7 @@ const { viewInvoice } = useInvoiceUploads();
 function invoiceValue(row) { return row.match_details?.invoice_value ?? null; }
 function grnValue(row) { return row.match_details?.grn_value ?? null; }
 function dueDate(row) { return row.match_details?.invoice_due_date || null; }
+function dueDateEstimated(row) { return !!row.match_details?.invoice_due_date_estimated; }
 </script>
 
 <template>
@@ -36,7 +37,13 @@ function dueDate(row) { return row.match_details?.invoice_due_date || null; }
           <td><button class="link-btn-inline" @click="viewInvoice(row)">{{ row.file_name }}</button></td>
           <td class="num mono">{{ fmtMoney(invoiceValue(row)) }}</td>
           <td class="num mono">{{ fmtMoney(grnValue(row)) }}</td>
-          <td class="mono">{{ fmtDateOnly(dueDate(row)) }}</td>
+          <td class="mono">
+            {{ fmtDateOnly(dueDate(row)) }}
+            <span
+              v-if="dueDateEstimated(row)" class="due-date-estimated-mark"
+              title="Not printed on the invoice -- estimated as 45 days from the invoice date."
+            >*</span>
+          </td>
           <td><MatchStatusChip :status="row.match_status" /></td>
           <td>
             <span class="chip chip-muted" title="Payment status will sync automatically once Oracle integration is built.">
@@ -47,4 +54,5 @@ function dueDate(row) { return row.match_details?.invoice_due_date || null; }
       </tbody>
     </table>
   </div></div>
+  <p v-if="rows.some(dueDateEstimated)" class="field-hint">* not printed on the invoice -- estimated as 45 days from the invoice date.</p>
 </template>
