@@ -52,7 +52,6 @@ export function useInvoiceUploads() {
     return { data, error };
   }
 
-
   // Bulk, count-only fetch for the PO Tracking table's pending-invoice
   // badge -- one query for every PO code not already known (whether from
   // a prior call here or from a modal's own fetchInvoices), instead of a
@@ -79,7 +78,18 @@ export function useInvoiceUploads() {
         .select("*")
         .eq("po_code", poCode)
         .order("created_at", { ascending: false });
-      if (!error) uploadsByPo[poCode] = data;
+      if (!error) {
+        uploadsByPo[poCode] = data;
+        // Keep the Payment Dashboard's flat list in sync too -- every
+        // upload/delete/check path already calls this function, so
+        // patching it here (rather than a separate full re-fetch) means
+        // a check made from the PO detail modal shows up on the Payment
+        // Dashboard immediately, not just after a page reload.
+        const otherPos = allUploads.value.filter((r) => r.po_code !== poCode);
+        allUploads.value = [...otherPos, ...data].sort(
+          (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        );
+      }
       return { data, error };
     } finally {
       loadingPo.delete(poCode);
