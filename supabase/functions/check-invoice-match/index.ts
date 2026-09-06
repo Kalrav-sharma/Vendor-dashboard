@@ -16,15 +16,20 @@
 // vendor invoices routinely don't print SKU codes at all (just
 // descriptions), which made a line-by-line SKU match produce dozens of
 // false "unmatched line" discrepancies on real invoices. The five checks:
-//   1. GRN received value vs invoice total
+//   1. GRN received value vs invoice total -- summed across EVERY GRN
+//      sharing this invoice's number, not just one, since a single
+//      invoice can legitimately cover several GRN batches (goods
+//      dispatched together but receipted separately in Uniware)
 //   2. Invoice number vs the GRN's own recorded invoice number (this is
-//      also how the matching GRN is selected in the first place)
-//   3. GRN received qty vs invoice qty (summed from its line quantities)
+//      also how the matching GRN(s) are selected in the first place)
+//   3. GRN received qty vs invoice qty (summed from its line quantities),
+//      same combined-GRN basis as check 1
 //   4. Invoice qty/value doesn't exceed this PO's own ordered qty/value
 //   5. The PO number printed on the invoice matches this PO's code
-// Checks 1 and 3 only run once a GRN is actually found by invoice number
-// (see below) -- without one there's no confirmed receipt to compare
-// against, so the result is "needs_review" rather than a hard pass/fail.
+// Checks 1 and 3 only run once at least one GRN is found by invoice
+// number (see below) -- without one there's no confirmed receipt to
+// compare against, so the result is "needs_review" rather than a hard
+// pass/fail.
 //
 // Required secrets (Project Settings -> Edge Functions -> Secrets):
 //   ANTHROPIC_API_KEY  -- pay-as-you-go key from console.anthropic.com,
@@ -41,9 +46,12 @@ const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY")!;
 
-// Cheapest capable model -- this is straightforward document extraction,
-// not something that needs frontier-level reasoning.
-const ANTHROPIC_MODEL = "claude-haiku-4-5-20251001";
+// Upgraded from Haiku to Sonnet: Haiku missed a grand total that was
+// plainly printed on at least one real invoice (a genuine extraction
+// miss, not a bug in the code reading its output) -- for a financial
+// reconciliation tool, extraction accuracy matters more than the
+// fraction-of-a-cent per-invoice cost difference between the two tiers.
+const ANTHROPIC_MODEL = "claude-sonnet-5";
 const BUCKET = "po-invoices";
 
 const CORS_HEADERS = {
@@ -122,20 +130,27 @@ Deno.serve(async (req) => {
         );
       }
 
-      const matchingGrn = grnsList.find((g) => {
+      // A single vendor invoice can cover more than one GRN (e.g. goods
+      // dispatched together but receipted as separate batches in
+      // Uniware, all citing the same invoice number) -- match ALL GRNs
+      // sharing this invoice number, not just the first one found, and
+      // compare the invoice against their combined total. Comparing
+      // against only one of several genuinely made a correct invoice
+      // look like a mismatch.
+      const matchingGrns = grnsList.filter((g) => {
         const gNo = normalizeCode(g.vendor_invoice_number);
         return gNo && gNo === normalizeCode(extracted.invoice_number);
       });
 
       let grnItems: any[] = [];
-      if (matchingGrn) {
+      if (matchingGrns.length) {
         const { data } = await adminClient
-          .from("grn_items").select("quantity").eq("grn_code", matchingGrn.grn_code);
+          .from("grn_items").select("quantity").in("grn_code", matchingGrns.map((g) => g.grn_code));
         grnItems = data || [];
       }
 
       const { status, summary, discrepancies, referenceLabel } = compareInvoiceToReference(
-        extracted, po, matchingGrn, grnItems, grnsList
+        extracted, po, matchingGrns, grnItems, grnsList
       );
 
       // Many vendor invoices don't print a due date or payment terms at
@@ -154,6 +169,10 @@ Deno.serve(async (req) => {
         }
       }
 
+      const grnValueSum = matchingGrns.length
+        ? matchingGrns.reduce((s, g) => s + (Number(g.total_received_amount) || 0), 0)
+        : null;
+
       return await recordResult(adminClient, upload.id, status, summary, {
         extracted, reference: referenceLabel, discrepancies,
         // Explicit, easy-to-read fields for the Payment Dashboard --
@@ -162,8 +181,8 @@ Deno.serve(async (req) => {
         invoice_value: Number.isFinite(extracted.grand_total) && extracted.grand_total >= 0 ? Number(extracted.grand_total) : null,
         invoice_due_date: dueDate,
         invoice_due_date_estimated: dueDateEstimated,
-        grn_value: matchingGrn?.total_received_amount ?? null,
-        grn_code: matchingGrn?.grn_code ?? null,
+        grn_value: grnValueSum,
+        grn_codes: matchingGrns.map((g) => g.grn_code),
         po_value: po?.total_amount ?? null,
       });
     } catch (e) {
@@ -253,25 +272,31 @@ function normalizeCode(s: string | null | undefined) {
 // specific checks. Deliberately not SKU-by-SKU: real vendor invoices
 // routinely skip printing SKU codes at all, which made a line-by-line
 // match produce false "unmatched line" discrepancies on real invoices.
-function compareInvoiceToReference(extracted: any, po: any, grn: any, grnItems: any[], allGrns: any[]) {
+//
+// `grns` is every GRN sharing this invoice's number (can be more than
+// one -- see the caller), compared against their COMBINED value/qty,
+// since a single invoice can legitimately cover several GRN batches.
+function compareInvoiceToReference(extracted: any, po: any, grns: any[], grnItems: any[], allGrns: any[]) {
   const discrepancies: { type: string; detail: string }[] = [];
   // Flagged for a human to look at, but don't by themselves make this a
   // hard "mismatch" -- each reflects something the check couldn't fully
   // verify, not a confirmed discrepancy.
   const softTypes = new Set(["low_confidence", "missing_invoice_number", "missing_po_number"]);
+  const hasGrn = grns.length > 0;
+  const grnLabel = hasGrn ? `GRN${grns.length > 1 ? "s" : ""} ${grns.map((g) => g.grn_code).join(", ")}` : null;
 
   if (extracted.extraction_confidence === "low") {
     discrepancies.push({ type: "low_confidence", detail: "Low OCR confidence reading this PDF -- please review the file directly." });
   }
 
   // Check 2: invoice number vs the GRN's own recorded invoice number.
-  // (This is also how `grn` was selected in the first place -- see the
+  // (This is also how `grns` was selected in the first place -- see the
   // caller.) A PO with GRNs already raised, none of which match this
   // invoice's number, is a real discrepancy worth flagging explicitly
   // rather than silently falling back to "needs_review".
   if (!extracted.invoice_number) {
     discrepancies.push({ type: "missing_invoice_number", detail: "Couldn't read an invoice number off the PDF." });
-  } else if (!grn && allGrns.length > 0) {
+  } else if (!hasGrn && allGrns.length > 0) {
     const knownNumbers = [...new Set(allGrns.map((g) => g.vendor_invoice_number).filter(Boolean))];
     discrepancies.push({
       type: "invoice_number_no_grn_match",
@@ -284,24 +309,24 @@ function compareInvoiceToReference(extracted: any, po: any, grn: any, grnItems: 
   const invoiceTotal = Number(extracted.grand_total);
 
   // Checks 1 and 3: GRN received value/qty vs invoice value/qty -- only
-  // meaningful once we actually have a confirmed receipt to compare
-  // against.
-  if (grn) {
+  // meaningful once we actually have at least one confirmed receipt to
+  // compare against.
+  if (hasGrn) {
     const grnQty = grnItems.reduce((s, gi) => s + (Number(gi.quantity) || 0), 0);
-    if (grn.total_received_amount != null && invoiceTotal >= 0) {
-      const refTotal = Number(grn.total_received_amount);
-      const tolerance = Math.max(refTotal * 0.02, 5);
-      if (Math.abs(invoiceTotal - refTotal) > tolerance) {
+    const grnValue = grns.reduce((s, g) => s + (Number(g.total_received_amount) || 0), 0);
+    if (grns.some((g) => g.total_received_amount != null) && invoiceTotal >= 0) {
+      const tolerance = Math.max(grnValue * 0.02, 5);
+      if (Math.abs(invoiceTotal - grnValue) > tolerance) {
         discrepancies.push({
           type: "grn_value_mismatch",
-          detail: `Invoice total ₹${invoiceTotal} vs GRN ${grn.grn_code} received amount ₹${refTotal}.`,
+          detail: `Invoice total ₹${invoiceTotal} vs ${grnLabel} received amount ₹${grnValue}.`,
         });
       }
     }
     if (grnQty > 0 && invoiceQty > 0 && Math.abs(invoiceQty - grnQty) > 0.01) {
       discrepancies.push({
         type: "grn_qty_mismatch",
-        detail: `Invoice qty ${invoiceQty} vs GRN ${grn.grn_code} received qty ${grnQty}.`,
+        detail: `Invoice qty ${invoiceQty} vs ${grnLabel} received qty ${grnQty}.`,
       });
     }
   }
@@ -342,11 +367,11 @@ function compareInvoiceToReference(extracted: any, po: any, grn: any, grnItems: 
   }
 
   const hardDiscrepancies = discrepancies.filter((d) => !softTypes.has(d.type));
-  const referenceLabel = grn ? `GRN ${grn.grn_code}` : "PO only (no matching GRN found in Uniware yet)";
+  const referenceLabel = grnLabel || "PO only (no matching GRN found in Uniware yet)";
 
   let status: string;
   if (hardDiscrepancies.length > 0) status = "mismatch";
-  else if (grn) status = "matched";
+  else if (hasGrn) status = "matched";
   else status = "needs_review";
 
   const summary = status === "matched"
