@@ -166,6 +166,9 @@ button.link-btn {
 .chip-critical { background: var(--critical-soft); color: var(--critical); }
 .chip-muted { background: var(--line); color: var(--muted); }
 
+.invoice-upload-cell { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.invoice-pending-chip { font-size: 0.62rem; padding: 1px 6px; font-family: "IBM Plex Mono", monospace; cursor: default; }
+
 .alert { background: var(--critical-soft); border: 1px solid var(--critical); color: var(--critical); border-radius: 10px; padding: 14px 18px; margin-bottom: 18px; font-size: 0.85rem; }
 .alert-head { display: flex; align-items: center; gap: 8px; color: var(--ink); }
 .alert-icon { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%; background: var(--critical); color: var(--surface); font-weight: 700; font-size: 0.72rem; flex-shrink: 0; }
@@ -249,6 +252,7 @@ footer.page-foot { margin-top: 16px; color: var(--muted); font-size: 0.74rem; te
 .invoice-uploads { margin-top: 22px; }
 .invoice-uploads-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
 .invoice-uploads-head h4 { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); font-weight: 600; margin: 0; }
+.invoice-pending-summary { display: block; width: fit-content; margin-bottom: 12px; }
 .invoice-upload-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
 .invoice-upload-list li { padding: 9px 12px; background: var(--surface); border-bottom: 1px solid var(--line); font-size: 0.83rem; }
 .invoice-upload-list li:last-child { border-bottom: none; }

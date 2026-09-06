@@ -10,6 +10,7 @@ const props = defineProps({
   vendorCode: { type: String, required: true },
   allowUpload: { type: Boolean, default: false }, // true from both vendor.html and admin.html
   uploaderLabel: { type: String, default: "" }, // current user's display name, recorded on the uploaded row
+  expectedInvoiceCount: { type: Number, default: 0 }, // distinct invoice numbers on this PO's GRNs
 });
 
 const {
@@ -23,6 +24,7 @@ const uploadModalOpen = ref(false);
 
 const rows = computed(() => uploadsByPo[props.poCode] || []);
 const isLoading = computed(() => loadingPo.has(props.poCode));
+const pendingCount = computed(() => Math.max(0, props.expectedInvoiceCount - rows.value.length));
 
 const MATCH_CHIP = {
   pending: ["Checking…", "chip-muted"],
@@ -64,9 +66,14 @@ function fmtSize(bytes) {
       <InvoiceUploadButton v-if="allowUpload" :on-click="() => uploadModalOpen = true" />
     </div>
 
+    <div v-if="pendingCount > 0" class="chip chip-critical invoice-pending-summary">
+      {{ rows.length }} of {{ expectedInvoiceCount }} invoice{{ expectedInvoiceCount === 1 ? "" : "s" }} uploaded --
+      {{ pendingCount }} still pending
+    </div>
+
     <div v-if="errorMsg" class="form-error">{{ errorMsg }}</div>
 
-    <div v-if="isLoading && !rows.length" class="empty-state">Loading…</div>
+    <div v-if="isLoading" class="empty-state">Loading…</div>
     <div v-else-if="!rows.length" class="empty-state">
       {{ allowUpload ? "No invoice copies uploaded yet -- use the button above once you've dispatched against this PO (PDF only)." : "Vendor hasn't uploaded any invoice copies yet." }}
     </div>

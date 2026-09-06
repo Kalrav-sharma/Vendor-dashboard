@@ -1,9 +1,10 @@
 <script setup>
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import StatusChip from "./StatusChip.vue";
 import InvoiceUploadModal from "./InvoiceUploadModal.vue";
 import DownloadPdfButton from "./DownloadPdfButton.vue";
 import InvoiceUploadButton from "./InvoiceUploadButton.vue";
+import { useInvoiceUploads } from "../composables/useInvoiceUploads.js";
 import { fmtNum, fmtMoney, TERMINAL_STATUSES, dedupeInvoiceNumbers } from "../format.js";
 
 const props = defineProps({
@@ -35,7 +36,20 @@ function grnInfo(poCode) {
   const invoices = dedupeInvoiceNumbers(grns.map(g => g.vendor_invoice_number));
   const recv = grns.reduce((s, g) => s + (Number(g.total_received_amount) || 0), 0);
   const rej = grns.reduce((s, g) => s + (Number(g.total_rejected_amount) || 0), 0);
-  return { raised: grns.length > 0, invoiceText: invoices.join(", ") || "–", recv, rej };
+  return { raised: grns.length > 0, invoiceText: invoices.join(", ") || "–", invoiceCount: invoices.length, recv, rej };
+}
+
+// Flags a PO whose GRNs name more distinct invoice numbers than the
+// vendor has actually uploaded PDF copies for -- fetched in bulk
+// (counts only) for every row currently shown, not a full per-PO detail
+// fetch for rows nobody's opened yet.
+const { uploadsByPo, fetchUploadCounts } = useInvoiceUploads();
+watch(() => props.rows, (rows) => fetchUploadCounts(rows.map(p => p.po_code)), { immediate: true });
+
+function invoiceUploadStatus(poCode) {
+  const expected = grnInfo(poCode).invoiceCount;
+  const uploaded = (uploadsByPo[poCode] || []).length;
+  return { expected, uploaded, pending: expected > 0 && uploaded < expected };
 }
 
 const kpis = computed(() => {
@@ -140,7 +154,15 @@ const statusPills = computed(() => {
             <DownloadPdfButton :po-code="p.po_code" />
           </td>
           <td class="col-tight">
-            <InvoiceUploadButton v-if="allowInvoiceUpload" :on-click="() => openUploadModal(p)" />
+            <div class="invoice-upload-cell">
+              <InvoiceUploadButton v-if="allowInvoiceUpload" :on-click="() => openUploadModal(p)" />
+              <span
+                v-if="invoiceUploadStatus(p.po_code).pending" class="chip chip-critical invoice-pending-chip"
+                :title="`${invoiceUploadStatus(p.po_code).uploaded} of ${invoiceUploadStatus(p.po_code).expected} invoice PDF(s) uploaded -- upload the rest`"
+              >
+                {{ invoiceUploadStatus(p.po_code).uploaded }}/{{ invoiceUploadStatus(p.po_code).expected }}
+              </span>
+            </div>
           </td>
         </tr>
       </tbody>

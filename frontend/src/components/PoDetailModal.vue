@@ -51,5 +51,6 @@ defineProps({
   <InvoiceUploads
     :po-code="po.po_code" :vendor-code="po.vendor_code"
     :allow-upload="allowInvoiceUpload" :uploader-label="uploaderLabel"
+    :expected-invoice-count="invoices.length"
   />
 </template>
