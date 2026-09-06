@@ -8,6 +8,7 @@ import { useSkuFilters } from "./composables/useSkuFilters.js";
 import { useVendors } from "./composables/useVendors.js";
 import { useModal } from "./composables/useModal.js";
 import { useInvoiceUploads } from "./composables/useInvoiceUploads.js";
+import { usePaymentFilters } from "./composables/usePaymentFilters.js";
 import { dedupeInvoiceNumbers } from "./format.js";
 import SidebarNav from "./components/SidebarNav.vue";
 import PoTrackingTable from "./components/PoTrackingTable.vue";
@@ -48,6 +49,7 @@ const vendorOptions = computed(() => {
 });
 const { filters: skuFilters, filteredSorted: skuFilteredSorted } = useSkuFilters(skuRows, vendorLabel);
 const { allUploads, fetchAllUploads } = useInvoiceUploads();
+const { filters: paymentFilters, filteredSorted: paymentFilteredSorted, reconciliationOptions } = usePaymentFilters(allUploads, vendorLabel);
 
 const scopeLine = computed(() => {
   const total = currentPos.value.length;
@@ -150,7 +152,8 @@ async function signOut() {
 
         <div v-show="activeNav === 'payment-dashboard'">
           <PaymentDashboardTable
-            :rows="allUploads" :vendor-options="vendorOptions" :vendor-label="vendorLabel"
+            :rows="paymentFilteredSorted" :filters="paymentFilters" :reconciliation-options="reconciliationOptions"
+            :vendor-options="vendorOptions" :vendor-label="vendorLabel"
             :on-open-po="openPoDetailModal"
           />
         </div>

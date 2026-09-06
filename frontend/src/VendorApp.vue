@@ -7,6 +7,7 @@ import { useSkuAggregates } from "./composables/useSkuAggregates.js";
 import { useSkuFilters } from "./composables/useSkuFilters.js";
 import { useModal } from "./composables/useModal.js";
 import { useInvoiceUploads } from "./composables/useInvoiceUploads.js";
+import { usePaymentFilters } from "./composables/usePaymentFilters.js";
 import { dedupeInvoiceNumbers } from "./format.js";
 import SidebarNav from "./components/SidebarNav.vue";
 import PoTrackingTable from "./components/PoTrackingTable.vue";
@@ -35,6 +36,7 @@ const { filters, filteredSorted, facilityOptions, statusOptions } = usePoFilters
 const { sortedRows: skuRows } = useSkuAggregates(currentPos, poItemsByPo, { multiVendor: false });
 const { filters: skuFilters, filteredSorted: skuFilteredSorted } = useSkuFilters(skuRows);
 const { allUploads, fetchAllUploads } = useInvoiceUploads();
+const { filters: paymentFilters, filteredSorted: paymentFilteredSorted, reconciliationOptions } = usePaymentFilters(allUploads);
 
 const scopeLine = computed(() => `${currentPos.value.length} purchase order${currentPos.value.length === 1 ? "" : "s"} on file`);
 const lastCheckedText = computed(() => lastUpdated.value
@@ -141,7 +143,10 @@ async function signOut() {
         </div>
 
         <div v-show="activeNav === 'payment-dashboard'">
-          <PaymentDashboardTable :rows="allUploads" :on-open-po="openPoDetailModal" />
+          <PaymentDashboardTable
+            :rows="paymentFilteredSorted" :filters="paymentFilters" :reconciliation-options="reconciliationOptions"
+            :on-open-po="openPoDetailModal"
+          />
         </div>
 
         <footer class="page-foot">Data refreshes automatically every ~5 minutes from Uniware. {{ lastCheckedText }}</footer>
