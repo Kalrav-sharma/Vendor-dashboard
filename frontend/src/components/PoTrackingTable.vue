@@ -4,7 +4,7 @@ import StatusChip from "./StatusChip.vue";
 import InvoiceUploadModal from "./InvoiceUploadModal.vue";
 import DownloadPdfButton from "./DownloadPdfButton.vue";
 import InvoiceUploadButton from "./InvoiceUploadButton.vue";
-import { fmtNum, fmtMoney, TERMINAL_STATUSES } from "../format.js";
+import { fmtNum, fmtMoney, TERMINAL_STATUSES, dedupeInvoiceNumbers } from "../format.js";
 
 const props = defineProps({
   rows: { type: Array, required: true },        // already filtered + sorted
@@ -32,7 +32,7 @@ function openUploadModal(po) {
 
 function grnInfo(poCode) {
   const grns = props.grnsByPo[poCode] || [];
-  const invoices = [...new Set(grns.map(g => g.vendor_invoice_number).filter(Boolean))];
+  const invoices = dedupeInvoiceNumbers(grns.map(g => g.vendor_invoice_number));
   const recv = grns.reduce((s, g) => s + (Number(g.total_received_amount) || 0), 0);
   const rej = grns.reduce((s, g) => s + (Number(g.total_rejected_amount) || 0), 0);
   return { raised: grns.length > 0, invoiceText: invoices.join(", ") || "–", recv, rej };

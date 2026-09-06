@@ -45,6 +45,25 @@ export function visiblePos(pos) {
   return pos.filter(p => !HIDDEN_STATUSES.has(p.status));
 }
 
+// Uniware can carry the same invoice number on more than one GRN record
+// (e.g. a vendor's document referenced across separate goods-receipt
+// entries) -- a plain `new Set` only catches exact string matches, so
+// whitespace or casing differences between those records ("LMF-4321 " vs
+// "LMF-4321") still showed the same invoice twice. Trims + compares
+// case-insensitively, but keeps the first occurrence's original casing
+// for display.
+export function dedupeInvoiceNumbers(numbers) {
+  const seen = new Map(); // normalized key -> original (trimmed) value to display
+  for (const raw of numbers) {
+    if (!raw) continue;
+    const trimmed = String(raw).trim();
+    if (!trimmed) continue;
+    const key = trimmed.toUpperCase();
+    if (!seen.has(key)) seen.set(key, trimmed);
+  }
+  return [...seen.values()];
+}
+
 // Open/approved POs before completed ones; within each of those two
 // groups, largest PO value first.
 export function poSortComparator(a, b) {

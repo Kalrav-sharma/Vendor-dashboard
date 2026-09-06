@@ -4,7 +4,7 @@
 // vendor.html/admin.html.
 import { ref, onMounted, onUnmounted } from "vue";
 import { supabase } from "../supabaseClient.js";
-import { visiblePos } from "../format.js";
+import { visiblePos, dedupeInvoiceNumbers } from "../format.js";
 
 const POLL_INTERVAL_MS = 60 * 1000;
 
@@ -63,9 +63,9 @@ export function usePurchaseOrders() {
   function invoicesForItem(item) {
     const key = item.po_code + "|" + item.item_sku;
     const items = grnItemsByPoSku.value[key] || [];
-    const invoices = [...new Set(
-      items.map(gi => grnByCode.value[gi.grn_code]?.vendor_invoice_number).filter(Boolean)
-    )];
+    const invoices = dedupeInvoiceNumbers(
+      items.map(gi => grnByCode.value[gi.grn_code]?.vendor_invoice_number)
+    );
     return invoices.join(", ") || "–";
   }
 

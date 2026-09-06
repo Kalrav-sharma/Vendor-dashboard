@@ -6,6 +6,7 @@ import { usePoFilters } from "./composables/usePoFilters.js";
 import { useSkuAggregates } from "./composables/useSkuAggregates.js";
 import { useSkuFilters } from "./composables/useSkuFilters.js";
 import { useModal } from "./composables/useModal.js";
+import { dedupeInvoiceNumbers } from "./format.js";
 import SidebarNav from "./components/SidebarNav.vue";
 import PoTrackingTable from "./components/PoTrackingTable.vue";
 import SkuLevelTable from "./components/SkuLevelTable.vue";
@@ -40,7 +41,7 @@ function openPoDetailModal(poCode) {
   if (!po) return;
   const items = (poItemsByPo.value[poCode] || []).map(item => ({ ...item, invoiceText: invoicesForItem(item) }));
   const grns = grnsByPo.value[poCode] || [];
-  const invoices = [...new Set(grns.map(g => g.vendor_invoice_number).filter(Boolean))];
+  const invoices = dedupeInvoiceNumbers(grns.map(g => g.vendor_invoice_number));
   openModal("Purchase Order", PoDetailModal, {
     po, items, invoices, allowInvoiceUpload: true, uploaderLabel: myDisplayName.value,
   }, poCode);

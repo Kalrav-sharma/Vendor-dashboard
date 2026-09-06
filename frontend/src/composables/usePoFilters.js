@@ -13,7 +13,7 @@
 // as the template structure doesn't change, so filters can just be plain
 // reactive state.
 import { reactive, computed } from "vue";
-import { fmtNum, fmtMoney, STATUS_META, poSortComparator } from "../format.js";
+import { fmtNum, fmtMoney, STATUS_META, poSortComparator, dedupeInvoiceNumbers } from "../format.js";
 
 export function usePoFilters(currentPos, grnsByPo, resolveVendorLabel) {
   const filters = reactive({
@@ -23,7 +23,7 @@ export function usePoFilters(currentPos, grnsByPo, resolveVendorLabel) {
 
   function rowFields(p) {
     const grns = grnsByPo.value[p.po_code] || [];
-    const invoices = [...new Set(grns.map(g => g.vendor_invoice_number).filter(Boolean))];
+    const invoices = dedupeInvoiceNumbers(grns.map(g => g.vendor_invoice_number));
     return {
       vendor: resolveVendorLabel ? resolveVendorLabel(p.vendor_code, p.vendor_name) : "",
       facility: p.facility || "",
