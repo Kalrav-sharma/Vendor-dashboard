@@ -1,5 +1,5 @@
 import "./shared.css";
-import { supabase } from "./supabaseClient.js";
+import { supabase, INTERNAL_ROLES } from "./supabaseClient.js";
 
 (async () => {
   const { data: { session } } = await supabase.auth.getSession();
@@ -8,5 +8,5 @@ import { supabase } from "./supabaseClient.js";
     return;
   }
   const { data: profile } = await supabase.from("profiles").select("role").eq("id", session.user.id).single();
-  window.location.href = profile?.role === "admin" ? "admin.html" : "vendor.html";
+  window.location.href = INTERNAL_ROLES.has(profile?.role) ? "admin.html" : "vendor.html";
 })();

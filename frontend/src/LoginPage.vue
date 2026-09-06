@@ -1,6 +1,6 @@
 <script setup>
 import { ref, onMounted } from "vue";
-import { supabase } from "./supabaseClient.js";
+import { supabase, INTERNAL_ROLES } from "./supabaseClient.js";
 import BrandLogo from "./components/BrandLogo.vue";
 
 const view = ref("login"); // "login" | "reset"
@@ -20,7 +20,7 @@ onMounted(async () => {
 
 async function redirectByRole(userId) {
   const { data: profile } = await supabase.from("profiles").select("role").eq("id", userId).single();
-  window.location.href = profile?.role === "admin" ? "admin.html" : "vendor.html";
+  window.location.href = INTERNAL_ROLES.has(profile?.role) ? "admin.html" : "vendor.html";
 }
 
 async function handleSignIn() {

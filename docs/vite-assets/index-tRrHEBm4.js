@@ -1,0 +1,1 @@
+import{r as e,t}from"./supabaseClient-ChnKVmGB.js";(async()=>{let{data:{session:n}}=await e.auth.getSession();if(!n){window.location.href=`login.html`;return}let{data:r}=await e.from(`profiles`).select(`role`).eq(`id`,n.user.id).single();window.location.href=t.has(r?.role)?`admin.html`:`vendor.html`})();

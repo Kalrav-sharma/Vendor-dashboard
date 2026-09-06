@@ -5,10 +5,24 @@
 -- CREATE OR REPLACE / DROP POLICY IF EXISTS throughout).
 --
 -- Data model:
---   profiles          — one row per login (admin or vendor), 1:1 with
---                        auth.users via id. vendor_code is null for admins,
---                        set to e.g. "Vendor-156" for a vendor login — that's
---                        the only thing that scopes what a vendor can see.
+--   profiles          — one row per login, 1:1 with auth.users via id.
+--                        role is one of:
+--                          'vendor'     — scoped to vendor_code (their own
+--                                         data only)
+--                          'admin'      — full access to everything,
+--                                         including creating new logins
+--                                         (vendor AND internal-staff)
+--                          'management' — full access to everything EXCEPT
+--                                         creating new logins
+--                          'operations' — PO Tracking + SKU Level Data only,
+--                                         across all vendors
+--                          'finance'    — Payment Dashboard only, across all
+--                                         vendors
+--                        vendor_code is null for every role except 'vendor'
+--                        — that's the only thing that scopes what a vendor
+--                        can see. The other four roles are collectively
+--                        "internal staff" (see is_internal_staff() below)
+--                        and are never scoped to one vendor.
 --   purchase_orders   — one row per PO, written only by the GitHub Actions
 --                        pipeline (via the service_role key, which bypasses
 --                        RLS entirely — there is deliberately no INSERT/
@@ -25,10 +39,14 @@
 -- Access model:
 --   - A vendor login can SELECT only rows whose vendor_code matches their
 --     own profile's vendor_code.
---   - An admin login (profiles.role = 'admin') can SELECT everything.
+--   - Any internal-staff login (admin/management/operations/finance) can
+--     SELECT everything -- RLS itself doesn't distinguish between these
+--     four; which PAGES each one actually sees is enforced in the frontend
+--     (AdminApp.vue), and which one can CREATE new logins is enforced in
+--     the admin-create-vendor / admin-manage-team Edge Functions.
 --   - Nobody except service_role can INSERT/UPDATE/DELETE anywhere — all
 --     writes happen server-side (the Actions pipeline for PO/GRN data, the
---     admin Edge Function for vendor accounts).
+--     admin Edge Functions for vendor/internal-staff accounts).
 
 -- ---------------------------------------------------------------------
 -- profiles
@@ -40,9 +58,10 @@
 -- ---------------------------------------------------------------------
 create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
-  role text not null check (role in ('admin', 'vendor')),
-  vendor_code text,          -- required for role='vendor', null for admins
-  vendor_name text,          -- display name only, e.g. "LEXCRU WATER TECH PVT LTD"
+  role text not null check (role in ('admin', 'vendor', 'management', 'operations', 'finance')),
+  vendor_code text,          -- required for role='vendor', null for every other role
+  vendor_name text,          -- display name only -- e.g. "LEXCRU WATER TECH PVT LTD" for a
+                              -- vendor, or just the person's name for internal staff
   email text,                -- denormalized copy of auth.users.email, for admin display only
   contact_name text,         -- the actual person at the vendor this login is for
   contact_mobile text,
@@ -70,6 +89,15 @@ alter table public.profiles add column if not exists revoked boolean not null de
 alter table public.profiles add column if not exists contact_name text;
 alter table public.profiles add column if not exists contact_mobile text;
 alter table public.profiles add column if not exists must_change_password boolean not null default false;
+
+-- profiles.role's check constraint was originally just ('admin', 'vendor')
+-- -- widen it for an already-deployed database (Postgres auto-names an
+-- inline column check constraint "<table>_<column>_check", so this is safe
+-- to target by that name). A no-op on a fresh install, which already gets
+-- the wider constraint from the create table above.
+alter table public.profiles drop constraint if exists profiles_role_check;
+alter table public.profiles add constraint profiles_role_check
+  check (role in ('admin', 'vendor', 'management', 'operations', 'finance'));
 
 -- SECURITY DEFINER so a vendor can clear their OWN must_change_password flag
 -- without needing a general UPDATE grant on profiles (which stays
@@ -106,12 +134,36 @@ as $$
   );
 $$;
 
+-- ---------------------------------------------------------------------
+-- is_internal_staff(): true for every UC-employee role (admin, management,
+-- operations, finance) — none of these are scoped to a single vendor_code,
+-- so every RLS policy that used to say "is_admin() or own vendor_code" now
+-- says "is_internal_staff() or own vendor_code" instead, letting all four
+-- see across every vendor. is_admin() above stays narrowly 'admin' only —
+-- nothing at the RLS layer currently needs that narrower check (which of
+-- these four roles can CREATE new logins, and which pages each one sees,
+-- are both enforced elsewhere: admin-create-vendor/admin-manage-team for
+-- the former, AdminApp.vue for the latter).
+-- ---------------------------------------------------------------------
+create or replace function public.is_internal_staff()
+returns boolean
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select exists (
+    select 1 from public.profiles
+    where id = auth.uid() and role in ('admin', 'management', 'operations', 'finance')
+  );
+$$;
+
 alter table public.profiles enable row level security;
 
 drop policy if exists profiles_select on public.profiles;
 create policy profiles_select on public.profiles
   for select
-  using (id = auth.uid() or public.is_admin());
+  using (id = auth.uid() or public.is_internal_staff());
 
 -- No insert/update/delete policy for anon/authenticated on purpose: vendor
 -- accounts are created only via the admin Edge Function, which uses the
@@ -152,7 +204,7 @@ drop policy if exists purchase_orders_select on public.purchase_orders;
 create policy purchase_orders_select on public.purchase_orders
   for select
   using (
-    public.is_admin()
+    public.is_internal_staff()
     or vendor_code = (select p.vendor_code from public.profiles p where p.id = auth.uid())
   );
 
@@ -181,7 +233,7 @@ drop policy if exists grns_select on public.grns;
 create policy grns_select on public.grns
   for select
   using (
-    public.is_admin()
+    public.is_internal_staff()
     or vendor_code = (select p.vendor_code from public.profiles p where p.id = auth.uid())
   );
 
@@ -216,7 +268,7 @@ drop policy if exists po_items_select on public.po_items;
 create policy po_items_select on public.po_items
   for select
   using (
-    public.is_admin()
+    public.is_internal_staff()
     or vendor_code = (select p.vendor_code from public.profiles p where p.id = auth.uid())
   );
 
@@ -248,7 +300,7 @@ drop policy if exists grn_items_select on public.grn_items;
 create policy grn_items_select on public.grn_items
   for select
   using (
-    public.is_admin()
+    public.is_internal_staff()
     or vendor_code = (select p.vendor_code from public.profiles p where p.id = auth.uid())
   );
 
@@ -301,7 +353,7 @@ drop policy if exists po_invoice_uploads_select on public.po_invoice_uploads;
 create policy po_invoice_uploads_select on public.po_invoice_uploads
   for select
   using (
-    public.is_admin()
+    public.is_internal_staff()
     or vendor_code = (select p.vendor_code from public.profiles p where p.id = auth.uid())
   );
 
@@ -319,7 +371,7 @@ create policy po_invoice_uploads_insert on public.po_invoice_uploads
       where po.po_code = po_invoice_uploads.po_code and po.vendor_code = po_invoice_uploads.vendor_code
     )
     and (
-      public.is_admin()
+      public.is_internal_staff()
       or vendor_code = (select p.vendor_code from public.profiles p where p.id = auth.uid())
     )
   );
@@ -329,7 +381,7 @@ create policy po_invoice_uploads_insert on public.po_invoice_uploads
 drop policy if exists po_invoice_uploads_delete on public.po_invoice_uploads;
 create policy po_invoice_uploads_delete on public.po_invoice_uploads
   for delete
-  using (uploaded_by = auth.uid() or public.is_admin());
+  using (uploaded_by = auth.uid() or public.is_internal_staff());
 
 -- ---------------------------------------------------------------------
 -- Storage bucket "po-invoices" — private (not public), PDF-only; every
@@ -353,7 +405,7 @@ create policy po_invoices_insert on storage.objects
   with check (
     bucket_id = 'po-invoices'
     and (
-      public.is_admin()
+      public.is_internal_staff()
       or (storage.foldername(name))[1] = (select p.vendor_code from public.profiles p where p.id = auth.uid())
     )
   );
@@ -364,7 +416,7 @@ create policy po_invoices_select on storage.objects
   using (
     bucket_id = 'po-invoices'
     and (
-      public.is_admin()
+      public.is_internal_staff()
       or (storage.foldername(name))[1] = (select p.vendor_code from public.profiles p where p.id = auth.uid())
     )
   );
@@ -375,7 +427,7 @@ create policy po_invoices_delete on storage.objects
   using (
     bucket_id = 'po-invoices'
     and (
-      public.is_admin()
+      public.is_internal_staff()
       or (storage.foldername(name))[1] = (select p.vendor_code from public.profiles p where p.id = auth.uid())
     )
   );
@@ -392,7 +444,16 @@ create policy po_invoices_delete on storage.objects
 --
 -- After that, your login can see every vendor's data, and only your login
 -- (or another row you promote to role='admin') can invoke the admin Edge
--- Function to create new vendor logins.
+-- Functions to create new vendor OR internal-staff (management/operations/
+-- finance) logins.
+--
+-- Internal-staff logins (management/operations/finance) are never created
+-- by hand like this -- once you have your first admin login, create those
+-- from the "Manage Team" section of the admin console (admin-only), the
+-- same way vendor logins are created from "Manage Vendors". Promoting a
+-- profiles row to role='admin' itself, though, stays a manual SQL step
+-- forever -- deliberately never exposed through any UI, so a compromised
+-- lower-privilege login can never grant itself full admin.
 -- ---------------------------------------------------------------------
 
 -- ---------------------------------------------------------------------

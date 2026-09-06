@@ -1,51 +1,47 @@
-// Admin-only Edge Function: creates, revokes/restores, and deletes vendor
-// logins. (Name kept as admin-create-vendor even though it now does more
-// than create, so updating it is a redeploy of an existing function
-// rather than needing a brand new one set up in Supabase.)
+// Admin-ONLY Edge Function: creates, revokes/restores, and deletes internal
+// UC-staff logins (profiles.role in 'management', 'operations', 'finance').
+// Sibling of admin-create-vendor, kept as a SEPARATE function rather than
+// folded into that one -- vendor logins and internal-staff logins are
+// related but distinct concerns (different required fields, and this
+// function must never be usable to touch a vendor or an admin row), and
+// keeping them apart avoids either function's action-handling growing
+// role-conditional branches for the other's shape.
 //
-// See admin-manage-team for the sibling function that does the same thing
-// for internal UC-staff logins (management/operations/finance) instead of
-// vendors -- kept separate rather than merged into this one.
+// Unlike admin-create-vendor (whose revoke/restore/delete are usable by
+// anyone with role='admin'), EVERY action here -- including revoke/restore/
+// delete of an EXISTING internal-staff login -- requires the caller to be
+// role==='admin' exactly. This is deliberate: the user's requirement is
+// that "management" gets full portal access barring the ability to create
+// (or otherwise administer) new user access, and internal-staff account
+// lifecycle is exactly that "admin level control".
 //
-// Runs server-side on Supabase's infrastructure — this is the ONLY place
+// Runs server-side on Supabase's infrastructure -- this is the ONLY place
 // the service_role key is ever used, and it never leaves this function
 // (set as a Supabase secret, not committed anywhere). The browser-side
 // admin console calls this via supabase.functions.invoke(), which
 // automatically attaches the calling admin's session JWT.
 //
-// Every action:
-//   1. Verifies the caller is authenticated AND is an admin (checked with
-//      a client scoped to the caller's own JWT, so it's subject to RLS —
-//      it can only ever see the caller's own profiles row).
-//   2. If not an admin: reject.
-//   3. Only then uses a SEPARATE client built with the service_role key
-//      for the actual privileged operation.
-//
-// Actions (body.action, defaults to "create" for backward compatibility
-// with callers that don't send it):
-//   - create:  { email, vendor_code, vendor_name, contact_name, contact_mobile }
-//     -- creates the auth user (password always DEFAULT_TEMP_PASSWORD below)
-//     + profiles row with must_change_password=true, and returns the temp
-//     password used so the admin console can display it.
+// Actions (body.action, defaults to "create" for backward compatibility):
+//   - create:  { email, display_name, role } -- role must be one of
+//     'management' | 'operations' | 'finance' (never 'admin' or 'vendor').
+//     Creates the auth user (password always DEFAULT_TEMP_PASSWORD below,
+//     same constant as admin-create-vendor's -- keep the two in sync if
+//     this ever changes) + profiles row with must_change_password=true,
+//     and returns the temp password so the admin console can display it.
 //   - revoke:  { user_id } -- bans the auth user via Supabase Auth's own
-//     ban_duration (real enforcement: signInWithPassword fails outright,
-//     this isn't just a hidden UI button), and mirrors it onto
-//     profiles.revoked so the admin console can display the right state
-//     without needing service_role access itself.
+//     ban_duration (real enforcement, not just a hidden UI button), and
+//     mirrors it onto profiles.revoked.
 //   - restore: { user_id } -- clears the ban and profiles.revoked.
 //   - delete:  { user_id } -- permanently deletes the auth user; cascades
-//     to delete their profiles row (see the FK in schema.sql). Historical
-//     PO/GRN data is untouched -- it's keyed by vendor_code, not by this
-//     row's id.
+//     to delete their profiles row (see the FK in schema.sql).
 //
-// revoke/restore/delete all refuse to act on a non-vendor (e.g. an admin)
-// profile, so this endpoint can't be used to lock out an admin account.
+// revoke/restore/delete all refuse to act on anything other than a
+// management/operations/finance profile, so this endpoint can never be
+// used to touch a vendor login or another admin account.
 //
-// Deploy with: supabase functions deploy admin-create-vendor
-// Required secrets (Project Settings -> Edge Functions -> Secrets, or
-// `supabase secrets set`): SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
-// (SUPABASE_URL and SUPABASE_ANON_KEY are auto-injected by the platform;
-// only SUPABASE_SERVICE_ROLE_KEY needs to be set explicitly).
+// Deploy with: supabase functions deploy admin-manage-team
+// Required secrets: same as admin-create-vendor (SUPABASE_URL,
+// SUPABASE_SERVICE_ROLE_KEY -- SUPABASE_ANON_KEY is auto-injected).
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 
@@ -53,10 +49,9 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-// Supabase's ban_duration takes a duration string, not a boolean -- there's
-// no native "banned forever", so this is the same "very long duration"
-// convention Supabase's own docs use to mean "indefinite, until unbanned".
-const INDEFINITE_BAN = "876000h"; // 100 years
+const INDEFINITE_BAN = "876000h"; // 100 years -- see admin-create-vendor for why
+
+const TEAM_ROLES = new Set(["management", "operations", "finance"]);
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -91,6 +86,8 @@ Deno.serve(async (req) => {
       .eq("id", user.id)
       .single();
 
+    // Deliberately narrower than admin-create-vendor's check: exactly
+    // 'admin', never 'management' -- see the file header.
     if (profileErr || callerProfile?.role !== "admin") {
       return json({ error: "Admin access required" }, 403);
     }
@@ -106,7 +103,7 @@ Deno.serve(async (req) => {
       return await handleCreate(adminClient, body);
     }
     if (action === "revoke" || action === "restore" || action === "delete") {
-      return await handleVendorAction(adminClient, action, body);
+      return await handleTeamAction(adminClient, action, body);
     }
     return json({ error: `Unknown action: ${action}` }, 400);
   } catch (e) {
@@ -114,20 +111,17 @@ Deno.serve(async (req) => {
   }
 });
 
-// Every new vendor login starts with this exact password -- deliberately a
-// single known constant rather than admin-typed or randomly generated, so
-// onboarding never depends on securely transmitting a fresh secret. This is
-// safe specifically BECAUSE profiles.must_change_password (set below) forces
-// a real password change before the vendor can see anything else -- this
-// constant is only ever a login's very first password, never its lasting
-// one. The admin console displays whatever this function returns in its
-// response, so there's nowhere else that needs updating if this changes.
+// Must match admin-create-vendor's DEFAULT_TEMP_PASSWORD -- see that
+// function's comment for why a single shared constant is safe here.
 const DEFAULT_TEMP_PASSWORD = "Native@01";
 
 async function handleCreate(adminClient: ReturnType<typeof createClient>, body: any) {
-  const { email, vendor_code, vendor_name, contact_name, contact_mobile } = body ?? {};
-  if (!email || !vendor_code || !contact_name || !contact_mobile) {
-    return json({ error: "email, vendor_code, contact_name and contact_mobile are required" }, 400);
+  const { email, display_name, role } = body ?? {};
+  if (!email || !role) {
+    return json({ error: "email and role are required" }, 400);
+  }
+  if (!TEAM_ROLES.has(role)) {
+    return json({ error: `role must be one of: ${[...TEAM_ROLES].join(", ")}` }, 400);
   }
 
   const { data: created, error: createErr } = await adminClient.auth.admin.createUser({
@@ -141,39 +135,37 @@ async function handleCreate(adminClient: ReturnType<typeof createClient>, body: 
 
   const { error: insertErr } = await adminClient.from("profiles").insert({
     id: created.user.id,
-    role: "vendor",
-    vendor_code,
-    vendor_name: vendor_name ?? null,
+    role,
+    vendor_code: null,
+    vendor_name: display_name ?? null,
     email,
-    contact_name,
-    contact_mobile,
     must_change_password: true,
   });
 
   if (insertErr) {
-    // Don't leave an orphaned auth user with no profile/vendor_code.
+    // Don't leave an orphaned auth user with no profile.
     await adminClient.auth.admin.deleteUser(created.user.id);
-    return json({ error: `Failed to assign vendor profile: ${insertErr.message}` }, 400);
+    return json({ error: `Failed to assign profile: ${insertErr.message}` }, 400);
   }
 
-  return json({ ok: true, user_id: created.user.id, email, vendor_code, temp_password: DEFAULT_TEMP_PASSWORD });
+  return json({ ok: true, user_id: created.user.id, email, role, temp_password: DEFAULT_TEMP_PASSWORD });
 }
 
-async function handleVendorAction(adminClient: ReturnType<typeof createClient>, action: string, body: any) {
+async function handleTeamAction(adminClient: ReturnType<typeof createClient>, action: string, body: any) {
   const { user_id } = body ?? {};
   if (!user_id) {
     return json({ error: "user_id is required" }, 400);
   }
 
-  // Refuse to touch anything that isn't a vendor login -- this endpoint
-  // must never be usable to revoke/delete an admin account.
+  // Refuse to touch anything that isn't an internal-staff login -- this
+  // endpoint must never be usable on a vendor or another admin account.
   const { data: targetProfile, error: targetErr } = await adminClient
     .from("profiles").select("role").eq("id", user_id).single();
   if (targetErr || !targetProfile) {
-    return json({ error: "Vendor login not found" }, 404);
+    return json({ error: "Team login not found" }, 404);
   }
-  if (targetProfile.role !== "vendor") {
-    return json({ error: "This action can only be used on vendor logins" }, 400);
+  if (!TEAM_ROLES.has(targetProfile.role)) {
+    return json({ error: "This action can only be used on management/operations/finance logins" }, 400);
   }
 
   if (action === "delete") {

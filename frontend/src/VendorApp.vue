@@ -65,6 +65,10 @@ function openSkuDetailModal(key) {
 onMounted(async () => {
   const ctx = await requireSession();
   if (!ctx) return;
+  if (ctx.profile.role !== "vendor") {
+    window.location.href = "admin.html";
+    return;
+  }
   if (ctx.profile.must_change_password) {
     mustChangePassword.value = true;
     return;

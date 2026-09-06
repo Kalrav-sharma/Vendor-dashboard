@@ -9,6 +9,7 @@ const props = defineProps({
   onRevoke: { type: Function, required: true },  // (userId) => Promise<{ok, error?}>
   onRestore: { type: Function, required: true }, // (userId) => Promise<{ok, error?}>
   onDelete: { type: Function, required: true },  // (userId) => Promise<{ok, error?}>
+  allowCreate: { type: Boolean, default: true }, // false for a 'management' login -- see AdminApp.vue
 });
 
 const email = ref("");
@@ -98,7 +99,7 @@ async function handleDelete(v) {
 </script>
 
 <template>
-  <div class="panel">
+  <div v-if="allowCreate" class="panel">
     <h2>Create vendor login</h2>
     <div v-if="errorMsg" class="form-error">{{ errorMsg }}</div>
     <div v-if="successMsg" class="form-success">{{ successMsg }}</div>
