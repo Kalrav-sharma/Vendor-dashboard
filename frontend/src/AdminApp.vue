@@ -15,8 +15,7 @@ import SidebarNav from "./components/SidebarNav.vue";
 import PoTrackingTable from "./components/PoTrackingTable.vue";
 import SkuLevelTable from "./components/SkuLevelTable.vue";
 import PaymentDashboardTable from "./components/PaymentDashboardTable.vue";
-import ManageVendors from "./components/ManageVendors.vue";
-import ManageTeam from "./components/ManageTeam.vue";
+import ManageAccess from "./components/ManageAccess.vue";
 import AppModal from "./components/AppModal.vue";
 import PoDetailModal from "./components/PoDetailModal.vue";
 import SkuDetailModal from "./components/SkuDetailModal.vue";
@@ -34,9 +33,8 @@ const myRole = ref("admin");
 const canSeePoTracking = computed(() => ["admin", "management", "operations"].includes(myRole.value));
 const canSeeSkuData = computed(() => ["admin", "management", "operations"].includes(myRole.value));
 const canSeePaymentDashboard = computed(() => ["admin", "management", "finance"].includes(myRole.value));
-const canSeeManageVendors = computed(() => ["admin", "management"].includes(myRole.value));
-const canCreateVendor = computed(() => myRole.value === "admin");
-const canSeeManageTeam = computed(() => myRole.value === "admin");
+const canSeeManageAccess = computed(() => ["admin", "management"].includes(myRole.value));
+const canCreateAccess = computed(() => myRole.value === "admin"); // create-login form -- admin only, any type
 
 const SIDEBAR_BRAND = {
   admin: "Admin Console", management: "Management Console",
@@ -50,8 +48,7 @@ const navItems = computed(() => {
   if (canSeePoTracking.value) items.push({ id: "po-tracking", label: "PO Tracking" });
   if (canSeeSkuData.value) items.push({ id: "sku-data", label: "SKU Level Data" });
   if (canSeePaymentDashboard.value) items.push({ id: "payment-dashboard", label: "Payment Dashboard" });
-  if (canSeeManageVendors.value) items.push({ id: "manage-vendors", label: "Manage Vendors" });
-  if (canSeeManageTeam.value) items.push({ id: "manage-team", label: "Manage Team" });
+  if (canSeeManageAccess.value) items.push({ id: "manage-access", label: "Manage Access" });
   return items;
 });
 
@@ -60,8 +57,7 @@ const pageTitle = computed(() => ({
   "po-tracking": "PO Tracking",
   "sku-data": "SKU Level Data",
   "payment-dashboard": "Payment Dashboard",
-  "manage-vendors": "Manage Vendors",
-  "manage-team": "Manage Team",
+  "manage-access": "Manage Access",
 }[activeNav.value]));
 
 const { currentPos, grnsByPo, poItemsByPo, grnItemsByPoSku, grnByCode, lastUpdated, invoicesForItem } = usePurchaseOrders();
@@ -130,10 +126,10 @@ onMounted(async () => {
   myEmail.value = ctx.profile.email || "";
   // vendorLabel()/vendorOptions (built from `vendors`) feed every
   // multi-vendor view (PO Tracking, SKU Data, Payment Dashboard), not just
-  // Manage Vendors -- so this loads for every role, unlike the team roster
-  // below, which only Manage Team (admin-only) ever shows.
+  // Manage Access -- so this loads for every role, unlike the team roster
+  // below, which only Manage Access (admin/management) ever shows.
   await refreshVendors();
-  if (canSeeManageTeam.value) await refreshTeam();
+  if (canSeeManageAccess.value) await refreshTeam();
   await fetchAllUploads();
   ready.value = true;
 });
@@ -157,7 +153,7 @@ async function signOut() {
               <template v-if="activeNav === 'po-tracking'">{{ scopeLine }}</template>
               <template v-else-if="activeNav === 'sku-data'">SKUs with at least one open purchase order not yet fully supplied, highest pending quantity first, across all vendors. Click a SKU for the PO-level breakdown.</template>
               <template v-else-if="activeNav === 'payment-dashboard'">Every invoice uploaded across all vendors, with its reconciliation and payment status. Click a PO to see its details.</template>
-              <template v-else-if="activeNav === 'manage-team'">Create and manage internal logins for Management, Operations and Finance access.</template>
+              <template v-else-if="activeNav === 'manage-access'">Create and manage every login on the portal -- vendors and internal Management/Operations/Finance access alike.</template>
             </div>
           </div>
           <div class="who">
@@ -191,17 +187,12 @@ async function signOut() {
           />
         </div>
 
-        <div v-if="canSeeManageVendors" v-show="activeNav === 'manage-vendors'">
-          <ManageVendors
-            :vendors="vendors" :on-vendors-changed="refreshVendors" :allow-create="canCreateVendor"
-            :on-revoke="revokeVendor" :on-restore="restoreVendor" :on-delete="deleteVendor"
-          />
-        </div>
-
-        <div v-if="canSeeManageTeam" v-show="activeNav === 'manage-team'">
-          <ManageTeam
-            :team="team" :on-team-changed="refreshTeam"
-            :on-revoke="revokeTeamMember" :on-restore="restoreTeamMember" :on-delete="deleteTeamMember"
+        <div v-if="canSeeManageAccess" v-show="activeNav === 'manage-access'">
+          <ManageAccess
+            :vendors="vendors" :team="team" :allow-create="canCreateAccess"
+            :on-vendors-changed="refreshVendors" :on-team-changed="refreshTeam"
+            :on-revoke-vendor="revokeVendor" :on-restore-vendor="restoreVendor" :on-delete-vendor="deleteVendor"
+            :on-revoke-team="revokeTeamMember" :on-restore-team="restoreTeamMember" :on-delete-team="deleteTeamMember"
           />
         </div>
 
