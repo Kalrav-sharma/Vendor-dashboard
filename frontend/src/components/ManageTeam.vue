@@ -2,6 +2,7 @@
 import { ref } from "vue";
 import { supabase } from "../supabaseClient.js";
 import { fmtDate } from "../format.js";
+import { resolveFunctionError } from "../functionError.js";
 
 const props = defineProps({
   team: { type: Array, required: true },
@@ -37,7 +38,7 @@ async function handleCreate() {
   creating.value = false;
 
   if (error || data?.error) {
-    errorMsg.value = data?.error || error.message;
+    errorMsg.value = await resolveFunctionError(data, error);
     return;
   }
 

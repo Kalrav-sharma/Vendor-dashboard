@@ -3,6 +3,7 @@
 // calling the admin-manage-team Edge Function instead of admin-create-vendor.
 import { ref } from "vue";
 import { supabase } from "../supabaseClient.js";
+import { resolveFunctionError } from "../functionError.js";
 
 const TEAM_ROLES = ["management", "operations", "finance"];
 
@@ -21,14 +22,7 @@ export function useTeam() {
       body: { action, user_id: userId },
     });
     if (error || data?.error) {
-      let detail = data?.error || error?.message || "unexpected response from server";
-      if (error?.context?.json) {
-        try {
-          const body = await error.context.json();
-          if (body?.error) detail = body.error;
-        } catch { /* body wasn't JSON -- keep whatever we already had */ }
-      }
-      return { ok: false, error: detail };
+      return { ok: false, error: await resolveFunctionError(data, error) };
     }
     await refresh();
     return { ok: true };
