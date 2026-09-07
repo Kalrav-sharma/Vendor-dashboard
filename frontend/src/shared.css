@@ -245,6 +245,28 @@ button.primary-btn:disabled { opacity: 0.6; cursor: default; }
 @media (max-width: 800px) { .panel-grid { grid-template-columns: 1fr 1fr; } }
 .panel-grid .field { margin-bottom: 0; }
 .field-hint { color: var(--muted); font-size: 0.78rem; margin: 10px 0 0; }
+
+/* --- CustomSelect: HTML-rendered dropdown, see that component for why --- */
+.custom-select { position: relative; }
+.custom-select-trigger {
+  width: 100%; padding: 9px 11px; border: 1px solid var(--line); border-radius: 7px;
+  background: var(--paper); color: var(--ink); font-size: 0.9rem; font-family: inherit;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  cursor: pointer; text-align: left;
+}
+.custom-select-trigger:focus, .custom-select-trigger.open { outline: 2px solid var(--accent); outline-offset: 1px; }
+.custom-select-chevron { color: var(--muted); font-size: 0.7rem; flex-shrink: 0; }
+.custom-select-options {
+  position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; right: 0;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 7px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25); list-style: none; margin: 0; padding: 4px;
+  max-height: 260px; overflow-y: auto;
+}
+.custom-select-option {
+  padding: 8px 10px; border-radius: 5px; font-size: 0.86rem; color: var(--ink); cursor: pointer;
+}
+.custom-select-option:hover { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.custom-select-option.selected { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
 .due-date-estimated-mark { color: var(--open); cursor: default; }
 
 footer.page-foot { margin-top: 16px; color: var(--muted); font-size: 0.74rem; text-align: center; }

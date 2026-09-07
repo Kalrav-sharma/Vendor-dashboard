@@ -3,6 +3,20 @@ import { ref, computed } from "vue";
 import { supabase } from "../supabaseClient.js";
 import { fmtDate } from "../format.js";
 import { resolveFunctionError } from "../functionError.js";
+import CustomSelect from "./CustomSelect.vue";
+
+const ACCESS_OPTIONS = [
+  { value: "vendor", label: "Vendor" },
+  { value: "management", label: "Management" },
+  { value: "operations", label: "Operations" },
+  { value: "finance", label: "Finance" },
+];
+const ACCESS_DESCRIPTIONS = {
+  vendor: "Sees only their own PO Tracking, SKU Level Data and Payment Dashboard.",
+  management: "Full portal access, except creating new logins.",
+  operations: "PO Tracking + SKU Level Data only, across all vendors.",
+  finance: "Payment Dashboard only, across all vendors.",
+};
 
 const props = defineProps({
   vendors: { type: Array, required: true },
@@ -140,13 +154,8 @@ async function handleDelete(row) {
     <form @submit.prevent="handleCreate">
       <div class="panel-grid">
         <div class="field">
-          <label for="a-access">Access level</label>
-          <select id="a-access" v-model="accessLevel">
-            <option value="vendor">Vendor -- their own PO/SKU/Payment data only</option>
-            <option value="management">Management -- full portal access, except creating new logins</option>
-            <option value="operations">Operations -- PO Tracking + SKU Level Data only</option>
-            <option value="finance">Finance -- Payment Dashboard only</option>
-          </select>
+          <label>Access level</label>
+          <CustomSelect v-model="accessLevel" :options="ACCESS_OPTIONS" />
         </div>
         <div class="field">
           <label for="a-email">Email</label>
@@ -178,6 +187,7 @@ async function handleDelete(row) {
           </div>
         </template>
       </div>
+      <p class="field-hint">{{ ACCESS_DESCRIPTIONS[accessLevel] }}</p>
       <p class="field-hint">Every login starts with the same temporary password -- they'll be asked to set their own the first time they log in.</p>
       <button type="submit" class="primary-btn" :disabled="creating" style="width: auto; padding: 9px 20px; margin-top: 4px;">
         {{ creating ? "Creating…" : "Create login" }}
