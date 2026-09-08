@@ -38,12 +38,9 @@ const canSeeManageAccess = computed(() => ["admin", "management"].includes(myRol
 const canCreateAccess = computed(() => myRole.value === "admin"); // create-login form -- admin only, any type
 const canSeeRateFinder = computed(() => ["admin", "management", "operations"].includes(myRole.value));
 
-// Rate Finder is built and live on the site, but deliberately kept OUT of
-// navItems (so it never appears in anyone's sidebar) until Kalrav approves
-// it after his own test runs -- flip this to true then, which is the only
-// change needed to make it a normal visible tab. Until that flip, it's
-// reachable only via a direct link ending in #rate-finder (see onMounted).
-const RATE_FINDER_LIVE = false;
+// Approved by Kalrav after testing -- now a normal visible tab for
+// admin/management/operations, same as everything else.
+const RATE_FINDER_LIVE = true;
 
 const SIDEBAR_BRAND = {
   admin: "Admin Console", management: "Management Console",
@@ -133,12 +130,6 @@ onMounted(async () => {
   }
   myRole.value = ctx.profile.role;
   activeNav.value = navItems.value[0]?.id || "po-tracking";
-  // Hidden-route override: even while Rate Finder is off navItems (not
-  // live yet), a direct link ending in #rate-finder still opens it, for
-  // testing before it's exposed to anyone via the sidebar.
-  if (window.location.hash === "#rate-finder" && canSeeRateFinder.value) {
-    activeNav.value = "rate-finder";
-  }
   whoLine.value = ctx.profile.vendor_name || ROLE_FALLBACK_NAME[myRole.value] || "Admin";
   myEmail.value = ctx.profile.email || "";
   // vendorLabel()/vendorOptions (built from `vendors`) feed every
