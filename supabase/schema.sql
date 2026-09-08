@@ -433,6 +433,65 @@ create policy po_invoices_delete on storage.objects
   );
 
 -- ---------------------------------------------------------------------
+-- mm_rate_card — Mid Mile "Effective Rate Card": one row per
+-- Origin|Destination|Truck Size lane, synced from the "Native -
+-- Commercials" Google Sheet's "Mid mile commercials" tab (see
+-- scripts/sync_mm_rate_card.py — a manual, on-demand GitHub Actions
+-- workflow_dispatch, run only when Kalrav says the commercials changed,
+-- same convention the source spreadsheet's own weekly-refresh skill
+-- already uses for this exact rate card). Read-only for the app --
+-- only the sync script (service_role) ever writes it. Powers the
+-- Rate Finder page's "cheapest vendor for this lane" lookup.
+-- ---------------------------------------------------------------------
+create table if not exists public.mm_rate_card (
+  lane_key text primary key,     -- "ORIGIN|DESTINATION|TRUCK SIZE", uppercased -- lane
+                                  -- matching must be case-insensitive (the source
+                                  -- sheet has inconsistent casing; see
+                                  -- reference/METHODOLOGY.md in the vendor-adherence
+                                  -- skill for the exact prior bug this avoids)
+  origin text not null,          -- original casing, for display
+  destination text not null,
+  truck_size text not null,
+  vendor_rates jsonb not null default '{}'::jsonb,  -- {"Lets-Transport": 12000, "Ripplr": null, ...}
+  cheapest_vendor text,           -- null if no vendor has quoted this lane at all
+  cheapest_price numeric,
+  synced_at timestamptz not null default now()
+);
+
+alter table public.mm_rate_card enable row level security;
+
+drop policy if exists mm_rate_card_select on public.mm_rate_card;
+create policy mm_rate_card_select on public.mm_rate_card
+  for select
+  using (public.is_internal_staff());  -- no vendor_code scoping -- vendors never see this
+
+-- ---------------------------------------------------------------------
+-- vendor_contacts — WhatsApp-reachable phone number per Mid Mile rate-card
+-- vendor name (vendor_rates' keys in mm_rate_card above), used by Rate
+-- Finder's "Send Intent" button. Deliberately a separate table from the
+-- rate-card sync -- a contact number changes independently of pricing,
+-- and this is maintained by hand from the admin console, not synced.
+-- ---------------------------------------------------------------------
+create table if not exists public.vendor_contacts (
+  vendor_name text primary key,   -- must match a mm_rate_card.vendor_rates key exactly
+  whatsapp_number text not null,  -- E.164, digits only, e.g. "919876543210"
+  contact_name text,
+  updated_at timestamptz not null default now()
+);
+
+alter table public.vendor_contacts enable row level security;
+
+drop policy if exists vendor_contacts_select on public.vendor_contacts;
+create policy vendor_contacts_select on public.vendor_contacts
+  for select
+  using (public.is_internal_staff());
+
+-- No insert/update/delete policy for authenticated on either table above --
+-- mm_rate_card is service_role-only (the sync script); vendor_contacts is
+-- maintained via the admin-manage-vendor-contacts Edge Function, same
+-- service_role-bypasses-RLS pattern as every other admin write path here.
+
+-- ---------------------------------------------------------------------
 -- Bootstrap: make yourself the first admin.
 --
 -- 1. In Supabase Dashboard → Authentication → Users → Add user, create your
@@ -449,8 +508,8 @@ create policy po_invoices_delete on storage.objects
 --
 -- Internal-staff logins (management/operations/finance) are never created
 -- by hand like this -- once you have your first admin login, create those
--- from the "Manage Team" section of the admin console (admin-only), the
--- same way vendor logins are created from "Manage Vendors". Promoting a
+-- from the "Manage Access" section of the admin console (admin-only
+-- create form). Promoting a
 -- profiles row to role='admin' itself, though, stays a manual SQL step
 -- forever -- deliberately never exposed through any UI, so a compromised
 -- lower-privilege login can never grant itself full admin.

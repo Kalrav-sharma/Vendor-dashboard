@@ -16,6 +16,7 @@ import PoTrackingTable from "./components/PoTrackingTable.vue";
 import SkuLevelTable from "./components/SkuLevelTable.vue";
 import PaymentDashboardTable from "./components/PaymentDashboardTable.vue";
 import ManageAccess from "./components/ManageAccess.vue";
+import RateFinder from "./components/RateFinder.vue";
 import AppModal from "./components/AppModal.vue";
 import PoDetailModal from "./components/PoDetailModal.vue";
 import SkuDetailModal from "./components/SkuDetailModal.vue";
@@ -35,6 +36,14 @@ const canSeeSkuData = computed(() => ["admin", "management", "operations"].inclu
 const canSeePaymentDashboard = computed(() => ["admin", "management", "finance"].includes(myRole.value));
 const canSeeManageAccess = computed(() => ["admin", "management"].includes(myRole.value));
 const canCreateAccess = computed(() => myRole.value === "admin"); // create-login form -- admin only, any type
+const canSeeRateFinder = computed(() => ["admin", "management", "operations"].includes(myRole.value));
+
+// Rate Finder is built and live on the site, but deliberately kept OUT of
+// navItems (so it never appears in anyone's sidebar) until Kalrav approves
+// it after his own test runs -- flip this to true then, which is the only
+// change needed to make it a normal visible tab. Until that flip, it's
+// reachable only via a direct link ending in #rate-finder (see onMounted).
+const RATE_FINDER_LIVE = false;
 
 const SIDEBAR_BRAND = {
   admin: "Admin Console", management: "Management Console",
@@ -49,6 +58,7 @@ const navItems = computed(() => {
   if (canSeeSkuData.value) items.push({ id: "sku-data", label: "SKU Level Data" });
   if (canSeePaymentDashboard.value) items.push({ id: "payment-dashboard", label: "Payment Dashboard" });
   if (canSeeManageAccess.value) items.push({ id: "manage-access", label: "Manage Access" });
+  if (RATE_FINDER_LIVE && canSeeRateFinder.value) items.push({ id: "rate-finder", label: "Rate Finder" });
   return items;
 });
 
@@ -58,6 +68,7 @@ const pageTitle = computed(() => ({
   "sku-data": "SKU Level Data",
   "payment-dashboard": "Payment Dashboard",
   "manage-access": "Manage Access",
+  "rate-finder": "Rate Finder",
 }[activeNav.value]));
 
 const { currentPos, grnsByPo, poItemsByPo, grnItemsByPoSku, grnByCode, lastUpdated, invoicesForItem } = usePurchaseOrders();
@@ -122,6 +133,12 @@ onMounted(async () => {
   }
   myRole.value = ctx.profile.role;
   activeNav.value = navItems.value[0]?.id || "po-tracking";
+  // Hidden-route override: even while Rate Finder is off navItems (not
+  // live yet), a direct link ending in #rate-finder still opens it, for
+  // testing before it's exposed to anyone via the sidebar.
+  if (window.location.hash === "#rate-finder" && canSeeRateFinder.value) {
+    activeNav.value = "rate-finder";
+  }
   whoLine.value = ctx.profile.vendor_name || ROLE_FALLBACK_NAME[myRole.value] || "Admin";
   myEmail.value = ctx.profile.email || "";
   // vendorLabel()/vendorOptions (built from `vendors`) feed every
@@ -154,6 +171,7 @@ async function signOut() {
               <template v-else-if="activeNav === 'sku-data'">SKUs with at least one open purchase order not yet fully supplied, highest pending quantity first, across all vendors. Click a SKU for the PO-level breakdown.</template>
               <template v-else-if="activeNav === 'payment-dashboard'">Every invoice uploaded across all vendors, with its reconciliation and payment status. Click a PO to see its details.</template>
               <template v-else-if="activeNav === 'manage-access'">Create and manage every login on the portal -- vendors and internal Management/Operations/Finance access alike.</template>
+              <template v-else-if="activeNav === 'rate-finder'">Find the cheapest vendor for a lane, and send them the shipment intent on WhatsApp.</template>
             </div>
           </div>
           <div class="who">
@@ -194,6 +212,10 @@ async function signOut() {
             :on-revoke-vendor="revokeVendor" :on-restore-vendor="restoreVendor" :on-delete-vendor="deleteVendor"
             :on-revoke-team="revokeTeamMember" :on-restore-team="restoreTeamMember" :on-delete-team="deleteTeamMember"
           />
+        </div>
+
+        <div v-if="canSeeRateFinder" v-show="activeNav === 'rate-finder'">
+          <RateFinder />
         </div>
 
         <footer class="page-foot">Data refreshes automatically every ~5 minutes from Uniware. {{ lastCheckedText }}</footer>
