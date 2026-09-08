@@ -1,10 +1,14 @@
 name: Sync Mid Mile rate card to Supabase
 
-# Manual only, deliberately no schedule -- the rate card is meant to read
-# as "current commercials", resynced only when Kalrav says the "Native -
-# Commercials" sheet changed. Trigger from the Actions tab's "Run workflow"
-# button.
+# Runs automatically once a day at 3:00 AM IST (21:30 UTC) -- deep
+# off-hours, chosen so nobody is realistically using Rate Finder during
+# the brief delete-then-insert window (see replace_rows() in
+# sync_mm_rate_card.py). "Run workflow" in the Actions tab still works too,
+# for whenever Kalrav wants an immediate resync right after editing the
+# sheet rather than waiting for the next 3 AM run.
 on:
+  schedule:
+    - cron: '30 21 * * *'
   workflow_dispatch: {}
 
 permissions:
