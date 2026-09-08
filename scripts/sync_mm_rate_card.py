@@ -5,8 +5,9 @@ via a Google service account (Sheets API), computes the same "Effective
 Rate Card" derivation the vendor-adherence-weekly-refresh skill's
 sync_rate_card.py does (collapse Lets-Transport rate-variant columns to
 one authoritative column, compute a case-insensitive Lane Key and the
-cheapest quoted price per lane), and upserts the result into Supabase's
-mm_rate_card table. Powers the portal's Rate Finder page.
+cheapest quoted price per lane), and wholesale REPLACES Supabase's
+mm_rate_card table with the result (delete-all then insert-fresh, not an
+upsert -- see replace_rows() for why). Powers the portal's Rate Finder page.
 
 Manual, on-demand only -- run via the "Sync Mid Mile rate card" GitHub
 Actions workflow's "Run workflow" button, same convention the source
@@ -146,28 +147,52 @@ def supabase_config():
     return url.rstrip("/"), key
 
 
-def upsert_rows(supabase_url, key, rows):
+def replace_rows(supabase_url, key, rows):
+    """Wholesale replace -- deletes every existing mm_rate_card row, then
+    inserts the fresh set. An upsert-only sync (the original approach here)
+    never removes a row whose lane no longer exists in the current sheet --
+    e.g. renaming a truck-size label ("10-FT" -> "10FT") leaves the OLD
+    label's row behind forever, showing up as a phantom duplicate in Rate
+    Finder's dropdowns. The rate card is meant to always mirror the sheet's
+    CURRENT state exactly (same "one rate card, not one per week" doctrine
+    the sibling vendor-adherence skill's sync_rate_card.py already documents
+    for this same spreadsheet), so a full replace on every sync is correct,
+    not just simpler.
+
+    Refuses to run if `rows` came back empty -- almost certainly a transient
+    Sheets API / parsing failure, and wiping a good table because of that
+    would be worse than just leaving stale data one run longer."""
     if not rows:
-        return
+        sys.exit("Parsed zero lanes from the sheet -- aborting without touching mm_rate_card "
+                  "(a transient fetch/parse failure looks the same as an empty sheet; refusing "
+                  "to wipe existing data on that ambiguity).")
+
+    headers = {"apikey": key, "Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+
+    r = requests.delete(
+        f"{supabase_url}/rest/v1/mm_rate_card",
+        headers=headers,
+        params={"lane_key": "not.is.null"},  # matches every row -- lane_key is the (non-null) primary key
+        timeout=REQUEST_TIMEOUT,
+    )
+    if not r.ok:
+        sys.exit(f"Clearing mm_rate_card failed ({r.status_code}): {r.text[:500]}")
+
     r = requests.post(
         f"{supabase_url}/rest/v1/mm_rate_card",
-        headers={
-            "apikey": key, "Authorization": f"Bearer {key}", "Content-Type": "application/json",
-            "Prefer": "resolution=merge-duplicates,return=minimal",
-        },
-        params={"on_conflict": "lane_key"},
+        headers={**headers, "Prefer": "return=minimal"},
         json=rows,
         timeout=REQUEST_TIMEOUT,
     )
     if not r.ok:
-        sys.exit(f"Upsert into mm_rate_card failed ({r.status_code}): {r.text[:500]}")
+        sys.exit(f"Insert into mm_rate_card failed ({r.status_code}): {r.text[:500]}")
 
 
 def main():
     supabase_url, supabase_key = supabase_config()
     vendor_names, lanes = read_lanes(fetch_sheet_values())
     rows = build_rows(vendor_names, lanes)
-    upsert_rows(supabase_url, supabase_key, rows)
+    replace_rows(supabase_url, supabase_key, rows)
     uncovered = sum(1 for r in rows if r["cheapest_vendor"] is None)
     print(f"Synced {len(rows)} lane(s) into mm_rate_card ({uncovered} with no vendor quoted).")
     print(f"Vendor columns ({len(vendor_names)}): {', '.join(vendor_names)}")
