@@ -259,6 +259,15 @@ create table if not exists public.po_items (
   unique (po_code, item_sku)
 );
 
+-- po_items already existed before the Dispatch Planning columns were
+-- added, so "create table if not exists" above won't retroactively add
+-- them on an already-deployed database -- these do, and are a no-op if
+-- already there. Vendor-entered, per SKU: see the "Dispatch Planning"
+-- feature (PoDetailModal.vue's new input columns, DispatchPlanningTable.vue,
+-- scripts/send_po_emails.py's reminder logic).
+alter table public.po_items add column if not exists estimated_dispatch_date date;
+alter table public.po_items add column if not exists estimated_dispatch_qty numeric;
+
 create index if not exists po_items_po_code_idx on public.po_items(po_code);
 create index if not exists po_items_vendor_code_idx on public.po_items(vendor_code);
 
@@ -271,6 +280,91 @@ create policy po_items_select on public.po_items
     public.is_internal_staff()
     or vendor_code = (select p.vendor_code from public.profiles p where p.id = auth.uid())
   );
+
+-- Dispatch Planning write path: a vendor (own vendor_code) or any
+-- internal-staff login can update po_items -- but a column-level GRANT
+-- (layered under RLS, which only controls ROWS) restricts what they can
+-- actually touch to just the two estimate columns, so this can never be
+-- used to edit quantity/pricing/etc even if a buggy or malicious client
+-- included those fields in its update payload.
+grant update (estimated_dispatch_date, estimated_dispatch_qty) on public.po_items to authenticated;
+
+drop policy if exists po_items_update_dispatch on public.po_items;
+create policy po_items_update_dispatch on public.po_items
+  for update
+  using (
+    public.is_internal_staff()
+    or vendor_code = (select p.vendor_code from public.profiles p where p.id = auth.uid())
+  )
+  with check (
+    public.is_internal_staff()
+    or vendor_code = (select p.vendor_code from public.profiles p where p.id = auth.uid())
+  );
+
+-- ---------------------------------------------------------------------
+-- po_email_events — outbox + audit log for the Dispatch Planning email
+-- automation (see scripts/send_po_emails.py). Two kinds of row:
+--   - 'new_po'   -- queued automatically by the trigger below, exactly
+--     once per genuinely NEW purchase order (never on a resync update of
+--     an existing one -- see queue_new_po_email()'s AFTER INSERT trigger).
+--     sent_at is null until send_po_emails.py actually sends it.
+--   - 'reminder' -- inserted directly by send_po_emails.py itself (no
+--     trigger), one per PO per calendar day (IST) it sends a reminder --
+--     used both as the audit log and as that script's own "already
+--     reminded today" dedup check.
+-- Nobody but service_role (the trigger runs SECURITY DEFINER; the script
+-- uses the service_role key) ever writes this -- internal staff can only
+-- read it, for visibility into what's been sent.
+-- ---------------------------------------------------------------------
+create table if not exists public.po_email_events (
+  id bigint generated always as identity primary key,
+  po_code text not null references public.purchase_orders(po_code) on delete cascade,
+  vendor_code text not null,
+  event_type text not null check (event_type in ('new_po', 'reminder')),
+  queued_at timestamptz not null default now(),
+  sent_at timestamptz,
+  error text
+);
+
+create index if not exists po_email_events_po_code_idx on public.po_email_events(po_code);
+create index if not exists po_email_events_pending_idx on public.po_email_events(event_type, sent_at);
+
+alter table public.po_email_events enable row level security;
+
+drop policy if exists po_email_events_select on public.po_email_events;
+create policy po_email_events_select on public.po_email_events
+  for select
+  using (public.is_internal_staff());  -- vendors never see this -- it's an internal audit log, not a feature
+
+-- SECURITY DEFINER so this can insert regardless of who/what triggered the
+-- underlying purchase_orders write (normally service_role via the Uniware
+-- sync, which bypasses RLS anyway, but this makes the trigger's own insert
+-- unconditional rather than depending on the inserting role's own grants).
+create or replace function public.queue_new_po_email()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  -- Only queue a notification for a PO actually created recently -- without
+  -- this, backfilling a brand-new vendor's entire multi-week PO history
+  -- (a real, expected code path -- see sync_to_supabase.py's needs_backfill)
+  -- would fire one "new PO" email per historical PO all at once. 4 days
+  -- matches that same script's own RECENT_WINDOW_DAYS for the same reason.
+  if new.created_at is not null and new.created_at >= now() - interval '4 days' then
+    insert into public.po_email_events (po_code, vendor_code, event_type)
+    values (new.po_code, new.vendor_code, 'new_po');
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_queue_new_po_email on public.purchase_orders;
+create trigger trg_queue_new_po_email
+  after insert on public.purchase_orders
+  for each row
+  execute function public.queue_new_po_email();
 
 -- ---------------------------------------------------------------------
 -- grn_items — one row per SKU line item on a GRN. Same purpose as

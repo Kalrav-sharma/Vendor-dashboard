@@ -1,0 +1,31 @@
+name: Send Dispatch Planning emails
+
+# Manual only for now, deliberately no schedule -- these emails go to real
+# vendors, so Kalrav should confirm a manual test run looks right (correct
+# vendor, correct content) before this runs unattended on a schedule. Once
+# confirmed, add a `schedule:` trigger here (e.g. every 30 minutes) the
+# same way sync-mm-rate-card.yml already does.
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - run: pip install -r requirements.txt
+
+      - run: python scripts/send_po_emails.py
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          RESEND_FROM_EMAIL: ${{ secrets.RESEND_FROM_EMAIL }}

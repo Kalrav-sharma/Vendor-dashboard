@@ -5,6 +5,7 @@ import { usePurchaseOrders } from "./composables/usePurchaseOrders.js";
 import { usePoFilters } from "./composables/usePoFilters.js";
 import { useSkuAggregates } from "./composables/useSkuAggregates.js";
 import { useSkuFilters } from "./composables/useSkuFilters.js";
+import { useDispatchPlanningFilters } from "./composables/useDispatchPlanningFilters.js";
 import { useVendors } from "./composables/useVendors.js";
 import { useTeam } from "./composables/useTeam.js";
 import { useModal } from "./composables/useModal.js";
@@ -14,6 +15,7 @@ import { dedupeInvoiceNumbers } from "./format.js";
 import SidebarNav from "./components/SidebarNav.vue";
 import PoTrackingTable from "./components/PoTrackingTable.vue";
 import SkuLevelTable from "./components/SkuLevelTable.vue";
+import DispatchPlanningTable from "./components/DispatchPlanningTable.vue";
 import PaymentDashboardTable from "./components/PaymentDashboardTable.vue";
 import ManageAccess from "./components/ManageAccess.vue";
 import RateFinder from "./components/RateFinder.vue";
@@ -33,6 +35,7 @@ const myRole = ref("admin");
 // visibility); this is purely a frontend concern.
 const canSeePoTracking = computed(() => ["admin", "management", "operations"].includes(myRole.value));
 const canSeeSkuData = computed(() => ["admin", "management", "operations"].includes(myRole.value));
+const canSeeDispatchPlanning = computed(() => ["admin", "management", "operations"].includes(myRole.value));
 const canSeePaymentDashboard = computed(() => ["admin", "management", "finance"].includes(myRole.value));
 const canSeeManageAccess = computed(() => ["admin", "management"].includes(myRole.value));
 const canCreateAccess = computed(() => myRole.value === "admin"); // create-login form -- admin only, any type
@@ -53,6 +56,7 @@ const navItems = computed(() => {
   const items = [];
   if (canSeePoTracking.value) items.push({ id: "po-tracking", label: "PO Tracking" });
   if (canSeeSkuData.value) items.push({ id: "sku-data", label: "SKU Level Data" });
+  if (canSeeDispatchPlanning.value) items.push({ id: "dispatch-planning", label: "Dispatch Planning" });
   if (canSeePaymentDashboard.value) items.push({ id: "payment-dashboard", label: "Payment Dashboard" });
   if (canSeeManageAccess.value) items.push({ id: "manage-access", label: "Manage Access" });
   if (RATE_FINDER_LIVE && canSeeRateFinder.value) items.push({ id: "rate-finder", label: "Rate Finder" });
@@ -63,6 +67,7 @@ const activeNav = ref("po-tracking");
 const pageTitle = computed(() => ({
   "po-tracking": "PO Tracking",
   "sku-data": "SKU Level Data",
+  "dispatch-planning": "Dispatch Planning",
   "payment-dashboard": "Payment Dashboard",
   "manage-access": "Manage Access",
   "rate-finder": "Rate Finder",
@@ -86,6 +91,21 @@ const vendorOptions = computed(() => {
   return [...byCode.values()];
 });
 const { filters: skuFilters, filteredSorted: skuFilteredSorted } = useSkuFilters(skuRows, vendorLabel);
+
+// One row per po_items row with BOTH estimate fields filled in -- a SKU
+// only ever appears here once the vendor (or internal staff, on their
+// behalf) has actually saved a value for each, via PoDetailModal.vue.
+const dispatchPlanningRows = computed(() => {
+  const rows = [];
+  for (const items of Object.values(poItemsByPo.value)) {
+    for (const it of items) {
+      if (it.estimated_dispatch_date != null && it.estimated_dispatch_qty != null) rows.push(it);
+    }
+  }
+  return rows;
+});
+const { filters: dispatchFilters, filteredSorted: dispatchFilteredSorted } = useDispatchPlanningFilters(dispatchPlanningRows, vendorLabel);
+
 const { allUploads, fetchAllUploads } = useInvoiceUploads();
 const { filters: paymentFilters, filteredSorted: paymentFilteredSorted, reconciliationOptions } = usePaymentFilters(allUploads, vendorLabel);
 
@@ -109,7 +129,7 @@ function openPoDetailModal(poCode) {
   const invoices = dedupeInvoiceNumbers(grns.map(g => g.vendor_invoice_number));
   openModal("Purchase Order", PoDetailModal, {
     po, items, invoices, vendorLabelText: vendorLabel(po.vendor_code, po.vendor_name),
-    allowInvoiceUpload: true, uploaderLabel: whoLine.value,
+    allowInvoiceUpload: true, allowDispatchPlanning: true, uploaderLabel: whoLine.value,
   }, poCode);
 }
 
@@ -160,6 +180,7 @@ async function signOut() {
             <div class="scope">
               <template v-if="activeNav === 'po-tracking'">{{ scopeLine }}</template>
               <template v-else-if="activeNav === 'sku-data'">SKUs with at least one open purchase order not yet fully supplied, highest pending quantity first, across all vendors. Click a SKU for the PO-level breakdown.</template>
+              <template v-else-if="activeNav === 'dispatch-planning'">Estimated dispatch date and quantity per SKU, across all vendors, once entered on the PO. Click a PO to see its details.</template>
               <template v-else-if="activeNav === 'payment-dashboard'">Every invoice uploaded across all vendors, with its reconciliation and payment status. Click a PO to see its details.</template>
               <template v-else-if="activeNav === 'manage-access'">Create and manage every login on the portal -- vendors and internal Management/Operations/Finance access alike.</template>
               <template v-else-if="activeNav === 'rate-finder'">Find the cheapest vendor for a lane, and send them the shipment intent on WhatsApp.</template>
@@ -185,6 +206,14 @@ async function signOut() {
             :rows="skuFilteredSorted" :filters="skuFilters"
             :vendor-options="vendorOptions" :vendor-label="vendorLabel"
             :on-open-sku="openSkuDetailModal"
+          />
+        </div>
+
+        <div v-if="canSeeDispatchPlanning" v-show="activeNav === 'dispatch-planning'">
+          <DispatchPlanningTable
+            :rows="dispatchFilteredSorted" :filters="dispatchFilters"
+            :vendor-options="vendorOptions" :vendor-label="vendorLabel"
+            :on-open-po="openPoDetailModal"
           />
         </div>
 
