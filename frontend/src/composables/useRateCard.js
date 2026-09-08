@@ -1,8 +1,14 @@
 // Mid Mile rate card (public.mm_rate_card) -- synced from the "Native -
 // Commercials" sheet by scripts/sync_mm_rate_card.py (see that script's
 // docstring). Powers Rate Finder's "cheapest vendor for this lane" lookup.
-import { ref, computed } from "vue";
+//
+// Polls every 60s like usePurchaseOrders.js -- a resync doesn't otherwise
+// show up on an already-open tab (RateFinder.vue mounts once and stays
+// mounted while switching sidebar tabs), same reason that composable polls.
+import { ref, computed, onMounted, onUnmounted } from "vue";
 import { supabase } from "../supabaseClient.js";
+
+const POLL_INTERVAL_MS = 60 * 1000;
 
 function normalize(s) {
   return String(s || "").trim().replace(/\s+/g, " ").toUpperCase();
@@ -42,6 +48,15 @@ export function useRateCard() {
     const key = laneKey(origin, destination, truckSize);
     return rows.value.find(r => r.lane_key === key) || null;
   }
+
+  let intervalId = null;
+  onMounted(async () => {
+    await refresh();
+    intervalId = setInterval(refresh, POLL_INTERVAL_MS);
+  });
+  onUnmounted(() => {
+    if (intervalId) clearInterval(intervalId);
+  });
 
   return { rows, refresh, origins, destinations, truckSizes, findLane };
 }

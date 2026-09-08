@@ -1,18 +1,15 @@
 <script setup>
-import { ref, reactive, computed, watch, onMounted } from "vue";
+import { ref, reactive, computed, watch } from "vue";
 import { supabase } from "../supabaseClient.js";
 import { resolveFunctionError } from "../functionError.js";
 import { useRateCard } from "../composables/useRateCard.js";
 import { useVendorContacts } from "../composables/useVendorContacts.js";
 import CustomSelect from "./CustomSelect.vue";
 
-const { rows, refresh: refreshRateCard, origins, destinations, truckSizes, findLane } = useRateCard();
-const { contacts, refresh: refreshContacts, contactFor, saveContact, deleteContact } = useVendorContacts();
-
-onMounted(async () => {
-  await refreshRateCard();
-  await refreshContacts();
-});
+// Both composables fetch on their own mount and poll every 60s -- no
+// manual refresh call needed here, see their own file comments for why.
+const { rows, origins, destinations, truckSizes, findLane } = useRateCard();
+const { contacts, contactFor, saveContact, deleteContact } = useVendorContacts();
 
 function toOptions(values) {
   return values.map(v => ({ value: v, label: v }));
