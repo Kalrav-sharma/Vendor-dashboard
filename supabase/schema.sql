@@ -303,28 +303,55 @@ create policy po_items_update_dispatch on public.po_items
 
 -- ---------------------------------------------------------------------
 -- po_email_events — outbox + audit log for the Dispatch Planning email
--- automation (see scripts/send_po_emails.py). Two kinds of row:
---   - 'new_po'   -- queued automatically by the trigger below, exactly
+-- automation (see scripts/send_po_emails.py). Three kinds of row:
+--   - 'new_po'        -- queued automatically by the trigger below, exactly
 --     once per genuinely NEW purchase order (never on a resync update of
 --     an existing one -- see queue_new_po_email()'s AFTER INSERT trigger).
---     sent_at is null until send_po_emails.py actually sends it.
---   - 'reminder' -- inserted directly by send_po_emails.py itself (no
+--     item_sku is null -- applies to the whole PO. sent_at is null until
+--     send_po_emails.py actually sends it.
+--   - 'next_dispatch' -- queued by confirm_dispatched() below when
+--     Operations confirms a SKU's estimated dispatch and that SKU still
+--     has pending_quantity > 0 -- tells the vendor to provide a fresh
+--     estimate for the remaining balance. item_sku is set (unlike
+--     'new_po', this is SKU-specific, since a PO can have some SKUs fully
+--     dispatched and others still pending at different times).
+--   - 'reminder'      -- inserted directly by send_po_emails.py itself (no
 --     trigger), one per PO per calendar day (IST) it sends a reminder --
 --     used both as the audit log and as that script's own "already
 --     reminded today" dedup check.
--- Nobody but service_role (the trigger runs SECURITY DEFINER; the script
--- uses the service_role key) ever writes this -- internal staff can only
--- read it, for visibility into what's been sent.
+-- 'new_po' and 'next_dispatch' both anchor send_po_emails.py's 7-day-then-
+-- daily reminder cascade for the SKU(s) they cover -- see that script's
+-- process_reminders() for how a SKU's EFFECTIVE anchor is whichever of the
+-- two is more recent (the PO-level 'new_po', or that SKU's own later
+-- 'next_dispatch' if one exists).
+-- Nobody but service_role (the trigger and confirm_dispatched() both run
+-- SECURITY DEFINER; the script itself uses the service_role key) ever
+-- writes this -- internal staff can only read it, for visibility into
+-- what's been sent.
 -- ---------------------------------------------------------------------
 create table if not exists public.po_email_events (
   id bigint generated always as identity primary key,
   po_code text not null references public.purchase_orders(po_code) on delete cascade,
   vendor_code text not null,
-  event_type text not null check (event_type in ('new_po', 'reminder')),
+  event_type text not null check (event_type in ('new_po', 'next_dispatch', 'reminder')),
+  item_sku text,  -- set for 'next_dispatch' (SKU-specific); null for 'new_po'/'reminder' (whole-PO)
   queued_at timestamptz not null default now(),
   sent_at timestamptz,
   error text
 );
+
+-- po_email_events already existed before item_sku was added (the
+-- 'next_dispatch' event type), so "create table if not exists" above
+-- won't retroactively add it on an already-deployed database -- this
+-- does, and is a no-op if already there.
+alter table public.po_email_events add column if not exists item_sku text;
+
+-- Same reason -- the CHECK constraint originally only allowed
+-- ('new_po', 'reminder'); widen it for an already-deployed database the
+-- same way profiles_role_check was widened above.
+alter table public.po_email_events drop constraint if exists po_email_events_event_type_check;
+alter table public.po_email_events add constraint po_email_events_event_type_check
+  check (event_type in ('new_po', 'next_dispatch', 'reminder'));
 
 create index if not exists po_email_events_po_code_idx on public.po_email_events(po_code);
 create index if not exists po_email_events_pending_idx on public.po_email_events(event_type, sent_at);
@@ -365,6 +392,62 @@ create trigger trg_queue_new_po_email
   after insert on public.purchase_orders
   for each row
   execute function public.queue_new_po_email();
+
+-- ---------------------------------------------------------------------
+-- confirm_dispatched(po_code, item_sku): called from Dispatch Planning's
+-- "Dispatched" button (internal staff only) when Operations confirms a
+-- SKU's estimated dispatch actually went out.
+--
+--   - If that SKU still has pending_quantity > 0 (Uniware's own synced
+--     figure -- not something this feature tracks itself): clears its
+--     estimated_dispatch_date/qty back to null (so it drops off Dispatch
+--     Planning and the PO popup asks for a fresh estimate) and queues a
+--     'next_dispatch' email telling the vendor to provide one for the
+--     remaining balance.
+--   - If pending_quantity is already 0: does nothing further here -- the
+--     SKU is fully dispatched, and PoDetailModal.vue's own pending<=0
+--     check independently blocks further input on it, so there's nothing
+--     left to reset or notify about.
+--
+-- SECURITY DEFINER so it can write po_items/po_email_events regardless of
+-- the caller's own grants (mirrors queue_new_po_email() above) -- the
+-- is_internal_staff() check inside is what actually gates who can call
+-- this meaningfully, since RLS can't gate an RPC call itself.
+-- ---------------------------------------------------------------------
+create or replace function public.confirm_dispatched(p_po_code text, p_item_sku text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_vendor_code text;
+  v_pending numeric;
+begin
+  if not public.is_internal_staff() then
+    raise exception 'Internal staff access required';
+  end if;
+
+  select vendor_code, pending_quantity into v_vendor_code, v_pending
+  from public.po_items
+  where po_code = p_po_code and item_sku = p_item_sku;
+
+  if v_vendor_code is null then
+    raise exception 'PO item not found: % / %', p_po_code, p_item_sku;
+  end if;
+
+  if coalesce(v_pending, 0) > 0 then
+    update public.po_items
+    set estimated_dispatch_date = null, estimated_dispatch_qty = null
+    where po_code = p_po_code and item_sku = p_item_sku;
+
+    insert into public.po_email_events (po_code, vendor_code, event_type, item_sku)
+    values (p_po_code, v_vendor_code, 'next_dispatch', p_item_sku);
+  end if;
+end;
+$$;
+
+grant execute on function public.confirm_dispatched(text, text) to authenticated;
 
 -- ---------------------------------------------------------------------
 -- grn_items — one row per SKU line item on a GRN. Same purpose as

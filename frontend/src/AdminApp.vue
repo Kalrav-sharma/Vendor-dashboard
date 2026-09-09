@@ -73,7 +73,7 @@ const pageTitle = computed(() => ({
   "rate-finder": "Rate Finder",
 }[activeNav.value]));
 
-const { currentPos, grnsByPo, poItemsByPo, grnItemsByPoSku, grnByCode, lastUpdated, invoicesForItem } = usePurchaseOrders();
+const { currentPos, grnsByPo, poItemsByPo, grnItemsByPoSku, grnByCode, lastUpdated, invoicesForItem, refresh: refreshPos } = usePurchaseOrders();
 const { vendors, refresh: refreshVendors, vendorLabel, revokeVendor, restoreVendor, deleteVendor } = useVendors();
 const { team, refresh: refreshTeam, revokeTeamMember, restoreTeamMember, deleteTeamMember } = useTeam();
 const { filters, filteredSorted, facilityOptions, statusOptions } = usePoFilters(currentPos, grnsByPo, vendorLabel);
@@ -214,6 +214,7 @@ async function signOut() {
             :rows="dispatchFilteredSorted" :filters="dispatchFilters"
             :vendor-options="vendorOptions" :vendor-label="vendorLabel"
             :on-open-po="openPoDetailModal"
+            :allow-confirm-dispatch="true" :on-dispatched="refreshPos"
           />
         </div>
 

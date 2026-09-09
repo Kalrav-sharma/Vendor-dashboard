@@ -44,7 +44,17 @@ function stateFor(item) {
   return editState[item.item_sku];
 }
 
+// Once a SKU has nothing left pending (per Uniware's own synced figure --
+// not something this feature tracks itself), there's nothing further to
+// dispatch, so its estimate fields lock: no more edits, no more resets.
+// Kept as a plain function (not computed) since it reads a plain prop
+// field per-item, same reasoning as stateFor() above.
+function isLocked(item) {
+  return (item.pending_quantity ?? 0) <= 0;
+}
+
 function handleSaveClick(item) {
+  if (isLocked(item)) return; // Save button is hidden when locked; guard anyway
   const st = stateFor(item);
   const newDate = st.date || null;
   const newQty = st.qty === "" ? null : Number(st.qty);
@@ -143,21 +153,24 @@ async function doSave(item, newDate, newQty, changeAudit) {
           <td class="num mono">{{ fmtMoney(item.total) }}</td>
           <td class="mono invoice-list">{{ item.invoiceText }}</td>
           <td>
-            <input v-if="allowDispatchPlanning" v-model="stateFor(item).date" type="date" style="width: 140px;">
+            <input v-if="allowDispatchPlanning && !isLocked(item)" v-model="stateFor(item).date" type="date" style="width: 140px;">
             <span v-else class="mono">{{ item.estimated_dispatch_date ? fmtDate(item.estimated_dispatch_date) : "–" }}</span>
           </td>
           <td class="num">
-            <input v-if="allowDispatchPlanning" v-model="stateFor(item).qty" type="number" min="0" style="width: 80px;">
+            <input v-if="allowDispatchPlanning && !isLocked(item)" v-model="stateFor(item).qty" type="number" min="0" style="width: 80px;">
             <span v-else class="mono">{{ fmtNum(item.estimated_dispatch_qty) }}</span>
           </td>
           <td v-if="allowDispatchPlanning">
-            <button class="link-btn-inline" :disabled="stateFor(item).saving" @click="handleSaveClick(item)">
-              {{ stateFor(item).saving ? "Saving…" : "Save" }}
-            </button>
-            <div v-if="stateFor(item).error" class="form-error" style="margin: 4px 0 0; font-size: 0.72rem;">{{ stateFor(item).error }}</div>
+            <template v-if="!isLocked(item)">
+              <button class="link-btn-inline" :disabled="stateFor(item).saving" @click="handleSaveClick(item)">
+                {{ stateFor(item).saving ? "Saving…" : "Save" }}
+              </button>
+              <div v-if="stateFor(item).error" class="form-error" style="margin: 4px 0 0; font-size: 0.72rem;">{{ stateFor(item).error }}</div>
+            </template>
+            <span v-else class="chip chip-good" title="Nothing left pending on this SKU -- no further dispatch needed.">Fully dispatched</span>
           </td>
         </tr>
-        <tr v-if="allowDispatchPlanning && stateFor(item).pendingConfirm">
+        <tr v-if="allowDispatchPlanning && !isLocked(item) && stateFor(item).pendingConfirm">
           <td :colspan="12" style="background: var(--paper);">
             <div style="padding: 10px 4px;">
               <p style="margin: 0 0 8px; font-size: 0.85rem;">

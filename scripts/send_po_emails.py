@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Dispatch Planning email automation, via Resend's API. Two kinds of email:
+Dispatch Planning email automation, via Resend's API. Three kinds of email:
 
   - "new_po": one per genuinely new purchase order, queued by the
     queue_new_po_email() Postgres trigger (schema.sql) the moment
@@ -10,15 +10,25 @@ Dispatch Planning email automation, via Resend's API. Two kinds of email:
     than 4 days). Tells the vendor to log in, download the PO, and
     provide estimated dispatch date/qty per SKU within 7 days.
 
+  - "next_dispatch": one per SKU, queued by the confirm_dispatched()
+    Postgres function (schema.sql) when Operations clicks "Dispatched" on
+    a Dispatch Planning row and that SKU still has pending_quantity > 0
+    (the function has already cleared its estimate back to null by the
+    time this sends). Tells the vendor to provide a fresh estimate for the
+    remaining balance.
+
   - "reminder": computed fresh every run (nothing pre-queues these) -- for
-    any PO whose "new_po" email was sent 7+ days ago and still has at
-    least one po_items row missing estimated_dispatch_date or
-    estimated_dispatch_qty, sends ONE reminder per calendar day (IST)
-    listing every still-pending SKU on that PO. Naturally repeats daily
-    for as long as it stays incomplete (Kalrav's explicit spec: first
-    reminder on the 8th day, daily after that), and stops the run after
-    every SKU is filled in, since the "still pending" condition becomes
-    false.
+    any po_items row that's still pending (pending_quantity > 0) and still
+    missing estimated_dispatch_date or estimated_dispatch_qty, once 7+
+    days have passed since whichever is more recent of that PO's "new_po"
+    email or that SPECIFIC SKU's own later "next_dispatch" email (a SKU
+    that already went through one dispatch-and-reset cycle gets its own
+    fresh 7-day clock, separate from the rest of the PO). Sends ONE email
+    per PO per calendar day (IST) listing every SKU due for a nudge that
+    day, repeating daily for as long as it stays incomplete (Kalrav's
+    explicit spec: first reminder on the 8th day, daily after that), and
+    stopping once a SKU is filled in OR its pending_quantity reaches 0
+    (nothing left to dispatch, so nothing left to remind about).
 
 Runs on a schedule (GitHub Actions) + supports workflow_dispatch for a
 manual test run. Credentials/config, as GitHub Actions repo secrets:
@@ -37,7 +47,7 @@ IST = timezone(timedelta(hours=5, minutes=30))
 REQUEST_TIMEOUT = 30
 RESEND_API_URL = "https://api.resend.com/emails"
 PORTAL_URL = "https://kalrav-sharma.github.io/Vendor-dashboard/vendor.html"
-REMINDER_DELAY_DAYS = 7  # first reminder fires once this many days have passed since "new_po" was sent
+REMINDER_DELAY_DAYS = 7  # first reminder fires once this many days have passed since the anchor email was sent
 
 
 def supabase_config():
@@ -92,6 +102,10 @@ def send_email(session, resend_key, from_email, to_email, subject, html):
     return True, None
 
 
+def parse_ts(s):
+    return datetime.fromisoformat(s.replace("Z", "+00:00"))
+
+
 def vendor_email_map(session, sb_url, sb_key):
     rows = sb_get(session, sb_url, sb_key, "profiles",
                   {"role": "eq.vendor", "select": "vendor_code,email,vendor_name"})
@@ -112,6 +126,18 @@ def new_po_email_html(po_code, vendor_name):
     )
 
 
+def next_dispatch_email_html(po_code, vendor_name, item):
+    pending = item.get("pending_quantity")
+    pending_line = f"There are still <b>{pending:g}</b> unit(s) pending" if pending else "There may still be units pending"
+    return (
+        f"<p>Hi {vendor_name},</p>"
+        f"<p>Thanks -- the estimated dispatch for <b>{item['item_sku']}</b> "
+        f"({item.get('item_name') or ''}) on purchase order <b>{po_code}</b> has been confirmed.</p>"
+        f"<p>{pending_line} on this SKU. Please log in to <a href=\"{PORTAL_URL}\">the portal</a> and provide a "
+        f"new estimated dispatch date and quantity for the remaining balance.</p>"
+    )
+
+
 def reminder_email_html(po_code, vendor_name, pending_items):
     rows = "".join(
         f"<tr><td>{it['item_sku']}</td><td>{it.get('item_name') or ''}</td></tr>"
@@ -126,9 +152,13 @@ def reminder_email_html(po_code, vendor_name, pending_items):
     )
 
 
-def process_new_po_events(session, sb_url, sb_key, resend_key, from_email, vendor_map):
+def process_initial_events(session, sb_url, sb_key, resend_key, from_email, vendor_map):
+    """Sends 'new_po' and 'next_dispatch' events whose sent_at is still
+    null -- each uses its own template, but both are otherwise handled the
+    same way (send, mark sent_at or error)."""
     events = sb_get(session, sb_url, sb_key, "po_email_events", {
-        "event_type": "eq.new_po", "sent_at": "is.null", "select": "id,po_code,vendor_code",
+        "event_type": "in.(new_po,next_dispatch)", "sent_at": "is.null",
+        "select": "id,po_code,vendor_code,event_type,item_sku",
     })
     sent = 0
     for ev in events:
@@ -137,9 +167,22 @@ def process_new_po_events(session, sb_url, sb_key, resend_key, from_email, vendo
             print(f"WARN: no vendor login/email found for vendor_code={ev['vendor_code']!r} "
                   f"(po_code={ev['po_code']}) -- skipping, will retry next run", file=sys.stderr)
             continue
-        ok, err = send_email(session, resend_key, from_email, vendor["email"],
-                              f"New Purchase Order Created: {ev['po_code']}",
-                              new_po_email_html(ev["po_code"], vendor["name"]))
+
+        if ev["event_type"] == "new_po":
+            subject = f"New Purchase Order Created: {ev['po_code']}"
+            html = new_po_email_html(ev["po_code"], vendor["name"])
+        else:  # next_dispatch
+            item_rows = sb_get(session, sb_url, sb_key, "po_items", {
+                "po_code": f"eq.{ev['po_code']}", "item_sku": f"eq.{ev['item_sku']}",
+                "select": "item_sku,item_name,pending_quantity", "limit": "1",
+            })
+            item = item_rows[0] if item_rows else {
+                "item_sku": ev["item_sku"], "item_name": "", "pending_quantity": None,
+            }
+            subject = f"Next Dispatch Needed: {ev['po_code']} / {ev['item_sku']}"
+            html = next_dispatch_email_html(ev["po_code"], vendor["name"], item)
+
+        ok, err = send_email(session, resend_key, from_email, vendor["email"], subject, html)
         if ok:
             sb_patch(session, sb_url, sb_key, "po_email_events", {"id": f"eq.{ev['id']}"},
                      {"sent_at": datetime.now(timezone.utc).isoformat()})
@@ -150,12 +193,36 @@ def process_new_po_events(session, sb_url, sb_key, resend_key, from_email, vendo
 
 
 def process_reminders(session, sb_url, sb_key, resend_key, from_email, vendor_map):
-    cutoff = (datetime.now(timezone.utc) - timedelta(days=REMINDER_DELAY_DAYS)).isoformat()
-    due_events = sb_get(session, sb_url, sb_key, "po_email_events", {
-        "event_type": "eq.new_po", "sent_at": f"lte.{cutoff}", "select": "po_code,vendor_code",
+    # Still-pending SKUs (real dispatch remaining, per Uniware) that still
+    # need an estimate.
+    pending_items = sb_get(session, sb_url, sb_key, "po_items", {
+        "pending_quantity": "gt.0",
+        "or": "(estimated_dispatch_date.is.null,estimated_dispatch_qty.is.null)",
+        "select": "po_code,item_sku,item_name,vendor_code,pending_quantity",
     })
-    if not due_events:
+    if not pending_items:
         return 0
+
+    po_codes = list({it["po_code"] for it in pending_items})
+    anchor_events = sb_get(session, sb_url, sb_key, "po_email_events", {
+        "po_code": f"in.({','.join(po_codes)})",
+        "event_type": "in.(new_po,next_dispatch)", "sent_at": "not.is.null",
+        "select": "po_code,item_sku,event_type,sent_at",
+    })
+    po_level_anchor = {}   # po_code -> latest 'new_po' sent_at (applies to every SKU on that PO by default)
+    sku_level_anchor = {}  # (po_code, item_sku) -> latest 'next_dispatch' sent_at (overrides the PO-level one)
+    for ev in anchor_events:
+        sent_at = parse_ts(ev["sent_at"])
+        if ev["event_type"] == "new_po":
+            key = ev["po_code"]
+            existing = po_level_anchor.get(key)
+            po_level_anchor[key] = sent_at if existing is None else max(sent_at, existing)
+        elif ev["event_type"] == "next_dispatch" and ev.get("item_sku"):
+            key = (ev["po_code"], ev["item_sku"])
+            existing = sku_level_anchor.get(key)
+            sku_level_anchor[key] = sent_at if existing is None else max(sent_at, existing)
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=REMINDER_DELAY_DAYS)
 
     # "Today" as an IST calendar day, expressed as the UTC instant of IST
     # midnight -- comparing a timestamptz column against a bare date string
@@ -169,29 +236,25 @@ def process_reminders(session, sb_url, sb_key, resend_key, from_email, vendor_ma
     })
     reminded_today = {r["po_code"] for r in already_reminded_today}
 
-    po_codes = list({e["po_code"] for e in due_events} - reminded_today)
-    if not po_codes:
-        return 0
+    due_by_po = {}
+    for it in pending_items:
+        key = (it["po_code"], it["item_sku"])
+        anchor = sku_level_anchor.get(key) or po_level_anchor.get(it["po_code"])
+        if not anchor or anchor > cutoff:
+            continue  # no notification sent yet, or not 7 days old yet
+        if it["po_code"] in reminded_today:
+            continue
+        due_by_po.setdefault(it["po_code"], []).append(it)
 
-    items = sb_get(session, sb_url, sb_key, "po_items", {
-        "po_code": f"in.({','.join(po_codes)})",
-        "select": "po_code,item_sku,item_name,estimated_dispatch_date,estimated_dispatch_qty",
-    })
-    pending_by_po = {}
-    for it in items:
-        if it.get("estimated_dispatch_date") is None or it.get("estimated_dispatch_qty") is None:
-            pending_by_po.setdefault(it["po_code"], []).append(it)
-
-    vendor_by_po = {e["po_code"]: e["vendor_code"] for e in due_events}
     sent = 0
-    for po_code, pending_items in pending_by_po.items():
-        vendor_code = vendor_by_po.get(po_code)
+    for po_code, items in due_by_po.items():
+        vendor_code = items[0]["vendor_code"]
         vendor = vendor_map.get(vendor_code)
         if not vendor:
             continue
         ok, err = send_email(session, resend_key, from_email, vendor["email"],
                               f"Reminder: Update Dispatch Details for {po_code}",
-                              reminder_email_html(po_code, vendor["name"], pending_items))
+                              reminder_email_html(po_code, vendor["name"], items))
         sb_post(session, sb_url, sb_key, "po_email_events", [{
             "po_code": po_code, "vendor_code": vendor_code, "event_type": "reminder",
             "sent_at": datetime.now(timezone.utc).isoformat() if ok else None,
@@ -208,9 +271,9 @@ def main():
     session = requests.Session()
     vendor_map = vendor_email_map(session, sb_url, sb_key)
 
-    new_sent = process_new_po_events(session, sb_url, sb_key, resend_key, from_email, vendor_map)
+    initial_sent = process_initial_events(session, sb_url, sb_key, resend_key, from_email, vendor_map)
     reminder_sent = process_reminders(session, sb_url, sb_key, resend_key, from_email, vendor_map)
-    print(f"Sent {new_sent} new-PO email(s), {reminder_sent} reminder email(s).")
+    print(f"Sent {initial_sent} new-PO/next-dispatch email(s), {reminder_sent} reminder email(s).")
 
 
 if __name__ == "__main__":
