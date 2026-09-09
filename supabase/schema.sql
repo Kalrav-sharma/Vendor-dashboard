@@ -399,6 +399,49 @@ create policy grn_items_select on public.grn_items
   );
 
 -- ---------------------------------------------------------------------
+-- po_item_dispatch_changes — audit log of every CHANGE (never the first
+-- entry) to a po_items row's estimated_dispatch_date/qty. PoDetailModal.vue
+-- requires a mandatory reason + explicit confirmation before overwriting an
+-- already-set value (Kalrav's explicit spec), and this is where that
+-- reason gets recorded -- one row per confirmed change, old + new values
+-- both captured so the full history is reconstructable without needing
+-- po_items' own (overwritten) values.
+-- ---------------------------------------------------------------------
+create table if not exists public.po_item_dispatch_changes (
+  id bigint generated always as identity primary key,
+  po_code text not null references public.purchase_orders(po_code) on delete cascade,
+  item_sku text not null,
+  vendor_code text not null,  -- denormalized, for a join-free RLS check
+  changed_by text,            -- display name of whoever made the change (uploaderLabel)
+  old_estimated_dispatch_date date,
+  old_estimated_dispatch_qty numeric,
+  new_estimated_dispatch_date date,
+  new_estimated_dispatch_qty numeric,
+  reason text not null,
+  changed_at timestamptz not null default now()
+);
+
+create index if not exists po_item_dispatch_changes_po_code_idx on public.po_item_dispatch_changes(po_code);
+
+alter table public.po_item_dispatch_changes enable row level security;
+
+drop policy if exists po_item_dispatch_changes_select on public.po_item_dispatch_changes;
+create policy po_item_dispatch_changes_select on public.po_item_dispatch_changes
+  for select
+  using (
+    public.is_internal_staff()
+    or vendor_code = (select p.vendor_code from public.profiles p where p.id = auth.uid())
+  );
+
+drop policy if exists po_item_dispatch_changes_insert on public.po_item_dispatch_changes;
+create policy po_item_dispatch_changes_insert on public.po_item_dispatch_changes
+  for insert
+  with check (
+    public.is_internal_staff()
+    or vendor_code = (select p.vendor_code from public.profiles p where p.id = auth.uid())
+  );
+
+-- ---------------------------------------------------------------------
 -- po_invoice_uploads — vendor-uploaded invoice copy files (dispatch
 -- documentation), distinct from grns.vendor_invoice_number (a Uniware
 -- GRN's own invoice number/date, separate from any file). Multiple rows
