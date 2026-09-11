@@ -787,11 +787,16 @@ create policy vendor_contacts_select on public.vendor_contacts
 --
 -- Internal-staff logins (management/operations/finance) are never created
 -- by hand like this -- once you have your first admin login, create those
--- from the "Manage Access" section of the admin console (admin-only
--- create form). Promoting a
--- profiles row to role='admin' itself, though, stays a manual SQL step
--- forever -- deliberately never exposed through any UI, so a compromised
--- lower-privilege login can never grant itself full admin.
+-- from the "Manage Access" section of the admin console (visible to
+-- 'admin' only). That same section's "Edit access" action can also
+-- change any existing login's role afterward, INCLUDING promoting one to
+-- 'admin' -- Kalrav's explicit call, reversing what used to be a SQL-only
+-- restriction here. The safety property that actually matters is still
+-- intact: only an existing admin can call that Edge Function
+-- (admin-change-access) at all, and it refuses to let a caller change
+-- their OWN access level, so a compromised lower-privilege login still
+-- can never grant itself admin -- only a legitimate admin choosing to
+-- grant it to someone else.
 -- ---------------------------------------------------------------------
 
 -- ---------------------------------------------------------------------

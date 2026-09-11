@@ -1,11 +1,15 @@
-// Internal UC-staff login accounts (profiles.role in 'management',
+// Internal UC-staff login accounts (profiles.role in 'admin', 'management',
 // 'operations', 'finance') -- admin-only, same shape as useVendors.js but
 // calling the admin-manage-team Edge Function instead of admin-create-vendor.
-import { ref } from "vue";
-import { supabase } from "../supabaseClient.js";
-import { resolveFunctionError } from "../functionError.js";
-
-const TEAM_ROLES = ["management", "operations", "finance"];
+//
+// Includes 'admin' rows purely so Manage Access can SHOW who currently has
+// admin -- revoke/restore/delete still only ever call admin-manage-team,
+// which refuses to act on an admin row (that function's own guard, kept
+// deliberately narrow); ManageAccess.vue only ever offers those actions
+// for non-admin rows. Admin rows are otherwise only reachable through
+// "Edit access" (admin-change-access), which can move a login to/from
+// 'admin' but was never meant to also take over revoke/restore/delete.
+const TEAM_ROLES = ["admin", "management", "operations", "finance"];
 
 export function useTeam() {
   const team = ref([]);

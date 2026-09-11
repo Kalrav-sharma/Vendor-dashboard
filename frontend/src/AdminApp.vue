@@ -33,6 +33,7 @@ const mustChangePassword = ref(false); // gates the whole console until cleared 
 const whoLine = ref("Admin");
 const myEmail = ref("");
 const myRole = ref("admin");
+const myUserId = ref(null);
 
 // Page/action access per role -- see schema.sql's header comment for the
 // full role model. RLS itself doesn't distinguish between these four
@@ -42,8 +43,7 @@ const canSeePoTracking = computed(() => ["admin", "management", "operations"].in
 const canSeeSkuData = computed(() => ["admin", "management", "operations"].includes(myRole.value));
 const canSeeDispatchPlanning = computed(() => ["admin", "management", "operations"].includes(myRole.value));
 const canSeePaymentDashboard = computed(() => ["admin", "management", "finance"].includes(myRole.value));
-const canSeeManageAccess = computed(() => ["admin", "management"].includes(myRole.value));
-const canCreateAccess = computed(() => myRole.value === "admin"); // create-login form -- admin only, any type
+const canSeeManageAccess = computed(() => myRole.value === "admin"); // admin only -- Kalrav's explicit call
 const canSeeRateFinder = computed(() => ["admin", "management", "operations"].includes(myRole.value));
 
 // Approved by Kalrav after testing -- now a normal visible tab for
@@ -154,6 +154,7 @@ onMounted(async () => {
     return;
   }
   myRole.value = ctx.profile.role;
+  myUserId.value = ctx.profile.id;
   if (ctx.profile.must_change_password) {
     mustChangePassword.value = true;
     return;
@@ -164,7 +165,7 @@ onMounted(async () => {
   // vendorLabel()/vendorOptions (built from `vendors`) feed every
   // multi-vendor view (PO Tracking, SKU Data, Payment Dashboard), not just
   // Manage Access -- so this loads for every role, unlike the team roster
-  // below, which only Manage Access (admin/management) ever shows.
+  // below, which only Manage Access (admin-only) ever shows.
   await refreshVendors();
   if (canSeeManageAccess.value) await refreshTeam();
   await fetchAllUploads();
@@ -178,6 +179,7 @@ async function handlePasswordChanged() {
   if (!ctx) return;
   mustChangePassword.value = false;
   myRole.value = ctx.profile.role;
+  myUserId.value = ctx.profile.id;
   activeNav.value = navItems.value[0]?.id || "po-tracking";
   whoLine.value = ctx.profile.vendor_name || ROLE_FALLBACK_NAME[myRole.value] || "Admin";
   myEmail.value = ctx.profile.email || "";
@@ -262,7 +264,7 @@ async function signOut() {
 
         <div v-if="canSeeManageAccess" v-show="activeNav === 'manage-access'">
           <ManageAccess
-            :vendors="vendors" :team="team" :allow-create="canCreateAccess"
+            :vendors="vendors" :team="team" :current-user-id="myUserId"
             :on-vendors-changed="refreshVendors" :on-team-changed="refreshTeam"
             :on-revoke-vendor="revokeVendor" :on-restore-vendor="restoreVendor" :on-delete-vendor="deleteVendor"
             :on-revoke-team="revokeTeamMember" :on-restore-team="restoreTeamMember" :on-delete-team="deleteTeamMember"
