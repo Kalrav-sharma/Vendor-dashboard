@@ -9,6 +9,10 @@
 // for non-admin rows. Admin rows are otherwise only reachable through
 // "Edit access" (admin-change-access), which can move a login to/from
 // 'admin' but was never meant to also take over revoke/restore/delete.
+import { ref } from "vue";
+import { supabase } from "../supabaseClient.js";
+import { resolveFunctionError } from "../functionError.js";
+
 const TEAM_ROLES = ["admin", "management", "operations", "finance"];
 
 export function useTeam() {
