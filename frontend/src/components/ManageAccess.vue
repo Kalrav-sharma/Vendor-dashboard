@@ -5,15 +5,16 @@ import { fmtDate } from "../format.js";
 import { resolveFunctionError } from "../functionError.js";
 import CustomSelect from "./CustomSelect.vue";
 
-// Creating a brand-new login still can't mint an admin directly -- only an
-// EXISTING login can be promoted to admin, via "Edit access" below.
-const CREATE_ACCESS_OPTIONS = [
+// Same 5 options for both creating a brand-new login and editing an
+// existing one's access -- a login can be created directly as Admin, or
+// promoted to it later via "Edit access"; both go through this one list.
+const ACCESS_OPTIONS = [
   { value: "vendor", label: "Vendor" },
   { value: "management", label: "Management" },
   { value: "operations", label: "Operations" },
   { value: "finance", label: "Finance" },
+  { value: "admin", label: "Admin" },
 ];
-const EDIT_ACCESS_OPTIONS = [...CREATE_ACCESS_OPTIONS, { value: "admin", label: "Admin" }];
 const ACCESS_DESCRIPTIONS = {
   vendor: "Sees only their own PO Tracking, SKU Level Data and Payment Dashboard.",
   management: "Full portal access, except creating new logins.",
@@ -210,7 +211,7 @@ async function saveEditAccess(row) {
       <div class="panel-grid">
         <div class="field">
           <label>Access level</label>
-          <CustomSelect v-model="accessLevel" :options="CREATE_ACCESS_OPTIONS" />
+          <CustomSelect v-model="accessLevel" :options="ACCESS_OPTIONS" />
         </div>
         <div class="field">
           <label for="a-email">Email</label>
@@ -314,7 +315,7 @@ async function saveEditAccess(row) {
                 <div class="panel-grid" style="margin-bottom: 8px;">
                   <div class="field">
                     <label>Access level</label>
-                    <CustomSelect v-model="editAccessLevel" :options="EDIT_ACCESS_OPTIONS" />
+                    <CustomSelect v-model="editAccessLevel" :options="ACCESS_OPTIONS" />
                   </div>
                   <div class="field">
                     <label>Name</label>

@@ -23,7 +23,10 @@
 //
 // Actions (body.action, defaults to "create" for backward compatibility):
 //   - create:  { email, display_name, role } -- role must be one of
-//     'management' | 'operations' | 'finance' (never 'admin' or 'vendor').
+//     'management' | 'operations' | 'finance' | 'admin' (never 'vendor' --
+//     see admin-create-vendor for that). Kalrav's explicit call: directly
+//     creating a brand-new login AS admin should be possible from the
+//     console, not just promoting an existing one via admin-change-access.
 //     Creates the auth user (password always DEFAULT_TEMP_PASSWORD below,
 //     same constant as admin-create-vendor's -- keep the two in sync if
 //     this ever changes) + profiles row with must_change_password=true,
@@ -51,7 +54,16 @@ const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
 const INDEFINITE_BAN = "876000h"; // 100 years -- see admin-create-vendor for why
 
+// Who revoke/restore/delete (handleTeamAction) can ever touch -- kept
+// deliberately narrow, excluding 'admin', so this endpoint can never be
+// used to lock out or delete an admin account (that's the whole reason
+// this function exists separately from admin-create-vendor).
 const TEAM_ROLES = new Set(["management", "operations", "finance"]);
+
+// Who CREATE can mint -- separate and wider than TEAM_ROLES above, since
+// direct admin creation is fine (only an existing admin can call this at
+// all) but admin accounts still shouldn't be revocable/deletable here.
+const CREATABLE_ROLES = new Set(["management", "operations", "finance", "admin"]);
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -120,8 +132,8 @@ async function handleCreate(adminClient: ReturnType<typeof createClient>, body: 
   if (!email || !role) {
     return json({ error: "email and role are required" }, 400);
   }
-  if (!TEAM_ROLES.has(role)) {
-    return json({ error: `role must be one of: ${[...TEAM_ROLES].join(", ")}` }, 400);
+  if (!CREATABLE_ROLES.has(role)) {
+    return json({ error: `role must be one of: ${[...CREATABLE_ROLES].join(", ")}` }, 400);
   }
 
   const { data: created, error: createErr } = await adminClient.auth.admin.createUser({
