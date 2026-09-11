@@ -394,10 +394,53 @@ create trigger trg_queue_new_po_email
   execute function public.queue_new_po_email();
 
 -- ---------------------------------------------------------------------
--- confirm_dispatched(po_code, item_sku): called from Dispatch Planning's
--- "Dispatched" button (internal staff only) when Operations confirms a
--- SKU's estimated dispatch actually went out.
+-- po_item_shipments — one row per CONFIRMED dispatch (every "Dispatched"
+-- click on a Dispatch Planning row), regardless of whether that SKU still
+-- has a balance pending afterward. This is deliberately a log, not a
+-- single overwritten field on po_items, since one SKU can be dispatched in
+-- several partial batches over its lifecycle (see confirm_dispatched()'s
+-- reset-for-the-remaining-balance behavior) -- each batch is its own
+-- shipment with its own AWB. This is also the intended anchor for the
+-- planned AWB-tracking integration (checking live status/ETA per
+-- shipment) -- not built yet, but this table is where that would read
+-- its AWB list from.
+-- ---------------------------------------------------------------------
+create table if not exists public.po_item_shipments (
+  id bigint generated always as identity primary key,
+  po_code text not null references public.purchase_orders(po_code) on delete cascade,
+  item_sku text not null,
+  vendor_code text not null,  -- denormalized, for a join-free RLS check
+  awb_number text not null,
+  dispatched_qty numeric,   -- the estimated_dispatch_qty in effect at confirmation time
+  dispatched_date date,     -- the estimated_dispatch_date in effect at confirmation time
+  confirmed_by text,        -- display name of whoever clicked "Dispatched"
+  confirmed_at timestamptz not null default now()
+);
+
+create index if not exists po_item_shipments_po_code_idx on public.po_item_shipments(po_code);
+create index if not exists po_item_shipments_awb_idx on public.po_item_shipments(awb_number);
+
+alter table public.po_item_shipments enable row level security;
+
+drop policy if exists po_item_shipments_select on public.po_item_shipments;
+create policy po_item_shipments_select on public.po_item_shipments
+  for select
+  using (
+    public.is_internal_staff()
+    or vendor_code = (select p.vendor_code from public.profiles p where p.id = auth.uid())
+  );
+-- No insert/update/delete policy for authenticated -- only
+-- confirm_dispatched() (SECURITY DEFINER) below ever writes this.
+
+-- ---------------------------------------------------------------------
+-- confirm_dispatched(po_code, item_sku, awb_number): called from Dispatch
+-- Planning's "Dispatched" button (internal staff only) when Operations
+-- confirms a SKU's estimated dispatch actually went out. awb_number is
+-- mandatory (Kalrav's explicit spec) -- rejected server-side too, not
+-- just in the UI, since RLS/grants alone can't enforce a required-field
+-- rule on an RPC call.
 --
+-- Always logs the shipment (po_item_shipments above) first, then:
 --   - If that SKU still has pending_quantity > 0 (Uniware's own synced
 --     figure -- not something this feature tracks itself): clears its
 --     estimated_dispatch_date/qty back to null (so it drops off Dispatch
@@ -409,12 +452,15 @@ create trigger trg_queue_new_po_email
 --     check independently blocks further input on it, so there's nothing
 --     left to reset or notify about.
 --
--- SECURITY DEFINER so it can write po_items/po_email_events regardless of
--- the caller's own grants (mirrors queue_new_po_email() above) -- the
--- is_internal_staff() check inside is what actually gates who can call
--- this meaningfully, since RLS can't gate an RPC call itself.
+-- SECURITY DEFINER so it can write po_items/po_email_events/
+-- po_item_shipments regardless of the caller's own grants (mirrors
+-- queue_new_po_email() above) -- the is_internal_staff() check inside is
+-- what actually gates who can call this meaningfully, since RLS can't
+-- gate an RPC call itself.
 -- ---------------------------------------------------------------------
-create or replace function public.confirm_dispatched(p_po_code text, p_item_sku text)
+drop function if exists public.confirm_dispatched(text, text);
+
+create or replace function public.confirm_dispatched(p_po_code text, p_item_sku text, p_awb_number text)
 returns void
 language plpgsql
 security definer
@@ -423,18 +469,31 @@ as $$
 declare
   v_vendor_code text;
   v_pending numeric;
+  v_qty numeric;
+  v_date date;
+  v_by text;
 begin
   if not public.is_internal_staff() then
     raise exception 'Internal staff access required';
   end if;
 
-  select vendor_code, pending_quantity into v_vendor_code, v_pending
+  if p_awb_number is null or length(trim(p_awb_number)) = 0 then
+    raise exception 'AWB/Tracking ID is required';
+  end if;
+
+  select vendor_code, pending_quantity, estimated_dispatch_qty, estimated_dispatch_date
+    into v_vendor_code, v_pending, v_qty, v_date
   from public.po_items
   where po_code = p_po_code and item_sku = p_item_sku;
 
   if v_vendor_code is null then
     raise exception 'PO item not found: % / %', p_po_code, p_item_sku;
   end if;
+
+  select coalesce(vendor_name, email) into v_by from public.profiles where id = auth.uid();
+
+  insert into public.po_item_shipments (po_code, item_sku, vendor_code, awb_number, dispatched_qty, dispatched_date, confirmed_by)
+  values (p_po_code, p_item_sku, v_vendor_code, trim(p_awb_number), v_qty, v_date, v_by);
 
   if coalesce(v_pending, 0) > 0 then
     update public.po_items
@@ -447,7 +506,7 @@ begin
 end;
 $$;
 
-grant execute on function public.confirm_dispatched(text, text) to authenticated;
+grant execute on function public.confirm_dispatched(text, text, text) to authenticated;
 
 -- ---------------------------------------------------------------------
 -- grn_items — one row per SKU line item on a GRN. Same purpose as

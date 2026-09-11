@@ -13,26 +13,37 @@ const props = defineProps({
   onDispatched: { type: Function, default: null }, // () => void -- called after a successful confirm, for an instant refresh
 });
 
-// "Dispatched" -- confirm_dispatched() either clears the estimate + queues
-// a fresh vendor notification (still pending) or leaves it locked (fully
-// dispatched) -- see schema.sql. Either way this row drops off the list
-// once poItemsByPo re-fetches (immediately via onDispatched, or within the
-// next 60s poll regardless).
-const rowErrors = reactive({}); // "po|sku" -> error message
+// "Dispatched" -- confirm_dispatched() logs the shipment (with its AWB)
+// then either clears the estimate + queues a fresh vendor notification
+// (still pending) or leaves it locked (fully dispatched) -- see
+// schema.sql. Either way this row drops off the list once poItemsByPo
+// re-fetches (immediately via onDispatched, or within the next 60s poll
+// regardless).
+const awbInputs = reactive({});  // "po|sku" -> typed AWB/Tracking ID, mandatory
+const rowErrors = reactive({});  // "po|sku" -> error message
 const workingKey = ref(null);
 
 function keyFor(row) { return row.po_code + "|" + row.item_sku; }
 
 async function handleConfirmDispatch(row) {
   const key = keyFor(row);
+  const awb = (awbInputs[key] || "").trim();
+  if (!awb) {
+    rowErrors[key] = "AWB/Tracking ID is required before confirming dispatch.";
+    return;
+  }
+
   workingKey.value = key;
   rowErrors[key] = "";
-  const { error } = await supabase.rpc("confirm_dispatched", { p_po_code: row.po_code, p_item_sku: row.item_sku });
+  const { error } = await supabase.rpc("confirm_dispatched", {
+    p_po_code: row.po_code, p_item_sku: row.item_sku, p_awb_number: awb,
+  });
   workingKey.value = null;
   if (error) {
     rowErrors[key] = error.message;
     return;
   }
+  delete awbInputs[key];
   if (props.onDispatched) await props.onDispatched();
 }
 </script>
@@ -50,6 +61,7 @@ async function handleConfirmDispatch(row) {
           <th v-if="vendorOptions">Vendor</th>
           <th>PO code</th><th>SKU</th><th>Item</th>
           <th class="num">Est. dispatch qty</th><th>Est. dispatch date</th>
+          <th v-if="allowConfirmDispatch">AWB / Tracking ID</th>
           <th v-if="allowConfirmDispatch"></th>
         </tr>
         <tr class="filter-row">
@@ -65,11 +77,12 @@ async function handleConfirmDispatch(row) {
           <td><input v-model="filters.qty" type="text" placeholder="Filter…"></td>
           <td><input v-model="filters.dispatchDate" type="text" placeholder="Filter…"></td>
           <td v-if="allowConfirmDispatch"></td>
+          <td v-if="allowConfirmDispatch"></td>
         </tr>
       </thead>
       <tbody>
         <tr v-if="!rows.length">
-          <td :colspan="(vendorOptions ? 6 : 5) + (allowConfirmDispatch ? 1 : 0)" class="empty-state">No dispatch plans yet -- these appear once a vendor fills in an estimated dispatch date and quantity for a SKU.</td>
+          <td :colspan="(vendorOptions ? 6 : 5) + (allowConfirmDispatch ? 2 : 0)" class="empty-state">No dispatch plans yet -- these appear once a vendor fills in an estimated dispatch date and quantity for a SKU.</td>
         </tr>
         <tr v-for="row in rows" :key="row.po_code + '|' + row.item_sku">
           <td v-if="vendorOptions">{{ vendorLabel(row.vendor_code) }}</td>
@@ -78,6 +91,9 @@ async function handleConfirmDispatch(row) {
           <td>{{ row.item_name || "–" }}</td>
           <td class="num mono">{{ fmtNum(row.estimated_dispatch_qty) }}</td>
           <td class="mono">{{ fmtDateOnly(row.estimated_dispatch_date) }}</td>
+          <td v-if="allowConfirmDispatch">
+            <input v-model="awbInputs[keyFor(row)]" type="text" placeholder="Required" style="width: 140px;">
+          </td>
           <td v-if="allowConfirmDispatch">
             <button class="link-btn-inline" :disabled="workingKey === keyFor(row)" @click="handleConfirmDispatch(row)">
               {{ workingKey === keyFor(row) ? "Working…" : "Dispatched" }}
