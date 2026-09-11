@@ -22,9 +22,14 @@ import RateFinder from "./components/RateFinder.vue";
 import AppModal from "./components/AppModal.vue";
 import PoDetailModal from "./components/PoDetailModal.vue";
 import SkuDetailModal from "./components/SkuDetailModal.vue";
+import SetNewPasswordForm from "./components/SetNewPasswordForm.vue";
+import BrandLogo from "./components/BrandLogo.vue";
 import ProfileMenu from "./components/ProfileMenu.vue";
 
 const ready = ref(false);
+const mustChangePassword = ref(false); // gates the whole console until cleared -- every login (vendor
+                                        // AND internal-staff) is created with the same shared temp
+                                        // password, so this must be enforced here too, not just VendorApp.vue
 const whoLine = ref("Admin");
 const myEmail = ref("");
 const myRole = ref("admin");
@@ -149,6 +154,10 @@ onMounted(async () => {
     return;
   }
   myRole.value = ctx.profile.role;
+  if (ctx.profile.must_change_password) {
+    mustChangePassword.value = true;
+    return;
+  }
   activeNav.value = navItems.value[0]?.id || "po-tracking";
   whoLine.value = ctx.profile.vendor_name || ROLE_FALLBACK_NAME[myRole.value] || "Admin";
   myEmail.value = ctx.profile.email || "";
@@ -162,6 +171,22 @@ onMounted(async () => {
   ready.value = true;
 });
 
+async function handlePasswordChanged() {
+  // Re-fetch so we pick up the freshly-cleared must_change_password and the
+  // profile fields the dashboard needs, rather than trusting stale state.
+  const ctx = await requireSession();
+  if (!ctx) return;
+  mustChangePassword.value = false;
+  myRole.value = ctx.profile.role;
+  activeNav.value = navItems.value[0]?.id || "po-tracking";
+  whoLine.value = ctx.profile.vendor_name || ROLE_FALLBACK_NAME[myRole.value] || "Admin";
+  myEmail.value = ctx.profile.email || "";
+  await refreshVendors();
+  if (canSeeManageAccess.value) await refreshTeam();
+  await fetchAllUploads();
+  ready.value = true;
+}
+
 async function signOut() {
   await supabase.auth.signOut();
   window.location.href = "login.html";
@@ -169,7 +194,16 @@ async function signOut() {
 </script>
 
 <template>
-  <div v-if="ready" class="app-shell">
+  <div v-if="mustChangePassword" class="auth-shell">
+    <div class="auth-card">
+      <BrandLogo brand="native" class="login-logo" />
+      <h1>Set a new password</h1>
+      <div class="sub">For security, please set your own password before continuing -- this account was created with a shared temporary password.</div>
+      <SetNewPasswordForm submit-label="Set password and continue" @done="handlePasswordChanged" />
+    </div>
+  </div>
+
+  <div v-else-if="ready" class="app-shell">
     <SidebarNav v-model="activeNav" :brand="sidebarBrand" :items="navItems" />
 
     <div class="main-content">
