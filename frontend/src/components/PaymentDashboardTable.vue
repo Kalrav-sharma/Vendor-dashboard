@@ -1,9 +1,11 @@
 <script setup>
+import { computed } from "vue";
 import { fmtMoney, fmtDateOnly } from "../format.js";
 import ReconciliationChip from "./ReconciliationChip.vue";
 import ViewInvoiceButton from "./ViewInvoiceButton.vue";
+import SummaryKpis from "./SummaryKpis.vue";
 
-defineProps({
+const props = defineProps({
   rows: { type: Array, required: true },        // already filtered
   filters: { type: Object, required: true },     // reactive filter state, mutated directly (v-model)
   reconciliationOptions: { type: Array, required: true }, // distinct reconciliation labels present in the data
@@ -17,9 +19,33 @@ function invoiceValue(row) { return row.match_details?.invoice_value ?? null; }
 function grnValue(row) { return row.match_details?.grn_value ?? null; }
 function dueDate(row) { return row.match_details?.invoice_due_date || null; }
 function dueDateEstimated(row) { return !!row.match_details?.invoice_due_date_estimated; }
+
+// Date-only comparison -- an invoice due today isn't overdue yet.
+const todayStart = new Date(new Date().toDateString());
+function isOverdue(row) {
+  const due = dueDate(row);
+  return !!due && new Date(due) < todayStart && row.match_status !== "matched";
+}
+
+// "Payment" here means "not yet marked paid" -- there's no real payment
+// status tracked yet (Oracle integration not built, every row shows
+// "Pending integration"), so every invoice on file counts as pending.
+const kpiTiles = computed(() => {
+  const onTrack = props.rows.filter(r => r.match_status === "matched" && !isOverdue(r)).length;
+  const hasIssues = props.rows.filter(r => r.match_status === "mismatch" || r.match_status === "error").length;
+  const overdue = props.rows.filter(isOverdue).length;
+  return [
+    { label: "Total invoices pending", value: props.rows.length },
+    { label: "No issues -- on track", value: onTrack, cls: "good" },
+    { label: "Has issues", value: hasIssues, cls: hasIssues > 0 ? "critical" : "" },
+    { label: "Overdue", value: overdue, cls: overdue > 0 ? "critical" : "" },
+  ];
+});
 </script>
 
 <template>
+  <SummaryKpis :tiles="kpiTiles" />
+
   <div class="field" style="max-width: 340px; margin-bottom: 14px;">
     <label for="payment-top-search">Search{{ vendorOptions ? " vendor," : "" }} PO code, invoice number…</label>
     <input id="payment-top-search" v-model="filters.search" type="text" placeholder="Type to search…">

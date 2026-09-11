@@ -196,7 +196,7 @@ async function signOut() {
             :rows="filteredSorted" :filters="filters"
             :facility-options="facilityOptions" :status-options="statusOptions"
             :vendor-options="vendorOptions" :vendor-label="vendorLabel"
-            :grns-by-po="grnsByPo" :show-kpis="false"
+            :grns-by-po="grnsByPo" :show-kpis="true"
             :on-open-po="openPoDetailModal" :allow-invoice-upload="true" :uploader-label="whoLine"
           />
         </div>

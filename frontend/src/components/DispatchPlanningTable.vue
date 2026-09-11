@@ -1,7 +1,8 @@
 <script setup>
-import { reactive, ref } from "vue";
+import { reactive, ref, computed } from "vue";
 import { supabase } from "../supabaseClient.js";
 import { fmtNum, fmtDateOnly } from "../format.js";
+import SummaryKpis from "./SummaryKpis.vue";
 
 const props = defineProps({
   rows: { type: Array, required: true },        // already filtered -- one row per po_items row with both estimate fields set
@@ -24,6 +25,24 @@ const rowErrors = reactive({});  // "po|sku" -> error message
 const workingKey = ref(null);
 
 function keyFor(row) { return row.po_code + "|" + row.item_sku; }
+
+// A dispatch plan is "overdue" once its own promised date has passed
+// without Operations having confirmed it -- date-only comparison (a plan
+// due today isn't overdue yet).
+const todayStart = new Date(new Date().toDateString());
+function isOverdue(row) {
+  return !!row.estimated_dispatch_date && new Date(row.estimated_dispatch_date) < todayStart;
+}
+
+const kpiTiles = computed(() => {
+  const overdue = props.rows.filter(isOverdue).length;
+  const totalQty = props.rows.reduce((s, r) => s + (Number(r.estimated_dispatch_qty) || 0), 0);
+  return [
+    { label: "Awaiting dispatch", value: props.rows.length },
+    { label: "Overdue", value: overdue, cls: overdue > 0 ? "critical" : "" },
+    { label: "Qty awaiting dispatch", value: fmtNum(totalQty) },
+  ];
+});
 
 async function handleConfirmDispatch(row) {
   const key = keyFor(row);
@@ -49,6 +68,8 @@ async function handleConfirmDispatch(row) {
 </script>
 
 <template>
+  <SummaryKpis :tiles="kpiTiles" />
+
   <div class="field" style="max-width: 340px; margin-bottom: 14px;">
     <label for="dispatch-top-search">Search{{ vendorOptions ? " vendor," : "" }} PO code, SKU…</label>
     <input id="dispatch-top-search" v-model="filters.search" type="text" placeholder="Type to search…">

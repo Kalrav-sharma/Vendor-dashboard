@@ -1,6 +1,7 @@
 <script setup>
 import { computed, ref, watch } from "vue";
 import StatusChip from "./StatusChip.vue";
+import SummaryKpis from "./SummaryKpis.vue";
 import InvoiceUploadModal from "./InvoiceUploadModal.vue";
 import DownloadPdfButton from "./DownloadPdfButton.vue";
 import InvoiceUploadButton from "./InvoiceUploadButton.vue";
@@ -52,7 +53,7 @@ function invoiceUploadStatus(poCode) {
   return { expected, uploaded, pending: expected > 0 && uploaded < expected };
 }
 
-const kpis = computed(() => {
+const kpiTiles = computed(() => {
   if (!props.showKpis) return null;
   const openCount = props.rows.filter(p => !TERMINAL_STATUSES.has(p.status)).length;
   const totalOrdered = props.rows.reduce((s, p) => s + (Number(p.qty_ordered) || 0), 0);
@@ -60,7 +61,14 @@ const kpis = computed(() => {
   const totalAmount = props.rows.reduce((s, p) => s + (Number(p.total_amount) || 0), 0);
   const totalGrnAmount = props.rows.reduce(
     (s, p) => s + (props.grnsByPo[p.po_code] || []).reduce((s2, g) => s2 + (Number(g.total_received_amount) || 0), 0), 0);
-  return { total: props.rows.length, openCount, totalOrdered, totalReceived, totalAmount, totalGrnAmount };
+  return [
+    { label: "Purchase orders", value: props.rows.length },
+    { label: "Still open", value: openCount },
+    { label: "Units ordered", value: fmtNum(totalOrdered) },
+    { label: "Units received", value: fmtNum(totalReceived) },
+    { label: "PO value", value: fmtMoney(totalAmount) },
+    { label: "GRN value received", value: fmtMoney(totalGrnAmount) },
+  ];
 });
 
 const statusPills = computed(() => {
@@ -71,14 +79,7 @@ const statusPills = computed(() => {
 </script>
 
 <template>
-  <div v-if="kpis" class="kpis">
-    <div class="kpi"><div class="label">Purchase orders</div><div class="value">{{ kpis.total }}</div></div>
-    <div class="kpi"><div class="label">Still open</div><div class="value">{{ kpis.openCount }}</div></div>
-    <div class="kpi"><div class="label">Units ordered</div><div class="value">{{ fmtNum(kpis.totalOrdered) }}</div></div>
-    <div class="kpi"><div class="label">Units received</div><div class="value">{{ fmtNum(kpis.totalReceived) }}</div></div>
-    <div class="kpi"><div class="label">PO value</div><div class="value">{{ fmtMoney(kpis.totalAmount) }}</div></div>
-    <div class="kpi"><div class="label">GRN value received</div><div class="value">{{ fmtMoney(kpis.totalGrnAmount) }}</div></div>
-  </div>
+  <SummaryKpis v-if="kpiTiles" :tiles="kpiTiles" />
 
   <div v-if="showKpis" class="stat-pills">
     <div v-for="[status, count] in statusPills" :key="status" class="stat-pill">

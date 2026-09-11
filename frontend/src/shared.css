@@ -149,10 +149,14 @@ button.link-btn {
 }
 .profile-dropdown-signout:hover { background: var(--paper); }
 
-.kpis { display: grid; grid-template-columns: repeat(6, 1fr); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; margin-bottom: 18px; }
+.kpis { display: grid; grid-template-columns: repeat(var(--kpi-cols, 6), 1fr); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; margin-bottom: 18px; }
 .kpi { background: var(--surface); padding: 14px 16px; }
 .kpi .label { font-size: 0.68rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
 .kpi .value { font-size: 1.3rem; font-weight: 600; font-family: "IBM Plex Mono", monospace; font-variant-numeric: tabular-nums; }
+.kpi .value.critical { color: var(--critical); }
+.kpi .value.good { color: var(--good); }
+/* Explicit rules (not the --kpi-cols var) on purpose -- these must always
+   win on small screens regardless of how many tiles a given page passes. */
 @media (max-width: 900px) { .kpis { grid-template-columns: repeat(3, 1fr); } }
 @media (max-width: 560px) { .kpis { grid-template-columns: repeat(2, 1fr); } }
 

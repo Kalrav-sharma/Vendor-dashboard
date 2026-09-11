@@ -1,16 +1,35 @@
 <script setup>
+import { computed } from "vue";
 import { fmtNum } from "../format.js";
+import SummaryKpis from "./SummaryKpis.vue";
 
-defineProps({
+const props = defineProps({
   rows: { type: Array, required: true },        // already filtered + sorted
   filters: { type: Object, required: true },     // reactive filter state, mutated directly (v-model)
   vendorOptions: { type: Array, default: null }, // [{code, label}] -- null hides the Vendor column entirely
   vendorLabel: { type: Function, default: null }, // (code, rowName) => string -- required when vendorOptions is set
   onOpenSku: { type: Function, required: true }, // (aggKey) => void
 });
+
+// Every row here is already a SKU with at least one open PO not yet fully
+// supplied (see useSkuAggregates.js) -- so the count itself is already
+// "SKUs pending", no separate filter needed.
+const kpiTiles = computed(() => {
+  const qtyOrdered = props.rows.reduce((s, r) => s + (Number(r.qty_ordered) || 0), 0);
+  const qtyPending = props.rows.reduce((s, r) => s + (Number(r.qty_pending) || 0), 0);
+  const qtyReceived = props.rows.reduce((s, r) => s + (Number(r.qty_received) || 0), 0);
+  return [
+    { label: "SKUs pending", value: props.rows.length },
+    { label: "Qty ordered", value: fmtNum(qtyOrdered) },
+    { label: "Qty pending", value: fmtNum(qtyPending) },
+    { label: "Qty supplied", value: fmtNum(qtyReceived) },
+  ];
+});
 </script>
 
 <template>
+  <SummaryKpis :tiles="kpiTiles" />
+
   <div class="field" style="max-width: 340px; margin-bottom: 14px;">
     <label for="sku-top-search">Search{{ vendorOptions ? " vendor," : "" }} SKU, item…</label>
     <input id="sku-top-search" v-model="filters.search" type="text" placeholder="Type to search…">
