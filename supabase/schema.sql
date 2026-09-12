@@ -874,3 +874,110 @@ drop policy if exists sop_inventory_uc_warehouse_select on public.sop_inventory_
 create policy sop_inventory_uc_warehouse_select on public.sop_inventory_uc_warehouse
   for select
   using (public.is_internal_staff());
+
+-- ---------------------------------------------------------------------
+-- sop_sales_plan_actual — Sales: Plan vs Actual tab, current month,
+-- channel x SKU. Synced from WH-Channel-SKU's "Dashboard" tab (projection,
+-- derived from Sale plan x Channel Split) and "actual sales" tab's Q:S
+-- block (actuals) by scripts/sync_sop_sales.py.
+--
+-- 'Others' channel rows always have projection = 0 (no Dashboard-tab
+-- counterpart) -- the frontend renders this as a footnote, never silently
+-- merges it into MT or drops it.
+-- ---------------------------------------------------------------------
+create table if not exists public.sop_sales_plan_actual (
+  id bigserial primary key,
+  month_start date not null,
+  channel text not null,
+  sku text not null,
+  projection numeric not null default 0,
+  actual numeric not null default 0,
+  gap numeric generated always as (actual - projection) stored,
+  synced_at timestamptz not null default now(),
+  unique (month_start, channel, sku)
+);
+
+alter table public.sop_sales_plan_actual enable row level security;
+
+drop policy if exists sop_sales_plan_actual_select on public.sop_sales_plan_actual;
+create policy sop_sales_plan_actual_select on public.sop_sales_plan_actual
+  for select
+  using (public.is_internal_staff());
+
+-- ---------------------------------------------------------------------
+-- sop_daily_sales — Day-on-Day Sales tab. One row per (date, series, dim).
+-- `series` selects which of the 6 daily blocks in the "actual sales" tab
+-- the row came from; `dim` is a SKU code for every series except
+-- 'by_channel', where it's a channel name.
+-- ---------------------------------------------------------------------
+create table if not exists public.sop_daily_sales (
+  id bigserial primary key,
+  sale_date date not null,
+  series text not null,   -- 'by_sku' | 'by_channel' | 'by_sku_uc' | 'by_sku_amazon' |
+                           -- 'by_sku_flipkart' | 'by_sku_mt'
+  dim text not null,
+  qty numeric not null default 0,
+  synced_at timestamptz not null default now(),
+  unique (sale_date, series, dim)
+);
+
+alter table public.sop_daily_sales enable row level security;
+
+drop policy if exists sop_daily_sales_select on public.sop_daily_sales;
+create policy sop_daily_sales_select on public.sop_daily_sales
+  for select
+  using (public.is_internal_staff());
+
+-- ---------------------------------------------------------------------
+-- sop_production_daily — Production Plan tab, live view. One row per
+-- (date, sku, facility). Only 'COMBINED' ever has a non-null planned_qty
+-- -- no per-facility split exists for PLANNED production in the source
+-- sheet (a real limitation, not a bug -- see production_plan_snapshots
+-- below for how the portal actually solves the "planned gets silently
+-- overwritten by actual" problem instead of just reading this table's
+-- live planned_qty for past dates).
+-- ---------------------------------------------------------------------
+create table if not exists public.sop_production_daily (
+  id bigserial primary key,
+  prod_date date not null,
+  sku text not null,
+  facility text not null,   -- 'COMBINED' | 'RONCH' | 'AMBER'
+  planned_qty numeric,
+  actual_qty numeric,
+  synced_at timestamptz not null default now(),
+  unique (prod_date, sku, facility)
+);
+
+alter table public.sop_production_daily enable row level security;
+
+drop policy if exists sop_production_daily_select on public.sop_production_daily;
+create policy sop_production_daily_select on public.sop_production_daily
+  for select
+  using (public.is_internal_staff());
+
+-- ---------------------------------------------------------------------
+-- production_plan_snapshots — frozen daily snapshot of planned production,
+-- captured once a day (~09:55 AM IST, before that day's own Actual
+-- Production cell can flip from a placeholder plan value to the true
+-- actual -- a documented, real sheet behavior, not a bug we're working
+-- around defensively for no reason) by
+-- scripts/sync_sop_production_snapshot.py. Write-once: the sync script
+-- always upserts with ON CONFLICT DO NOTHING, so a captured snapshot is
+-- frozen forever even on an accidental re-run for the same date.
+-- ---------------------------------------------------------------------
+create table if not exists public.production_plan_snapshots (
+  id bigserial primary key,
+  snapshot_date date not null,
+  sku text not null,
+  facility text not null,   -- 'COMBINED' | 'RONCH' | 'AMBER'
+  planned_qty numeric not null,
+  captured_at timestamptz not null default now(),
+  unique (snapshot_date, sku, facility)
+);
+
+alter table public.production_plan_snapshots enable row level security;
+
+drop policy if exists production_plan_snapshots_select on public.production_plan_snapshots;
+create policy production_plan_snapshots_select on public.production_plan_snapshots
+  for select
+  using (public.is_internal_staff());
