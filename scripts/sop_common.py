@@ -152,11 +152,15 @@ def upsert(supabase_url, key, table, rows, on_conflict, ignore_duplicates=False)
         sys.exit(f"Upsert into {table} failed ({r.status_code}): {r.text[:500]}")
 
 
-def replace_by_filter(supabase_url, key, table, rows, delete_params):
+def replace_by_filter(supabase_url, key, table, rows, delete_params, allow_empty=False):
     """Wholesale replace scoped to a filter (e.g. {"run_date": "eq.2026-09-12"}) -- delete matching
     rows, then bulk insert. For tables where row COUNT varies run to run (so upsert's stable-key
-    assumption doesn't hold), unlike the small/fixed-shape tables upsert() targets."""
-    if not rows:
+    assumption doesn't hold), unlike the small/fixed-shape tables upsert() targets.
+
+    allow_empty=True skips the zero-rows guard -- for tables where an empty result is a legitimate
+    state (e.g. sop_po_action_items with no RESCHEDULE/PARTIAL this run is good news, not a fetch
+    failure), the delete still runs (clearing out a stale prior run's rows) but no insert follows."""
+    if not rows and not allow_empty:
         sys.exit(f"Parsed zero rows for {table} -- aborting without touching it (a transient "
                   f"fetch/parse failure looks the same as an empty sheet; refusing to wipe "
                   f"existing data on that ambiguity).")
@@ -165,6 +169,8 @@ def replace_by_filter(supabase_url, key, table, rows, delete_params):
                          timeout=REQUEST_TIMEOUT)
     if not r.ok:
         sys.exit(f"Clearing {table} failed ({r.status_code}): {r.text[:500]}")
+    if not rows:
+        return
     r = requests.post(f"{supabase_url}/rest/v1/{table}", headers={**headers, "Prefer": "return=minimal"},
                        json=rows, timeout=REQUEST_TIMEOUT)
     if not r.ok:
