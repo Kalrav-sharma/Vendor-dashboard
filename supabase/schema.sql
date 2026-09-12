@@ -808,3 +808,69 @@ create policy vendor_contacts_select on public.vendor_contacts
 update public.purchase_orders
 set vendor_name = 'LEXCRU WATER TECH PVT LTD'
 where vendor_code = 'Vendor-156' and vendor_name is null;
+
+-- =======================================================================
+-- S&OP section — live replica of the /sop-master Claude Code dashboard's
+-- 6 tabs (Inventory Overview, Sales: Plan vs Actual, Day-on-Day Sales,
+-- Production Plan, PO Fulfillment, Channel Dispatch Plan), fed by scheduled
+-- GitHub Actions Python scripts (scripts/sync_sop_*.py — same
+-- service-account-JWT-into-Sheets-API pattern as sync_mm_rate_card.py, no
+-- Uniware/Jarvis dependency anywhere) instead of a one-shot agent run.
+--
+-- Every table below is read-only for the app: is_internal_staff()-gated
+-- SELECT only, no INSERT/UPDATE/DELETE policy for authenticated/anon —
+-- writes are service_role-only via the sync scripts, same convention as
+-- mm_rate_card above. Vendors never see any of this (no vendor_code
+-- scoping needed — there's nothing vendor-specific in S&OP data).
+--
+-- Visibility (frontend concern, not RLS — see AdminApp.vue's canSeeSop):
+-- admin / management / operations only, same roles as PO Tracking / SKU
+-- Level Data. Finance and vendors excluded.
+-- =======================================================================
+
+-- ---------------------------------------------------------------------
+-- sop_inventory_channel — Inventory Overview tab, channel x SKU matrix.
+-- Synced from WH-Channel-SKU's "Current Inventory" tab by
+-- scripts/sync_sop_inventory.py. 10 channel buckets (see
+-- INVENTORY_CHANNEL_MAP in that script), 6 SKUs.
+-- ---------------------------------------------------------------------
+create table if not exists public.sop_inventory_channel (
+  id bigserial primary key,
+  channel text not null,
+  sku text not null,
+  qty numeric not null default 0,
+  synced_at timestamptz not null default now(),
+  unique (channel, sku)
+);
+
+alter table public.sop_inventory_channel enable row level security;
+
+drop policy if exists sop_inventory_channel_select on public.sop_inventory_channel;
+create policy sop_inventory_channel_select on public.sop_inventory_channel
+  for select
+  using (public.is_internal_staff());
+
+-- ---------------------------------------------------------------------
+-- sop_inventory_uc_warehouse — Inventory Overview tab, UC APP warehouse
+-- view (on-hand from WH-Channel-SKU's "Current Inventory" tab's "UC App -
+-- RO" block, per-city; in-transit from Copy Daily Input Anish's "Dispatch
+-- Planning" tab's "Intransit Inventory" block). combined is a generated
+-- column so the sync script only ever writes on_hand/in_transit.
+-- ---------------------------------------------------------------------
+create table if not exists public.sop_inventory_uc_warehouse (
+  id bigserial primary key,
+  warehouse text not null,
+  sku text not null,
+  on_hand numeric not null default 0,
+  in_transit numeric not null default 0,
+  combined numeric generated always as (on_hand + in_transit) stored,
+  synced_at timestamptz not null default now(),
+  unique (warehouse, sku)
+);
+
+alter table public.sop_inventory_uc_warehouse enable row level security;
+
+drop policy if exists sop_inventory_uc_warehouse_select on public.sop_inventory_uc_warehouse;
+create policy sop_inventory_uc_warehouse_select on public.sop_inventory_uc_warehouse
+  for select
+  using (public.is_internal_staff());
