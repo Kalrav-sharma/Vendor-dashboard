@@ -1,0 +1,34 @@
+name: Sync S&OP production snapshot to Supabase
+
+# Exactly once daily, 04:25 UTC = 09:55 AM IST -- comfortably before that
+# day's own production entries typically start landing, so today's Actual
+# Production cell is still holding its placeholder plan value when this
+# reads it (see sync_sop_production_snapshot.py's docstring for why that
+# matters). workflow_dispatch kept for manual backfill/testing -- safe to
+# re-run any time, the script's own ON CONFLICT DO NOTHING makes a repeat
+# run for the same day a harmless no-op.
+on:
+  schedule:
+    - cron: '25 4 * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - run: pip install -r requirements.txt
+
+      - run: python scripts/sync_sop_production_snapshot.py
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

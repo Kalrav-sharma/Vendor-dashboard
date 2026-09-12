@@ -1,0 +1,31 @@
+name: Sync S&OP dispatch plan to Supabase
+
+# 2-3x daily -- heavier computation (8 views x up to 5 warehouses x 4 DOI
+# targets) and the underlying daily-trackr tabs don't change fast enough
+# to need more frequent runs. workflow_dispatch for an immediate manual
+# run.
+on:
+  schedule:
+    - cron: '0 3,9,15 * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - run: pip install -r requirements.txt
+
+      - run: python scripts/sync_sop_dispatch_plan.py
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
