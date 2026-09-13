@@ -128,6 +128,7 @@ header.page-head {
 }
 h1 { font-size: 1.5rem; font-weight: 600; margin: 0 0 4px; letter-spacing: -0.01em; }
 .scope { color: var(--muted); font-size: 0.83rem; }
+.muted-text { color: var(--muted); font-size: 0.78rem; }
 .who { text-align: right; font-size: 0.82rem; color: var(--muted); }
 .who b { color: var(--ink); }
 button.link-btn {

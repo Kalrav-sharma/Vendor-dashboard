@@ -1,0 +1,33 @@
+name: Sync Bluedart shipment tracking
+
+# Polls Bluedart's Track & Trace API for every non-terminal AWB in
+# po_item_shipments and refreshes shipment_tracking. Runs every 30
+# minutes -- frequent enough to feel "live" on the portal without
+# hammering a legacy API with no documented rate limit. "Run workflow"
+# in the Actions tab also works, for an immediate on-demand refresh.
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - run: pip install -r requirements.txt
+
+      - run: python scripts/sync_bluedart_tracking.py
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          BLUEDART_LOGIN_ID: ${{ secrets.BLUEDART_LOGIN_ID }}
+          BLUEDART_LICENCE_KEY: ${{ secrets.BLUEDART_LICENCE_KEY }}

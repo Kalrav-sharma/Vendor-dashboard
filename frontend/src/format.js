@@ -68,6 +68,25 @@ export function matchStatusClass(status) {
   return (MATCH_STATUS_META[status] || MATCH_STATUS_META.pending)[1];
 }
 
+// Bluedart's raw StatusType code from shipment_tracking -- same
+// [label, chip color] pattern as STATUS_META above.
+export const BLUEDART_STATUS_META = {
+  DL: ["Delivered", "good"],
+  IT: ["In transit", "open"],
+  UD: ["Undelivered", "critical"],
+  RT: ["RTO", "critical"],
+  RL: ["Redirected", "open"],
+  NF: ["No info yet", "muted"],
+};
+
+export function bluedartStatusLabel(statusType) {
+  return (BLUEDART_STATUS_META[statusType] || [statusType || "Not tracked", "muted"])[0];
+}
+
+export function bluedartStatusClass(statusType) {
+  return (BLUEDART_STATUS_META[statusType] || [null, "muted"])[1];
+}
+
 export function visiblePos(pos) {
   return pos.filter(p => !HIDDEN_STATUSES.has(p.status));
 }

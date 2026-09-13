@@ -6,6 +6,8 @@ import { usePoFilters } from "./composables/usePoFilters.js";
 import { useSkuAggregates } from "./composables/useSkuAggregates.js";
 import { useSkuFilters } from "./composables/useSkuFilters.js";
 import { useDispatchPlanningFilters } from "./composables/useDispatchPlanningFilters.js";
+import { useShipmentTracking } from "./composables/useShipmentTracking.js";
+import { useShipmentTrackingFilters } from "./composables/useShipmentTrackingFilters.js";
 import { useModal } from "./composables/useModal.js";
 import { useInvoiceUploads } from "./composables/useInvoiceUploads.js";
 import { usePaymentFilters } from "./composables/usePaymentFilters.js";
@@ -14,6 +16,7 @@ import SidebarNav from "./components/SidebarNav.vue";
 import PoTrackingTable from "./components/PoTrackingTable.vue";
 import SkuLevelTable from "./components/SkuLevelTable.vue";
 import DispatchPlanningTable from "./components/DispatchPlanningTable.vue";
+import ShipmentTrackingTable from "./components/ShipmentTrackingTable.vue";
 import PaymentDashboardTable from "./components/PaymentDashboardTable.vue";
 import AppModal from "./components/AppModal.vue";
 import PoDetailModal from "./components/PoDetailModal.vue";
@@ -31,6 +34,7 @@ const pageTitle = computed(() => ({
   "po-tracking": "PO Tracking",
   "sku-data": "SKU Level Data",
   "dispatch-planning": "Dispatch Planning",
+  "shipment-tracking": "Shipment Tracking",
   "payment-dashboard": "Payment Dashboard",
 }[activeNav.value]));
 
@@ -52,6 +56,9 @@ const dispatchPlanningRows = computed(() => {
   return rows;
 });
 const { filters: dispatchFilters, filteredSorted: dispatchFilteredSorted } = useDispatchPlanningFilters(dispatchPlanningRows);
+
+const { rows: shipmentTrackingRows } = useShipmentTracking();
+const { filters: shipmentTrackingFilters, filteredSorted: shipmentTrackingFilteredSorted } = useShipmentTrackingFilters(shipmentTrackingRows);
 
 const { allUploads, fetchAllUploads } = useInvoiceUploads();
 const { filters: paymentFilters, filteredSorted: paymentFilteredSorted, reconciliationOptions } = usePaymentFilters(allUploads);
@@ -132,6 +139,7 @@ async function signOut() {
         { id: 'po-tracking', label: 'PO Tracking' },
         { id: 'sku-data', label: 'SKU Level Data' },
         { id: 'dispatch-planning', label: 'Dispatch Planning' },
+        { id: 'shipment-tracking', label: 'Shipment Tracking' },
         { id: 'payment-dashboard', label: 'Payment Dashboard' },
       ]"
     />
@@ -145,6 +153,7 @@ async function signOut() {
               <template v-if="activeNav === 'po-tracking'">{{ scopeLine }}</template>
               <template v-else-if="activeNav === 'sku-data'">SKUs with at least one open purchase order not yet fully supplied, highest pending quantity first. Click a SKU for the PO-level breakdown.</template>
               <template v-else-if="activeNav === 'dispatch-planning'">Estimated dispatch date and quantity per SKU, once entered on the PO. Click a PO to see its details.</template>
+              <template v-else-if="activeNav === 'shipment-tracking'">Live Bluedart status for every shipment you've dispatched. Refreshes automatically as Bluedart updates.</template>
               <template v-else-if="activeNav === 'payment-dashboard'">Every invoice you've uploaded, with its reconciliation and payment status. Click a PO to see its details.</template>
             </div>
           </div>
@@ -168,6 +177,10 @@ async function signOut() {
 
         <div v-show="activeNav === 'dispatch-planning'">
           <DispatchPlanningTable :rows="dispatchFilteredSorted" :filters="dispatchFilters" :on-open-po="openPoDetailModal" />
+        </div>
+
+        <div v-show="activeNav === 'shipment-tracking'">
+          <ShipmentTrackingTable :rows="shipmentTrackingFilteredSorted" :filters="shipmentTrackingFilters" :on-open-po="openPoDetailModal" />
         </div>
 
         <div v-show="activeNav === 'payment-dashboard'">

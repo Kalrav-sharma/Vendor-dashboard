@@ -433,6 +433,48 @@ create policy po_item_shipments_select on public.po_item_shipments
 -- confirm_dispatched() (SECURITY DEFINER) below ever writes this.
 
 -- ---------------------------------------------------------------------
+-- shipment_tracking -- live Bluedart status per AWB, one row per unique
+-- awb_number (NOT per po_item_shipments row -- several SKUs dispatched
+-- together under one physical package share one AWB, so this stays a
+-- separate table keyed by awb_number rather than columns bolted onto
+-- po_item_shipments). vendor_code is denormalized here too, same
+-- join-free-RLS-check reason as po_item_shipments.vendor_code above.
+--
+-- Populated by scripts/sync_bluedart_tracking.py polling Bluedart's
+-- legacy Track & Trace API (LoginID + LicenceKey auth) on a schedule via
+-- GitHub Actions -- never written from the browser, so there's no
+-- insert/update policy for authenticated.
+-- ---------------------------------------------------------------------
+create table if not exists public.shipment_tracking (
+  awb_number text primary key,
+  vendor_code text,
+  status_type text,          -- Bluedart's raw code: IT/UD/DL/RL/RT/NF/...
+  status_text text,          -- human-readable status, e.g. "In Transit. Await delivery information"
+  origin text,
+  destination text,
+  expected_delivery_date date,
+  last_scan_text text,
+  last_scan_location text,
+  last_scan_at timestamptz,
+  raw jsonb,                 -- full parsed Bluedart response, for fields not modeled above
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists shipment_tracking_vendor_code_idx on public.shipment_tracking(vendor_code);
+
+alter table public.shipment_tracking enable row level security;
+
+drop policy if exists shipment_tracking_select on public.shipment_tracking;
+create policy shipment_tracking_select on public.shipment_tracking
+  for select
+  using (
+    public.is_internal_staff()
+    or vendor_code = (select p.vendor_code from public.profiles p where p.id = auth.uid())
+  );
+-- No insert/update/delete policy for authenticated -- only
+-- scripts/sync_bluedart_tracking.py (service_role key) ever writes this.
+
+-- ---------------------------------------------------------------------
 -- confirm_dispatched(po_code, item_sku, awb_number): called from Dispatch
 -- Planning's "Dispatched" button (internal staff only) when Operations
 -- confirms a SKU's estimated dispatch actually went out. awb_number is
