@@ -7,7 +7,6 @@ import { useSkuAggregates } from "./composables/useSkuAggregates.js";
 import { useSkuFilters } from "./composables/useSkuFilters.js";
 import { useDispatchPlanningFilters } from "./composables/useDispatchPlanningFilters.js";
 import { useShipmentTracking } from "./composables/useShipmentTracking.js";
-import { useShipmentTrackingFilters } from "./composables/useShipmentTrackingFilters.js";
 import { useModal } from "./composables/useModal.js";
 import { useInvoiceUploads } from "./composables/useInvoiceUploads.js";
 import { usePaymentFilters } from "./composables/usePaymentFilters.js";
@@ -16,7 +15,6 @@ import SidebarNav from "./components/SidebarNav.vue";
 import PoTrackingTable from "./components/PoTrackingTable.vue";
 import SkuLevelTable from "./components/SkuLevelTable.vue";
 import DispatchPlanningTable from "./components/DispatchPlanningTable.vue";
-import ShipmentTrackingTable from "./components/ShipmentTrackingTable.vue";
 import PaymentDashboardTable from "./components/PaymentDashboardTable.vue";
 import AppModal from "./components/AppModal.vue";
 import PoDetailModal from "./components/PoDetailModal.vue";
@@ -34,7 +32,6 @@ const pageTitle = computed(() => ({
   "po-tracking": "PO Tracking",
   "sku-data": "SKU Level Data",
   "dispatch-planning": "Dispatch Planning",
-  "shipment-tracking": "Shipment Tracking",
   "payment-dashboard": "Payment Dashboard",
 }[activeNav.value]));
 
@@ -43,22 +40,31 @@ const { filters, filteredSorted, facilityOptions, statusOptions } = usePoFilters
 const { sortedRows: skuRows } = useSkuAggregates(currentPos, poItemsByPo, { multiVendor: false });
 const { filters: skuFilters, filteredSorted: skuFilteredSorted } = useSkuFilters(skuRows);
 
-// One row per po_items row with BOTH estimate fields filled in -- appears
-// here once this vendor has actually saved a value for each, via
-// PoDetailModal.vue.
-const dispatchPlanningRows = computed(() => {
+// Dispatch Planning shows the whole lifecycle of a SKU's dispatch, as one
+// combined list (no separate "Shipment Tracking" section): rows still
+// awaiting an estimate/dispatch (kind: "pending", one per po_items row with
+// both estimate fields set) PLUS every already-confirmed shipment (kind:
+// "shipped", one per po_item_shipments row, with its live Bluedart status
+// attached) -- so entering an AWB and clicking "Dispatched" makes tracking
+// info appear right here automatically, same table, no navigation required.
+const pendingDispatchRows = computed(() => {
   const rows = [];
   for (const items of Object.values(poItemsByPo.value)) {
     for (const it of items) {
-      if (it.estimated_dispatch_date != null && it.estimated_dispatch_qty != null) rows.push(it);
+      if (it.estimated_dispatch_date != null && it.estimated_dispatch_qty != null) rows.push({ kind: "pending", ...it });
     }
   }
   return rows;
 });
-const { filters: dispatchFilters, filteredSorted: dispatchFilteredSorted } = useDispatchPlanningFilters(dispatchPlanningRows);
 
-const { rows: shipmentTrackingRows } = useShipmentTracking();
-const { filters: shipmentTrackingFilters, filteredSorted: shipmentTrackingFilteredSorted } = useShipmentTrackingFilters(shipmentTrackingRows);
+const { rows: shipmentRows } = useShipmentTracking();
+const shippedDispatchRows = computed(() => shipmentRows.value.map((s) => {
+  const item = (poItemsByPo.value[s.po_code] || []).find((it) => it.item_sku === s.item_sku);
+  return { kind: "shipped", ...s, item_name: item?.item_name };
+}));
+
+const dispatchPlanningRows = computed(() => [...pendingDispatchRows.value, ...shippedDispatchRows.value]);
+const { filters: dispatchFilters, filteredSorted: dispatchFilteredSorted } = useDispatchPlanningFilters(dispatchPlanningRows);
 
 const { allUploads, fetchAllUploads } = useInvoiceUploads();
 const { filters: paymentFilters, filteredSorted: paymentFilteredSorted, reconciliationOptions } = usePaymentFilters(allUploads);
@@ -139,7 +145,6 @@ async function signOut() {
         { id: 'po-tracking', label: 'PO Tracking' },
         { id: 'sku-data', label: 'SKU Level Data' },
         { id: 'dispatch-planning', label: 'Dispatch Planning' },
-        { id: 'shipment-tracking', label: 'Shipment Tracking' },
         { id: 'payment-dashboard', label: 'Payment Dashboard' },
       ]"
     />
@@ -152,8 +157,7 @@ async function signOut() {
             <div class="scope">
               <template v-if="activeNav === 'po-tracking'">{{ scopeLine }}</template>
               <template v-else-if="activeNav === 'sku-data'">SKUs with at least one open purchase order not yet fully supplied, highest pending quantity first. Click a SKU for the PO-level breakdown.</template>
-              <template v-else-if="activeNav === 'dispatch-planning'">Estimated dispatch date and quantity per SKU, once entered on the PO. Click a PO to see its details.</template>
-              <template v-else-if="activeNav === 'shipment-tracking'">Live Bluedart status for every shipment you've dispatched. Refreshes automatically as Bluedart updates.</template>
+              <template v-else-if="activeNav === 'dispatch-planning'">Estimated dispatch date and quantity per SKU awaiting dispatch, plus live Bluedart status for every shipment you've already confirmed. Click a PO to see its details.</template>
               <template v-else-if="activeNav === 'payment-dashboard'">Every invoice you've uploaded, with its reconciliation and payment status. Click a PO to see its details.</template>
             </div>
           </div>
@@ -177,10 +181,6 @@ async function signOut() {
 
         <div v-show="activeNav === 'dispatch-planning'">
           <DispatchPlanningTable :rows="dispatchFilteredSorted" :filters="dispatchFilters" :on-open-po="openPoDetailModal" />
-        </div>
-
-        <div v-show="activeNav === 'shipment-tracking'">
-          <ShipmentTrackingTable :rows="shipmentTrackingFilteredSorted" :filters="shipmentTrackingFilters" :on-open-po="openPoDetailModal" />
         </div>
 
         <div v-show="activeNav === 'payment-dashboard'">

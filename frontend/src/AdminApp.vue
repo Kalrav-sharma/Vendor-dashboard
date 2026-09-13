@@ -7,7 +7,6 @@ import { useSkuAggregates } from "./composables/useSkuAggregates.js";
 import { useSkuFilters } from "./composables/useSkuFilters.js";
 import { useDispatchPlanningFilters } from "./composables/useDispatchPlanningFilters.js";
 import { useShipmentTracking } from "./composables/useShipmentTracking.js";
-import { useShipmentTrackingFilters } from "./composables/useShipmentTrackingFilters.js";
 import { useVendors } from "./composables/useVendors.js";
 import { useTeam } from "./composables/useTeam.js";
 import { useModal } from "./composables/useModal.js";
@@ -18,7 +17,6 @@ import SidebarNav from "./components/SidebarNav.vue";
 import PoTrackingTable from "./components/PoTrackingTable.vue";
 import SkuLevelTable from "./components/SkuLevelTable.vue";
 import DispatchPlanningTable from "./components/DispatchPlanningTable.vue";
-import ShipmentTrackingTable from "./components/ShipmentTrackingTable.vue";
 import PaymentDashboardTable from "./components/PaymentDashboardTable.vue";
 import ManageAccess from "./components/ManageAccess.vue";
 import RateFinder from "./components/RateFinder.vue";
@@ -46,7 +44,6 @@ const myUserId = ref(null);
 const canSeePoTracking = computed(() => ["admin", "management", "operations"].includes(myRole.value));
 const canSeeSkuData = computed(() => ["admin", "management", "operations"].includes(myRole.value));
 const canSeeDispatchPlanning = computed(() => ["admin", "management", "operations"].includes(myRole.value));
-const canSeeShipmentTracking = computed(() => ["admin", "management", "operations"].includes(myRole.value));
 const canSeePaymentDashboard = computed(() => ["admin", "management", "finance"].includes(myRole.value));
 const canSeeManageAccess = computed(() => myRole.value === "admin"); // admin only -- Kalrav's explicit call
 const canSeeRateFinder = computed(() => ["admin", "management", "operations"].includes(myRole.value));
@@ -68,7 +65,6 @@ const navItems = computed(() => {
   if (canSeePoTracking.value) items.push({ id: "po-tracking", label: "PO Tracking" });
   if (canSeeSkuData.value) items.push({ id: "sku-data", label: "SKU Level Data" });
   if (canSeeDispatchPlanning.value) items.push({ id: "dispatch-planning", label: "Dispatch Planning" });
-  if (canSeeShipmentTracking.value) items.push({ id: "shipment-tracking", label: "Shipment Tracking" });
   if (canSeePaymentDashboard.value) items.push({ id: "payment-dashboard", label: "Payment Dashboard" });
   if (canSeeManageAccess.value) items.push({ id: "manage-access", label: "Manage Access" });
   if (RATE_FINDER_LIVE && canSeeRateFinder.value) items.push({ id: "rate-finder", label: "Rate Finder" });
@@ -81,7 +77,6 @@ const pageTitle = computed(() => ({
   "po-tracking": "PO Tracking",
   "sku-data": "SKU Level Data",
   "dispatch-planning": "Dispatch Planning",
-  "shipment-tracking": "Shipment Tracking",
   "payment-dashboard": "Payment Dashboard",
   "manage-access": "Manage Access",
   "rate-finder": "Rate Finder",
@@ -107,22 +102,32 @@ const vendorOptions = computed(() => {
 });
 const { filters: skuFilters, filteredSorted: skuFilteredSorted } = useSkuFilters(skuRows, vendorLabel);
 
-// One row per po_items row with BOTH estimate fields filled in -- a SKU
-// only ever appears here once the vendor (or internal staff, on their
-// behalf) has actually saved a value for each, via PoDetailModal.vue.
-const dispatchPlanningRows = computed(() => {
+// Dispatch Planning shows the whole lifecycle of a SKU's dispatch, as one
+// combined list (Kalrav's explicit call -- no separate "Shipment Tracking"
+// section): rows still awaiting an estimate/dispatch (kind: "pending", one
+// per po_items row with both estimate fields set) PLUS every already-
+// confirmed shipment (kind: "shipped", one per po_item_shipments row, with
+// its live Bluedart status attached) -- so entering an AWB and clicking
+// "Dispatched" makes tracking info appear right here automatically, same
+// table, no navigation required.
+const pendingDispatchRows = computed(() => {
   const rows = [];
   for (const items of Object.values(poItemsByPo.value)) {
     for (const it of items) {
-      if (it.estimated_dispatch_date != null && it.estimated_dispatch_qty != null) rows.push(it);
+      if (it.estimated_dispatch_date != null && it.estimated_dispatch_qty != null) rows.push({ kind: "pending", ...it });
     }
   }
   return rows;
 });
-const { filters: dispatchFilters, filteredSorted: dispatchFilteredSorted } = useDispatchPlanningFilters(dispatchPlanningRows, vendorLabel);
 
-const { rows: shipmentTrackingRows } = useShipmentTracking();
-const { filters: shipmentTrackingFilters, filteredSorted: shipmentTrackingFilteredSorted } = useShipmentTrackingFilters(shipmentTrackingRows, vendorLabel);
+const { rows: shipmentRows } = useShipmentTracking();
+const shippedDispatchRows = computed(() => shipmentRows.value.map((s) => {
+  const item = (poItemsByPo.value[s.po_code] || []).find((it) => it.item_sku === s.item_sku);
+  return { kind: "shipped", ...s, item_name: item?.item_name };
+}));
+
+const dispatchPlanningRows = computed(() => [...pendingDispatchRows.value, ...shippedDispatchRows.value]);
+const { filters: dispatchFilters, filteredSorted: dispatchFilteredSorted } = useDispatchPlanningFilters(dispatchPlanningRows, vendorLabel);
 
 const { allUploads, fetchAllUploads } = useInvoiceUploads();
 const { filters: paymentFilters, filteredSorted: paymentFilteredSorted, reconciliationOptions } = usePaymentFilters(allUploads, vendorLabel);
@@ -229,8 +234,7 @@ async function signOut() {
             <div class="scope">
               <template v-if="activeNav === 'po-tracking'">{{ scopeLine }}</template>
               <template v-else-if="activeNav === 'sku-data'">SKUs with at least one open purchase order not yet fully supplied, highest pending quantity first, across all vendors. Click a SKU for the PO-level breakdown.</template>
-              <template v-else-if="activeNav === 'dispatch-planning'">Estimated dispatch date and quantity per SKU, across all vendors, once entered on the PO. Click a PO to see its details.</template>
-              <template v-else-if="activeNav === 'shipment-tracking'">Live Bluedart status for every dispatched shipment, across all vendors. Refreshes automatically as Bluedart updates.</template>
+              <template v-else-if="activeNav === 'dispatch-planning'">Estimated dispatch date and quantity per SKU awaiting dispatch, plus live Bluedart status for every shipment already confirmed -- across all vendors. Click a PO to see its details.</template>
               <template v-else-if="activeNav === 'payment-dashboard'">Every invoice uploaded across all vendors, with its reconciliation and payment status. Click a PO to see its details.</template>
               <template v-else-if="activeNav === 'manage-access'">Create and manage every login on the portal -- vendors and internal Management/Operations/Finance access alike.</template>
               <template v-else-if="activeNav === 'rate-finder'">Find the cheapest vendor for a lane, and send them the shipment intent on WhatsApp.</template>
@@ -266,14 +270,6 @@ async function signOut() {
             :vendor-options="vendorOptions" :vendor-label="vendorLabel"
             :on-open-po="openPoDetailModal"
             :allow-confirm-dispatch="true" :on-dispatched="refreshPos"
-          />
-        </div>
-
-        <div v-if="canSeeShipmentTracking" v-show="activeNav === 'shipment-tracking'">
-          <ShipmentTrackingTable
-            :rows="shipmentTrackingFilteredSorted" :filters="shipmentTrackingFilters"
-            :vendor-options="vendorOptions" :vendor-label="vendorLabel"
-            :on-open-po="openPoDetailModal"
           />
         </div>
 

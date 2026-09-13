@@ -1,11 +1,13 @@
 <script setup>
 import { reactive, ref, computed } from "vue";
 import { supabase } from "../supabaseClient.js";
-import { fmtNum, fmtDateOnly } from "../format.js";
+import { fmtNum, fmtDateOnly, fmtDate } from "../format.js";
 import SummaryKpis from "./SummaryKpis.vue";
+import BluedartStatusChip from "./BluedartStatusChip.vue";
 
 const props = defineProps({
-  rows: { type: Array, required: true },        // already filtered -- one row per po_items row with both estimate fields set
+  rows: { type: Array, required: true },        // mix of kind: "pending" (po_items row, awaiting dispatch) and
+                                                  // kind: "shipped" (po_item_shipments row, with .tracking attached)
   filters: { type: Object, required: true },     // reactive filter state, mutated directly (v-model)
   vendorOptions: { type: Array, default: null }, // [{code, label}] -- null hides the Vendor column entirely
   vendorLabel: { type: Function, default: null }, // (code) => string -- required when vendorOptions is set
@@ -17,30 +19,40 @@ const props = defineProps({
 // "Dispatched" -- confirm_dispatched() logs the shipment (with its AWB)
 // then either clears the estimate + queues a fresh vendor notification
 // (still pending) or leaves it locked (fully dispatched) -- see
-// schema.sql. Either way this row drops off the list once poItemsByPo
-// re-fetches (immediately via onDispatched, or within the next 60s poll
-// regardless).
+// schema.sql. Either way the row that was "pending" drops off (or its
+// estimate resets) once poItemsByPo re-fetches (immediately via
+// onDispatched, or within the next 60s poll), and the new "shipped" row
+// (with its AWB and, shortly after, live Bluedart status) appears in the
+// same table automatically once shipmentRows re-fetches too.
 const awbInputs = reactive({});  // "po|sku" -> typed AWB/Tracking ID, mandatory
 const rowErrors = reactive({});  // "po|sku" -> error message
 const workingKey = ref(null);
 
-function keyFor(row) { return row.po_code + "|" + row.item_sku; }
+function keyFor(row) {
+  return row.kind === "shipped" ? `shipped|${row.id}` : `pending|${row.po_code}|${row.item_sku}`;
+}
 
 // A dispatch plan is "overdue" once its own promised date has passed
 // without Operations having confirmed it -- date-only comparison (a plan
-// due today isn't overdue yet).
+// due today isn't overdue yet). Only meaningful for still-pending rows.
 const todayStart = new Date(new Date().toDateString());
 function isOverdue(row) {
-  return !!row.estimated_dispatch_date && new Date(row.estimated_dispatch_date) < todayStart;
+  return row.kind === "pending" && !!row.estimated_dispatch_date && new Date(row.estimated_dispatch_date) < todayStart;
 }
 
 const kpiTiles = computed(() => {
-  const overdue = props.rows.filter(isOverdue).length;
-  const totalQty = props.rows.reduce((s, r) => s + (Number(r.estimated_dispatch_qty) || 0), 0);
+  const pending = props.rows.filter((r) => r.kind === "pending");
+  const shipped = props.rows.filter((r) => r.kind === "shipped");
+  const overdue = pending.filter(isOverdue).length;
+  const inTransit = shipped.filter((r) => r.tracking?.status_type === "IT").length;
+  const delivered = shipped.filter((r) => r.tracking?.status_type === "DL").length;
+  const exceptions = shipped.filter((r) => ["UD", "RT"].includes(r.tracking?.status_type)).length;
   return [
-    { label: "Awaiting dispatch", value: props.rows.length },
+    { label: "Awaiting dispatch", value: pending.length },
     { label: "Overdue", value: overdue, cls: overdue > 0 ? "critical" : "" },
-    { label: "Qty awaiting dispatch", value: fmtNum(totalQty) },
+    { label: "In transit", value: inTransit },
+    { label: "Delivered", value: delivered },
+    { label: "Exceptions", value: exceptions, cls: exceptions > 0 ? "critical" : "" },
   ];
 });
 
@@ -71,7 +83,7 @@ async function handleConfirmDispatch(row) {
   <SummaryKpis :tiles="kpiTiles" />
 
   <div class="field" style="max-width: 340px; margin-bottom: 14px;">
-    <label for="dispatch-top-search">Search{{ vendorOptions ? " vendor," : "" }} PO code, SKU…</label>
+    <label for="dispatch-top-search">Search{{ vendorOptions ? " vendor," : "" }} PO code, SKU, AWB…</label>
     <input id="dispatch-top-search" v-model="filters.search" type="text" placeholder="Type to search…">
   </div>
 
@@ -81,8 +93,8 @@ async function handleConfirmDispatch(row) {
         <tr>
           <th v-if="vendorOptions">Vendor</th>
           <th>PO code</th><th>SKU</th><th>Item</th>
-          <th class="num">Est. dispatch qty</th><th>Est. dispatch date</th>
-          <th v-if="allowConfirmDispatch">AWB / Tracking ID</th>
+          <th class="num">Qty</th><th>Dispatch date</th>
+          <th>AWB / Tracking ID</th><th>Status</th><th>Route</th><th>Expected delivery</th><th>Last scan</th>
           <th v-if="allowConfirmDispatch"></th>
         </tr>
         <tr class="filter-row">
@@ -97,29 +109,64 @@ async function handleConfirmDispatch(row) {
           <td><input v-model="filters.item" type="text" placeholder="Filter…"></td>
           <td><input v-model="filters.qty" type="text" placeholder="Filter…"></td>
           <td><input v-model="filters.dispatchDate" type="text" placeholder="Filter…"></td>
-          <td v-if="allowConfirmDispatch"></td>
+          <td><input v-model="filters.awb" type="text" placeholder="Filter…"></td>
+          <td>
+            <select v-model="filters.status">
+              <option value="">All</option>
+              <option value="IT">In transit</option>
+              <option value="DL">Delivered</option>
+              <option value="UD">Undelivered</option>
+              <option value="RT">RTO</option>
+              <option value="RL">Redirected</option>
+            </select>
+          </td>
+          <td></td><td></td><td></td>
           <td v-if="allowConfirmDispatch"></td>
         </tr>
       </thead>
       <tbody>
         <tr v-if="!rows.length">
-          <td :colspan="(vendorOptions ? 6 : 5) + (allowConfirmDispatch ? 2 : 0)" class="empty-state">No dispatch plans yet -- these appear once a vendor fills in an estimated dispatch date and quantity for a SKU.</td>
+          <td :colspan="(vendorOptions ? 11 : 10) + (allowConfirmDispatch ? 1 : 0)" class="empty-state">Nothing here yet -- rows appear once a vendor fills in an estimated dispatch date and quantity for a SKU, and stay once dispatched with their live shipment status.</td>
         </tr>
-        <tr v-for="row in rows" :key="row.po_code + '|' + row.item_sku">
+        <tr v-for="row in rows" :key="keyFor(row)">
           <td v-if="vendorOptions">{{ vendorLabel(row.vendor_code) }}</td>
           <td class="mono"><button class="link-btn-inline" @click="onOpenPo(row.po_code)">{{ row.po_code }}</button></td>
           <td class="mono">{{ row.item_sku }}</td>
           <td>{{ row.item_name || "–" }}</td>
-          <td class="num mono">{{ fmtNum(row.estimated_dispatch_qty) }}</td>
-          <td class="mono">{{ fmtDateOnly(row.estimated_dispatch_date) }}</td>
-          <td v-if="allowConfirmDispatch">
+          <td class="num mono">{{ fmtNum(row.kind === "shipped" ? row.dispatched_qty : row.estimated_dispatch_qty) }}</td>
+          <td class="mono">{{ fmtDateOnly(row.kind === "shipped" ? row.dispatched_date : row.estimated_dispatch_date) }}</td>
+
+          <td v-if="row.kind === 'shipped'" class="mono">{{ row.awb_number }}</td>
+          <td v-else-if="allowConfirmDispatch">
             <input v-model="awbInputs[keyFor(row)]" type="text" placeholder="Required" style="width: 140px;">
           </td>
+          <td v-else class="cell-empty">–</td>
+
+          <td v-if="row.kind === 'shipped'"><BluedartStatusChip :status-type="row.tracking?.status_type" /></td>
+          <td v-else class="cell-empty">Awaiting dispatch</td>
+
+          <td v-if="row.kind === 'shipped'">{{ row.tracking ? `${row.tracking.origin || "–"} → ${row.tracking.destination || "–"}` : "–" }}</td>
+          <td v-else class="cell-empty">–</td>
+
+          <td v-if="row.kind === 'shipped'" class="mono">{{ row.tracking?.expected_delivery_date ? fmtDateOnly(row.tracking.expected_delivery_date) : "–" }}</td>
+          <td v-else class="cell-empty">–</td>
+
+          <td v-if="row.kind === 'shipped'">
+            <template v-if="row.tracking?.last_scan_text">
+              {{ row.tracking.last_scan_text }}<br>
+              <span class="muted-text">{{ row.tracking.last_scan_location }} · {{ fmtDate(row.tracking.last_scan_at) }}</span>
+            </template>
+            <template v-else>–</template>
+          </td>
+          <td v-else class="cell-empty">–</td>
+
           <td v-if="allowConfirmDispatch">
-            <button class="link-btn-inline" :disabled="workingKey === keyFor(row)" @click="handleConfirmDispatch(row)">
-              {{ workingKey === keyFor(row) ? "Working…" : "Dispatched" }}
-            </button>
-            <div v-if="rowErrors[keyFor(row)]" class="form-error" style="margin: 4px 0 0; font-size: 0.72rem;">{{ rowErrors[keyFor(row)] }}</div>
+            <template v-if="row.kind === 'pending'">
+              <button class="link-btn-inline" :disabled="workingKey === keyFor(row)" @click="handleConfirmDispatch(row)">
+                {{ workingKey === keyFor(row) ? "Working…" : "Dispatched" }}
+              </button>
+              <div v-if="rowErrors[keyFor(row)]" class="form-error" style="margin: 4px 0 0; font-size: 0.72rem;">{{ rowErrors[keyFor(row)] }}</div>
+            </template>
           </td>
         </tr>
       </tbody>
