@@ -808,3 +808,318 @@ create policy vendor_contacts_select on public.vendor_contacts
 update public.purchase_orders
 set vendor_name = 'LEXCRU WATER TECH PVT LTD'
 where vendor_code = 'Vendor-156' and vendor_name is null;
+
+-- =======================================================================
+-- S&OP section — live replica of the /sop-master Claude Code dashboard's
+-- 6 tabs (Inventory Overview, Sales: Plan vs Actual, Day-on-Day Sales,
+-- Production Plan, PO Fulfillment, Channel Dispatch Plan), fed by scheduled
+-- GitHub Actions Python scripts (scripts/sync_sop_*.py — same
+-- service-account-JWT-into-Sheets-API pattern as sync_mm_rate_card.py, no
+-- Uniware/Jarvis dependency anywhere) instead of a one-shot agent run.
+--
+-- Every table below is read-only for the app: is_internal_staff()-gated
+-- SELECT only, no INSERT/UPDATE/DELETE policy for authenticated/anon —
+-- writes are service_role-only via the sync scripts, same convention as
+-- mm_rate_card above. Vendors never see any of this (no vendor_code
+-- scoping needed — there's nothing vendor-specific in S&OP data).
+--
+-- Visibility (frontend concern, not RLS — see AdminApp.vue's canSeeSop):
+-- admin / management / operations only, same roles as PO Tracking / SKU
+-- Level Data. Finance and vendors excluded.
+-- =======================================================================
+
+-- ---------------------------------------------------------------------
+-- sop_inventory_channel — Inventory Overview tab, channel x SKU matrix.
+-- Synced from WH-Channel-SKU's "Current Inventory" tab by
+-- scripts/sync_sop_inventory.py. 10 channel buckets (see
+-- INVENTORY_CHANNEL_MAP in that script), 6 SKUs.
+-- ---------------------------------------------------------------------
+create table if not exists public.sop_inventory_channel (
+  id bigserial primary key,
+  channel text not null,
+  sku text not null,
+  qty numeric not null default 0,
+  synced_at timestamptz not null default now(),
+  unique (channel, sku)
+);
+
+alter table public.sop_inventory_channel enable row level security;
+
+drop policy if exists sop_inventory_channel_select on public.sop_inventory_channel;
+create policy sop_inventory_channel_select on public.sop_inventory_channel
+  for select
+  using (public.is_internal_staff());
+
+-- ---------------------------------------------------------------------
+-- sop_inventory_uc_warehouse — Inventory Overview tab, UC APP warehouse
+-- view (on-hand from WH-Channel-SKU's "Current Inventory" tab's "UC App -
+-- RO" block, per-city; in-transit from Copy Daily Input Anish's "Dispatch
+-- Planning" tab's "Intransit Inventory" block). combined is a generated
+-- column so the sync script only ever writes on_hand/in_transit.
+-- ---------------------------------------------------------------------
+create table if not exists public.sop_inventory_uc_warehouse (
+  id bigserial primary key,
+  warehouse text not null,
+  sku text not null,
+  on_hand numeric not null default 0,
+  in_transit numeric not null default 0,
+  combined numeric generated always as (on_hand + in_transit) stored,
+  synced_at timestamptz not null default now(),
+  unique (warehouse, sku)
+);
+
+alter table public.sop_inventory_uc_warehouse enable row level security;
+
+drop policy if exists sop_inventory_uc_warehouse_select on public.sop_inventory_uc_warehouse;
+create policy sop_inventory_uc_warehouse_select on public.sop_inventory_uc_warehouse
+  for select
+  using (public.is_internal_staff());
+
+-- ---------------------------------------------------------------------
+-- sop_sales_plan_actual — Sales: Plan vs Actual tab, current month,
+-- channel x SKU. Synced from WH-Channel-SKU's "Dashboard" tab (projection,
+-- derived from Sale plan x Channel Split) and "actual sales" tab's Q:S
+-- block (actuals) by scripts/sync_sop_sales.py.
+--
+-- 'Others' channel rows always have projection = 0 (no Dashboard-tab
+-- counterpart) -- the frontend renders this as a footnote, never silently
+-- merges it into MT or drops it.
+-- ---------------------------------------------------------------------
+create table if not exists public.sop_sales_plan_actual (
+  id bigserial primary key,
+  month_start date not null,
+  channel text not null,
+  sku text not null,
+  projection numeric not null default 0,
+  actual numeric not null default 0,
+  gap numeric generated always as (actual - projection) stored,
+  synced_at timestamptz not null default now(),
+  unique (month_start, channel, sku)
+);
+
+alter table public.sop_sales_plan_actual enable row level security;
+
+drop policy if exists sop_sales_plan_actual_select on public.sop_sales_plan_actual;
+create policy sop_sales_plan_actual_select on public.sop_sales_plan_actual
+  for select
+  using (public.is_internal_staff());
+
+-- ---------------------------------------------------------------------
+-- sop_daily_sales — Day-on-Day Sales tab. One row per (date, series, dim).
+-- `series` selects which of the 6 daily blocks in the "actual sales" tab
+-- the row came from; `dim` is a SKU code for every series except
+-- 'by_channel', where it's a channel name.
+-- ---------------------------------------------------------------------
+create table if not exists public.sop_daily_sales (
+  id bigserial primary key,
+  sale_date date not null,
+  series text not null,   -- 'by_sku' | 'by_channel' | 'by_sku_uc' | 'by_sku_amazon' |
+                           -- 'by_sku_flipkart' | 'by_sku_mt'
+  dim text not null,
+  qty numeric not null default 0,
+  synced_at timestamptz not null default now(),
+  unique (sale_date, series, dim)
+);
+
+alter table public.sop_daily_sales enable row level security;
+
+drop policy if exists sop_daily_sales_select on public.sop_daily_sales;
+create policy sop_daily_sales_select on public.sop_daily_sales
+  for select
+  using (public.is_internal_staff());
+
+-- ---------------------------------------------------------------------
+-- sop_production_daily — Production Plan tab, live view. One row per
+-- (date, sku, facility). Only 'COMBINED' ever has a non-null planned_qty
+-- -- no per-facility split exists for PLANNED production in the source
+-- sheet (a real limitation, not a bug -- see production_plan_snapshots
+-- below for how the portal actually solves the "planned gets silently
+-- overwritten by actual" problem instead of just reading this table's
+-- live planned_qty for past dates).
+-- ---------------------------------------------------------------------
+create table if not exists public.sop_production_daily (
+  id bigserial primary key,
+  prod_date date not null,
+  sku text not null,
+  facility text not null,   -- 'COMBINED' | 'RONCH' | 'AMBER'
+  planned_qty numeric,
+  actual_qty numeric,
+  synced_at timestamptz not null default now(),
+  unique (prod_date, sku, facility)
+);
+
+alter table public.sop_production_daily enable row level security;
+
+drop policy if exists sop_production_daily_select on public.sop_production_daily;
+create policy sop_production_daily_select on public.sop_production_daily
+  for select
+  using (public.is_internal_staff());
+
+-- ---------------------------------------------------------------------
+-- production_plan_snapshots — frozen daily snapshot of planned production,
+-- captured once a day (~09:55 AM IST, before that day's own Actual
+-- Production cell can flip from a placeholder plan value to the true
+-- actual -- a documented, real sheet behavior, not a bug we're working
+-- around defensively for no reason) by
+-- scripts/sync_sop_production_snapshot.py. Write-once: the sync script
+-- always upserts with ON CONFLICT DO NOTHING, so a captured snapshot is
+-- frozen forever even on an accidental re-run for the same date.
+-- ---------------------------------------------------------------------
+create table if not exists public.production_plan_snapshots (
+  id bigserial primary key,
+  snapshot_date date not null,
+  sku text not null,
+  facility text not null,   -- 'COMBINED' | 'RONCH' | 'AMBER'
+  planned_qty numeric not null,
+  captured_at timestamptz not null default now(),
+  unique (snapshot_date, sku, facility)
+);
+
+alter table public.production_plan_snapshots enable row level security;
+
+drop policy if exists production_plan_snapshots_select on public.production_plan_snapshots;
+create policy production_plan_snapshots_select on public.production_plan_snapshots
+  for select
+  using (public.is_internal_staff());
+
+-- ---------------------------------------------------------------------
+-- PO Fulfillment + Channel Dispatch Plan tabs. Both are wholesale-
+-- replaced per run_date by their sync scripts (delete then insert, not
+-- upsert) -- unlike the fixed-shape tables above, these tables' row
+-- COUNT varies run to run (PO volume, number of RESCHEDULE/PARTIAL
+-- groups, etc.), so upsert's stable-key assumption doesn't hold.
+-- ---------------------------------------------------------------------
+
+-- sop_po_fulfillment_daily — date-wise PO fulfillment status, one row per
+-- individual PO line per simulated day within the rolling 10-day window.
+create table if not exists public.sop_po_fulfillment_daily (
+  id bigserial primary key,
+  run_date date not null,
+  sim_date date not null,
+  po_number text,
+  warehouse text not null,
+  channel text not null,       -- includes 'Amazon (Primarc)', kept distinct from 'Amazon'
+  sku text not null,
+  po_qty numeric not null,
+  status text not null,        -- CONFIRMED | FULFILL | TRANSIT-FULFILL | PARTIAL/NEEDS IN-TRANSIT | RESCHEDULE
+  detail text,
+  synced_at timestamptz not null default now()
+);
+create index if not exists idx_sop_po_fulfillment_run on public.sop_po_fulfillment_daily(run_date);
+
+alter table public.sop_po_fulfillment_daily enable row level security;
+drop policy if exists sop_po_fulfillment_daily_select on public.sop_po_fulfillment_daily;
+create policy sop_po_fulfillment_daily_select on public.sop_po_fulfillment_daily
+  for select
+  using (public.is_internal_staff());
+
+-- sop_po_action_items — RESCHEDULE/PARTIAL rows grouped by SKU across the whole window.
+create table if not exists public.sop_po_action_items (
+  id bigserial primary key,
+  run_date date not null,
+  bucket text not null,        -- RESCHEDULE | PARTIAL
+  sku text not null,
+  total_qty numeric not null,
+  note text,
+  synced_at timestamptz not null default now()
+);
+
+alter table public.sop_po_action_items enable row level security;
+drop policy if exists sop_po_action_items_select on public.sop_po_action_items;
+create policy sop_po_action_items_select on public.sop_po_action_items
+  for select
+  using (public.is_internal_staff());
+
+-- sop_po_shortfall_rca — production-shortfall RCA per SKU, trailing 14 days (today excluded),
+-- against production_plan_snapshots. outcome stays 3-way distinguishable -- never collapse
+-- NO_SHORTFALL_LIKELY_PO_VOLUME and UNAVAILABLE into one meaning.
+create table if not exists public.sop_po_shortfall_rca (
+  id bigserial primary key,
+  run_date date not null,
+  sku text not null,
+  outcome text not null,       -- SHORTFALL_DATES_FOUND | NO_SHORTFALL_LIKELY_PO_VOLUME | UNAVAILABLE
+  detail_dates jsonb,
+  note text,
+  synced_at timestamptz not null default now()
+);
+
+alter table public.sop_po_shortfall_rca enable row level security;
+drop policy if exists sop_po_shortfall_rca_select on public.sop_po_shortfall_rca;
+create policy sop_po_shortfall_rca_select on public.sop_po_shortfall_rca
+  for select
+  using (public.is_internal_staff());
+
+-- sop_dispatch_plan — one row per (run_date, view_key, scope_type, scope, sku, doi_target).
+-- scope_type='WAREHOUSE' rows are computed FIRST by the sync script and independently clamped;
+-- scope_type='CHANNEL' scope='UC App + PLS' rows are the SUM of those 5 already-clamped warehouse
+-- rows, never a separately-computed pooled figure -- see sync_sop_dispatch_plan.py's docstring.
+create table if not exists public.sop_dispatch_plan (
+  id bigserial primary key,
+  run_date date not null,
+  view_key text not null,           -- '+7' | '+15' | '+21' | '+30' | '+45' | '+60' | '+90' | 'PINNED'
+  scope_type text not null,         -- CHANNEL | WAREHOUSE
+  scope text not null,
+  sku text not null,
+  doi_target int not null,          -- 30 | 15 | 7 | 0
+  on_hand numeric,
+  po_out numeric,
+  sales_expected numeric,
+  projected_closing numeric,
+  target_closing numeric,
+  required_dispatch numeric,
+  status text,
+  projected_doi numeric,             -- null when projected_doi_flag is set
+  projected_doi_flag text,           -- null | 'INSUFFICIENT_DATA'
+  synced_at timestamptz not null default now()
+);
+create index if not exists idx_sop_dispatch_plan_run_view on public.sop_dispatch_plan(run_date, view_key);
+
+alter table public.sop_dispatch_plan enable row level security;
+drop policy if exists sop_dispatch_plan_select on public.sop_dispatch_plan;
+create policy sop_dispatch_plan_select on public.sop_dispatch_plan
+  for select
+  using (public.is_internal_staff());
+
+-- sop_dispatch_production_check — one row per (run_date, view_key, sku): planned production vs
+-- total required dispatch over the production lead-time window.
+create table if not exists public.sop_dispatch_production_check (
+  id bigserial primary key,
+  run_date date not null,
+  view_key text not null,
+  sku text not null,
+  production_planned numeric,
+  required numeric,
+  gap numeric,
+  status text,                       -- SHORTFALL | ON TRACK | N/A
+  synced_at timestamptz not null default now()
+);
+
+alter table public.sop_dispatch_production_check enable row level security;
+drop policy if exists sop_dispatch_production_check_select on public.sop_dispatch_production_check;
+create policy sop_dispatch_production_check_select on public.sop_dispatch_production_check
+  for select
+  using (public.is_internal_staff());
+
+-- sop_dispatch_pinned_date — singleton row holding the Channel Dispatch Plan's one pinned target
+-- date (moves periodically, e.g. around a sale event). Updated manually via SQL when it needs to
+-- move -- no write policy for authenticated/anon at all, not even the usual service-role-only
+-- pattern's implicit "the sync script could write this too": the sync script only ever READS it.
+create table if not exists public.sop_dispatch_pinned_date (
+  id bigserial primary key check (id = 1),
+  pinned_date date not null,
+  updated_at timestamptz not null default now()
+);
+
+alter table public.sop_dispatch_pinned_date enable row level security;
+drop policy if exists sop_dispatch_pinned_date_select on public.sop_dispatch_pinned_date;
+create policy sop_dispatch_pinned_date_select on public.sop_dispatch_pinned_date
+  for select
+  using (public.is_internal_staff());
+
+-- ---------------------------------------------------------------------
+-- Bootstrap the pinned dispatch date (required once -- the sync script skips the pinned view with
+-- a warning if this row doesn't exist yet). Update the date here any time the business moves it;
+-- re-running this exact statement is a no-op once the row already exists with the same id.
+--   insert into public.sop_dispatch_pinned_date (id, pinned_date) values (1, '2026-09-24')
+--   on conflict (id) do update set pinned_date = excluded.pinned_date, updated_at = now();
+-- ---------------------------------------------------------------------

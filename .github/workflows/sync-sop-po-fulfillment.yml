@@ -1,0 +1,40 @@
+name: Sync S&OP PO fulfillment to Supabase
+
+# Every 1-2 hours during business hours IST (04:00-18:00 UTC) --
+# operational alerting-style view, PO/inventory data changes through the
+# day. Triggered by sync-sop-production-snapshot's completion for the
+# first run of the day (rather than an independent cron), so the
+# shortfall RCA step always has today's snapshot available; workflow_run
+# only fires on a push-triggered schedule run, so schedule below covers
+# the rest of the day. workflow_dispatch for an immediate manual run.
+on:
+  schedule:
+    - cron: '0 4-18/2 * * *'
+  workflow_run:
+    workflows: ["Sync S&OP production snapshot to Supabase"]
+    types: [completed]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name != 'workflow_run' ||
+      github.event.workflow_run.conclusion == 'success'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - run: pip install -r requirements.txt
+
+      - run: python scripts/sync_sop_po_fulfillment.py
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

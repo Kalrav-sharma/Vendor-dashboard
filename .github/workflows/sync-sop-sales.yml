@@ -1,0 +1,31 @@
+name: Sync S&OP sales to Supabase
+
+# Every 2 hours during business hours IST (04:00-18:00 UTC = 09:30 AM-11:30
+# PM IST) -- the "actual sales" tab's own freshness depends on a separate
+# existing actual-sales-sync job, so there's no value polling faster than
+# that job updates -- plus workflow_dispatch for an immediate manual run.
+on:
+  schedule:
+    - cron: '0 4-18/2 * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - run: pip install -r requirements.txt
+
+      - run: python scripts/sync_sop_sales.py
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

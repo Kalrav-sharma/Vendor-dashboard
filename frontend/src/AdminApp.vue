@@ -19,6 +19,7 @@ import DispatchPlanningTable from "./components/DispatchPlanningTable.vue";
 import PaymentDashboardTable from "./components/PaymentDashboardTable.vue";
 import ManageAccess from "./components/ManageAccess.vue";
 import RateFinder from "./components/RateFinder.vue";
+import SopSection from "./components/sop/SopSection.vue";
 import AppModal from "./components/AppModal.vue";
 import PoDetailModal from "./components/PoDetailModal.vue";
 import SkuDetailModal from "./components/SkuDetailModal.vue";
@@ -45,6 +46,7 @@ const canSeeDispatchPlanning = computed(() => ["admin", "management", "operation
 const canSeePaymentDashboard = computed(() => ["admin", "management", "finance"].includes(myRole.value));
 const canSeeManageAccess = computed(() => myRole.value === "admin"); // admin only -- Kalrav's explicit call
 const canSeeRateFinder = computed(() => ["admin", "management", "operations"].includes(myRole.value));
+const canSeeSop = computed(() => ["admin", "management", "operations"].includes(myRole.value));
 
 // Approved by Kalrav after testing -- now a normal visible tab for
 // admin/management/operations, same as everything else.
@@ -65,6 +67,7 @@ const navItems = computed(() => {
   if (canSeePaymentDashboard.value) items.push({ id: "payment-dashboard", label: "Payment Dashboard" });
   if (canSeeManageAccess.value) items.push({ id: "manage-access", label: "Manage Access" });
   if (RATE_FINDER_LIVE && canSeeRateFinder.value) items.push({ id: "rate-finder", label: "Rate Finder" });
+  if (canSeeSop.value) items.push({ id: "sop", label: "S&OP" });
   return items;
 });
 
@@ -76,6 +79,7 @@ const pageTitle = computed(() => ({
   "payment-dashboard": "Payment Dashboard",
   "manage-access": "Manage Access",
   "rate-finder": "Rate Finder",
+  "sop": "S&OP",
 }[activeNav.value]));
 
 const { currentPos, grnsByPo, poItemsByPo, grnItemsByPoSku, grnByCode, lastUpdated, invoicesForItem, refresh: refreshPos } = usePurchaseOrders();
@@ -220,6 +224,7 @@ async function signOut() {
               <template v-else-if="activeNav === 'payment-dashboard'">Every invoice uploaded across all vendors, with its reconciliation and payment status. Click a PO to see its details.</template>
               <template v-else-if="activeNav === 'manage-access'">Create and manage every login on the portal -- vendors and internal Management/Operations/Finance access alike.</template>
               <template v-else-if="activeNav === 'rate-finder'">Find the cheapest vendor for a lane, and send them the shipment intent on WhatsApp.</template>
+              <template v-else-if="activeNav === 'sop'">Sales & Operations Planning -- inventory, sales, production, and dispatch across the network.</template>
             </div>
           </div>
           <div class="who">
@@ -273,6 +278,10 @@ async function signOut() {
 
         <div v-if="canSeeRateFinder" v-show="activeNav === 'rate-finder'">
           <RateFinder />
+        </div>
+
+        <div v-if="canSeeSop" v-show="activeNav === 'sop'">
+          <SopSection />
         </div>
 
         <footer class="page-foot">Data refreshes automatically every ~5 minutes from Uniware. {{ lastCheckedText }}</footer>
