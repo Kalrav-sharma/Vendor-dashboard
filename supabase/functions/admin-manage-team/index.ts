@@ -22,11 +22,15 @@
 // automatically attaches the calling admin's session JWT.
 //
 // Actions (body.action, defaults to "create" for backward compatibility):
-//   - create:  { email, display_name, role } -- role must be one of
-//     'management' | 'operations' | 'finance' | 'admin' (never 'vendor' --
-//     see admin-create-vendor for that). Kalrav's explicit call: directly
-//     creating a brand-new login AS admin should be possible from the
-//     console, not just promoting an existing one via admin-change-access.
+//   - create:  { email, display_name, role, contact_name?, contact_mobile? }
+//     -- role must be one of 'management' | 'operations' | 'finance' |
+//     'admin' (never 'vendor' -- see admin-create-vendor for that).
+//     Kalrav's explicit call: directly creating a brand-new login AS admin
+//     should be possible from the console, not just promoting an existing
+//     one via admin-change-access. contact_name/contact_mobile are
+//     OPTIONAL here (unlike admin-create-vendor, where they're required)
+//     -- every access type can carry a contact person's name/number, same
+//     shape as a vendor, just not mandatory for internal staff.
 //     Creates the auth user (password always DEFAULT_TEMP_PASSWORD below,
 //     same constant as admin-create-vendor's -- keep the two in sync if
 //     this ever changes) + profiles row with must_change_password=true,
@@ -128,7 +132,7 @@ Deno.serve(async (req) => {
 const DEFAULT_TEMP_PASSWORD = "Native@01";
 
 async function handleCreate(adminClient: ReturnType<typeof createClient>, body: any) {
-  const { email, display_name, role } = body ?? {};
+  const { email, display_name, role, contact_name, contact_mobile } = body ?? {};
   if (!email || !role) {
     return json({ error: "email and role are required" }, 400);
   }
@@ -150,6 +154,12 @@ async function handleCreate(adminClient: ReturnType<typeof createClient>, body: 
     role,
     vendor_code: null,
     vendor_name: display_name ?? null,
+    // Optional for internal staff (unlike admin-create-vendor's vendor
+    // creation, where these are required) -- Kalrav's explicit call: every
+    // access type CAN carry a contact person's name/number, same shape as
+    // a vendor, just not mandatory here.
+    contact_name: contact_name || null,
+    contact_mobile: contact_mobile || null,
     email,
     must_change_password: true,
   });

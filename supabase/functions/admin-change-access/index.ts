@@ -15,16 +15,23 @@
 // can do a cross-role change like this. This function is the one place
 // that can move a login between ANY of the five roles.
 //
+// Also doubles as the general "edit details" save for an EXISTING login
+// (name + contact person's name/mobile) when new_role is passed as the
+// login's own current, unchanged role -- there's no separate endpoint for
+// that, since from this function's point of view it's the same update.
+//
 // body: { user_id, new_role, vendor_name?, vendor_code?, contact_name?, contact_mobile? }
 //   - new_role: 'vendor' | 'management' | 'operations' | 'finance' | 'admin'
 //   - Switching TO 'vendor' requires vendor_code, contact_name, contact_mobile
 //     (same as admin-create-vendor's own creation requirements) --
 //     vendor_name is optional, defaults to vendor_code.
-//   - Switching to any OTHER role clears vendor_code/contact_name/
-//     contact_mobile back to null (profiles.vendor_code must be null for
-//     every non-vendor role -- see schema.sql's own documented invariant)
-//     and optionally updates vendor_name (used as the generic display
-//     name for every role, not just vendors).
+//   - Every OTHER role keeps vendor_code null (profiles.vendor_code must
+//     be null for every non-vendor role -- see schema.sql's own documented
+//     invariant), but contact_name/contact_mobile are NOT vendor-exclusive
+//     -- Kalrav's explicit call: every access type can carry a contact
+//     person's name/number, same shape as a vendor, just optional instead
+//     of required. vendor_name (the generic display name for every role)
+//     is likewise always settable.
 //   - Refuses to let a caller change their OWN access level, so an admin
 //     can't accidentally lock themselves out via this endpoint.
 //
@@ -84,7 +91,11 @@ Deno.serve(async (req) => {
     if (!VALID_ROLES.has(new_role)) {
       return json({ error: `new_role must be one of: ${[...VALID_ROLES].join(", ")}` }, 400);
     }
-    if (user_id === user.id) {
+    // Self-edits are fine as long as the role itself isn't changing (e.g.
+    // updating your own name/contact info) -- only an actual self ROLE
+    // change is blocked, so an admin can't accidentally lock themselves
+    // out via this endpoint.
+    if (user_id === user.id && new_role !== callerProfile.role) {
       return json({ error: "You can't change your own access level here." }, 400);
     }
 
@@ -106,13 +117,15 @@ Deno.serve(async (req) => {
       update.contact_name = contact_name;
       update.contact_mobile = contact_mobile;
     } else {
-      // Every non-vendor role keeps vendor_code null (schema.sql's own
-      // documented invariant) -- clear whatever vendor-specific fields
-      // this login might have carried from before.
+      // vendor_code stays null for every non-vendor role (schema.sql's own
+      // documented invariant) -- but contact_name/contact_mobile are NOT
+      // vendor-exclusive, so pass through whatever was given (or clear
+      // explicitly if the caller sent an empty string) instead of forcing
+      // them null.
       update.vendor_code = null;
-      update.contact_name = null;
-      update.contact_mobile = null;
       if (vendor_name != null) update.vendor_name = vendor_name;
+      if (contact_name != null) update.contact_name = contact_name || null;
+      if (contact_mobile != null) update.contact_mobile = contact_mobile || null;
     }
 
     const { error: updateErr } = await adminClient.from("profiles").update(update).eq("id", user_id);
