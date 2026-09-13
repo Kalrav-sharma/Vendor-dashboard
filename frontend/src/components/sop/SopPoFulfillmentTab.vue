@@ -18,7 +18,7 @@ const STATUS_CHIP_CLASS = {
 };
 
 const { rows, actionItems, rca, runDate, loadError } = useSopPoFulfillmentData();
-const { filters, filteredSorted, warehouseOptions, channelOptions, skuOptions, statusOptions } =
+const { filters, filteredSorted, dateOptions, warehouseOptions, channelOptions, skuOptions, statusOptions } =
   useSopPoFulfillmentFilters(rows);
 
 function fmt(n) {
@@ -71,7 +71,11 @@ const RCA_OUTCOME_CLS = {
               <th class="num">PO Qty</th><th>Status & Detail</th>
             </tr>
             <tr class="filter-row">
-              <td></td>
+              <td>
+                <select v-model="filters.date"><option value="">All</option>
+                  <option v-for="d in dateOptions" :key="d" :value="d">{{ dateLabel(d) }}</option>
+                </select>
+              </td>
               <td><input v-model="filters.search" type="text" placeholder="Search..."></td>
               <td>
                 <select v-model="filters.warehouse"><option value="">All</option>

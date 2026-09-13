@@ -1,9 +1,16 @@
 <script setup>
-// S&OP > Channel Dispatch Plan -- 7 rolling horizons + 1 pinned calendar
-// date, each with a channel view and an independent warehouse view (see
-// sync_sop_dispatch_plan.py's docstring for the no-inter-warehouse-
-// netting invariant this data already respects), plus a Production Check
-// panel per DOI target.
+// S&OP > S&OP Planning (formerly labeled "Channel Dispatch Plan" in the sub-tab
+// strip) -- 7 rolling horizons + 1 pinned calendar date, each with a channel
+// view and an independent warehouse view (see sync_sop_dispatch_plan.py's
+// docstring for the no-inter-warehouse-netting invariant this data already
+// respects), plus a Production Check panel per DOI target.
+//
+// Redesigned 2026-09-13 (per Anish: the original two-always-visible-tables x
+// 3-stacked-sub-columns-per-SKU layout was too cluttered): a Scope toggle
+// (Channel/Warehouse) shows one table at a time, and a metric switcher
+// (Required Dispatch / Status / Projected DOI) shows one column per SKU
+// instead of three -- same underlying data, just one dimension displayed at
+// a time instead of all at once.
 import { ref, computed } from "vue";
 import { useSopDispatchPlanData } from "../../composables/useSopDispatchPlanData.js";
 
@@ -12,6 +19,12 @@ const CHANNELS = ["UC App + PLS", "Amazon", "Flipkart", "MT"];
 const WAREHOUSES = ["Bangalore", "Gurgaon", "Hyderabad", "Mumbai", "Kolkata"];
 const VIEW_KEYS = ["+7", "+15", "+21", "+30", "+45", "+60", "+90", "PINNED"];
 const DOI_TARGETS = [30, 15, 7, 0];
+const SCOPES = [{ key: "CHANNEL", label: "Channel" }, { key: "WAREHOUSE", label: "Warehouse" }];
+const METRICS = [
+  { key: "required_dispatch", label: "Required Dispatch" },
+  { key: "status", label: "Status" },
+  { key: "projected_doi", label: "Projected DOI" },
+];
 
 const STATUS_CHIP_CLASS = {
   "ON TRACK": "chip-good", "NEEDS DISPATCH": "chip-open", "ALREADY SHORT": "chip-critical",
@@ -22,6 +35,8 @@ const { planRows, productionCheckRows, runDate, loadError } = useSopDispatchPlan
 
 const activeView = ref("+30");
 const activeDoi = ref(30);
+const activeScope = ref("CHANNEL");
+const activeMetric = ref("required_dispatch");
 
 function fmt(n) {
   return n == null ? "–" : Math.round(n).toLocaleString("en-IN");
@@ -54,6 +69,8 @@ const warehouseTable = computed(() => {
     return { scope: wh, cells: SKUS.map(s => bySku[s]) };
   });
 });
+const activeTable = computed(() => activeScope.value === "CHANNEL" ? channelTable.value : warehouseTable.value);
+const scopeColumnLabel = computed(() => activeScope.value === "CHANNEL" ? "Channel" : "Warehouse");
 </script>
 
 <template>
@@ -70,49 +87,50 @@ const warehouseTable = computed(() => {
       Amazon/Flipkart/MT's Target Closing on this view is overridden by the Diwali Sales Plan tab's Opening Ask.
     </p>
 
-    <div class="panel-grid" style="grid-template-columns: repeat(4, auto); margin-bottom: 18px;">
-      <label v-for="d in DOI_TARGETS" :key="d" style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-        <input type="radio" :value="d" v-model="activeDoi"> {{ d }}-DOI target
-      </label>
+    <div class="panel" style="margin-bottom: 18px;">
+      <div style="display: flex; flex-wrap: wrap; gap: 28px;">
+        <div>
+          <div class="field-hint" style="margin: 0 0 6px;">Scope</div>
+          <div style="display: flex; gap: 14px;">
+            <label v-for="s in SCOPES" :key="s.key" style="display: flex; align-items: center; gap: 5px; cursor: pointer; font-size: 0.85rem;">
+              <input type="radio" :value="s.key" v-model="activeScope"> {{ s.label }}
+            </label>
+          </div>
+        </div>
+        <div>
+          <div class="field-hint" style="margin: 0 0 6px;">DOI target</div>
+          <div style="display: flex; gap: 14px;">
+            <label v-for="d in DOI_TARGETS" :key="d" style="display: flex; align-items: center; gap: 5px; cursor: pointer; font-size: 0.85rem;">
+              <input type="radio" :value="d" v-model="activeDoi"> {{ d }}
+            </label>
+          </div>
+        </div>
+        <div>
+          <div class="field-hint" style="margin: 0 0 6px;">Show</div>
+          <div style="display: flex; gap: 14px;">
+            <label v-for="m in METRICS" :key="m.key" style="display: flex; align-items: center; gap: 5px; cursor: pointer; font-size: 0.85rem;">
+              <input type="radio" :value="m.key" v-model="activeMetric"> {{ m.label }}
+            </label>
+          </div>
+        </div>
+      </div>
     </div>
 
-    <h3 style="font-size: 0.95rem; margin: 0 0 10px;">Channel view</h3>
     <div class="table-card" style="margin-bottom: 24px;"><div class="table-scroll">
       <table>
-        <thead><tr><th>Channel</th><th v-for="s in SKUS" :key="s" colspan="3" class="num">{{ s }}</th></tr>
-        <tr><th></th><template v-for="s in SKUS" :key="s+'sub'"><th class="num">Req. dispatch</th><th class="num">Status</th><th class="num">Proj. DOI</th></template></tr></thead>
+        <thead><tr><th>{{ scopeColumnLabel }}</th><th v-for="s in SKUS" :key="s" class="num">{{ s }}</th></tr></thead>
         <tbody>
-          <tr v-for="r in channelTable" :key="r.scope">
+          <tr v-for="r in activeTable" :key="r.scope">
             <td>{{ r.scope }}</td>
-            <template v-for="(c, i) in r.cells" :key="i">
-              <td class="num mono">{{ c ? fmt(c.required_dispatch) : "–" }}</td>
-              <td class="num"><span v-if="c" class="chip" :class="STATUS_CHIP_CLASS[c.status]">{{ c.status }}</span></td>
-              <td class="num mono">
-                <span v-if="c && c.projected_doi_flag === 'INSUFFICIENT_DATA'" class="chip chip-muted">insufficient data</span>
-                <template v-else-if="c">{{ fmtDoi(c) }}</template>
-              </td>
-            </template>
-          </tr>
-        </tbody>
-      </table>
-    </div></div>
-
-    <h3 style="font-size: 0.95rem; margin: 0 0 10px;">Warehouse view (UC App + PLS split by city)</h3>
-    <div class="table-card" style="margin-bottom: 24px;"><div class="table-scroll">
-      <table>
-        <thead><tr><th>Warehouse</th><th v-for="s in SKUS" :key="s" colspan="3" class="num">{{ s }}</th></tr>
-        <tr><th></th><template v-for="s in SKUS" :key="s+'sub'"><th class="num">Req. dispatch</th><th class="num">Status</th><th class="num">Proj. DOI</th></template></tr></thead>
-        <tbody>
-          <tr v-for="r in warehouseTable" :key="r.scope">
-            <td>{{ r.scope }}</td>
-            <template v-for="(c, i) in r.cells" :key="i">
-              <td class="num mono">{{ c ? fmt(c.required_dispatch) : "–" }}</td>
-              <td class="num"><span v-if="c" class="chip" :class="STATUS_CHIP_CLASS[c.status]">{{ c.status }}</span></td>
-              <td class="num mono">
-                <span v-if="c && c.projected_doi_flag === 'INSUFFICIENT_DATA'" class="chip chip-muted">insufficient data</span>
-                <template v-else-if="c">{{ fmtDoi(c) }}</template>
-              </td>
-            </template>
+            <td v-for="(c, i) in r.cells" :key="i" class="num">
+              <span v-if="!c">&#8211;</span>
+              <span v-else-if="activeMetric === 'required_dispatch'" class="mono">{{ fmt(c.required_dispatch) }}</span>
+              <span v-else-if="activeMetric === 'status'" class="chip" :class="STATUS_CHIP_CLASS[c.status]">{{ c.status }}</span>
+              <template v-else>
+                <span v-if="c.projected_doi_flag === 'INSUFFICIENT_DATA'" class="chip chip-muted">insufficient data</span>
+                <span v-else class="mono">{{ fmtDoi(c) }}</span>
+              </template>
+            </td>
           </tr>
         </tbody>
       </table>
