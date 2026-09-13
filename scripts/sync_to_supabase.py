@@ -55,6 +55,7 @@ Cost-control design (this runs every 5 minutes, forever):
 
 import os
 import sys
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 
@@ -79,30 +80,49 @@ TERMINAL_STATUSES = {"COMPLETE", "REJECTED", "CANCELLED", "CLOSED"}
 # Uniware auth + fetch (unchanged from the original fetch_and_render.py)
 # ---------------------------------------------------------------------
 
+AUTH_RETRY_ATTEMPTS = 3
+AUTH_RETRY_BACKOFF_SECONDS = 5  # doubles each attempt: 5s, 10s
+
+
 def get_uniware_token():
     username = os.environ.get("UNIWARE_USERNAME")
     password = os.environ.get("UNIWARE_PASSWORD")
     if not username or not password:
         sys.exit("Missing UNIWARE_USERNAME / UNIWARE_PASSWORD environment variables.")
-    try:
-        resp = requests.get(
-            f"{UNIWARE_BASE_URL}/oauth/token",
-            params={
-                "grant_type": "password",
-                "client_id": "my-trusted-client",
-                "username": username,
-                "password": password,
-            },
-            timeout=REQUEST_TIMEOUT,
-        )
-    except requests.exceptions.RequestException as e:
-        sys.exit(f"Uniware auth request failed (network error): {type(e).__name__}")
-    if not resp.ok:
-        sys.exit(f"Uniware auth failed with HTTP {resp.status_code}: {resp.text[:500]}")
-    data = resp.json()
-    if "access_token" not in data:
-        sys.exit(f"Uniware authentication failed: {data}")
-    return data["access_token"]
+
+    # Every other Uniware call below tolerates a transient failure (logs a
+    # WARN and moves on -- one bad PO/GRN just gets picked up again next
+    # run). This one didn't, so a single blip on Uniware's end failed the
+    # whole sync outright. A short retry absorbs that without masking a
+    # real, persistent outage (still fails after 3 tries, same as before).
+    last_error = None
+    for attempt in range(1, AUTH_RETRY_ATTEMPTS + 1):
+        try:
+            resp = requests.get(
+                f"{UNIWARE_BASE_URL}/oauth/token",
+                params={
+                    "grant_type": "password",
+                    "client_id": "my-trusted-client",
+                    "username": username,
+                    "password": password,
+                },
+                timeout=REQUEST_TIMEOUT,
+            )
+        except requests.exceptions.RequestException as e:
+            last_error = f"Uniware auth request failed (network error): {type(e).__name__}"
+            print(f"WARN: {last_error} (attempt {attempt}/{AUTH_RETRY_ATTEMPTS})", file=sys.stderr)
+            if attempt < AUTH_RETRY_ATTEMPTS:
+                time.sleep(AUTH_RETRY_BACKOFF_SECONDS * attempt)
+            continue
+
+        if not resp.ok:
+            sys.exit(f"Uniware auth failed with HTTP {resp.status_code}: {resp.text[:500]}")
+        data = resp.json()
+        if "access_token" not in data:
+            sys.exit(f"Uniware authentication failed: {data}")
+        return data["access_token"]
+
+    sys.exit(last_error)
 
 
 def uniware_headers(token, facility_code):
