@@ -328,13 +328,13 @@ def fetch_vendor_map(session, supabase_url, key):
 
 
 def fetch_existing_po_state(session, supabase_url, key):
-    """Returns {po_code: {"facility": ..., "status": ..., "vendor_code": ...}}
+    """Returns {po_code: {"facility": ..., "status": ..., "vendor_code": ..., "qty_received": ...}}
     across ALL vendors — not vendor-scoped, since one facility search covers
     every vendor's POs anyway (Uniware's search endpoint isn't vendor-filterable)."""
     r = session.get(
         f"{supabase_url}/rest/v1/purchase_orders",
         headers=supabase_headers(key),
-        params={"select": "po_code,facility,status,vendor_code"},
+        params={"select": "po_code,facility,status,vendor_code,qty_received"},
         timeout=REQUEST_TIMEOUT,
     )
     r.raise_for_status()
@@ -369,17 +369,44 @@ def fetch_po_item_counts(session, supabase_url, key):
     return counts
 
 
-def is_settled(row, item_counts):
-    """A PO only counts as "done, never needs re-fetching" once it's both
-    terminal AND actually has its line items on file (per the real
-    po_items table, not the denormalized num_items copy -- see
-    fetch_po_item_counts()). Without the second half of this check, a PO
-    whose po_items rows never made it into the database would get
-    permanently stuck with "No line items on file", since a terminal
-    status alone used to be enough to skip it on every future run
-    forever. Now it keeps getting retried every run until real item rows
-    are on file."""
-    return row.get("status") in TERMINAL_STATUSES and item_counts.get(row["po_code"], 0) > 0
+def fetch_po_grn_counts(session, supabase_url, key):
+    """Returns {po_code: count} of rows actually on file in grns -- same
+    "re-derive from the real table" discipline as fetch_po_item_counts(),
+    used by is_settled() below to catch a PO that reached terminal status
+    with its items on file but never actually got its GRN synced (seen in
+    practice: Uniware's inflowReceiptsCount on the PO object can still read
+    0 for a moment right as a brand-new PO is first fetched, even though the
+    GRN already exists and reads back as 1 moments later -- a plain
+    "was inflowReceiptsCount > 0 at fetch time" check misses that PO forever
+    once it's otherwise settled, since it's never re-fetched again)."""
+    r = session.get(
+        f"{supabase_url}/rest/v1/grns",
+        headers=supabase_headers(key),
+        params={"select": "po_code"},
+        timeout=REQUEST_TIMEOUT,
+    )
+    r.raise_for_status()
+    counts = {}
+    for row in r.json():
+        counts[row["po_code"]] = counts.get(row["po_code"], 0) + 1
+    return counts
+
+
+def is_settled(row, item_counts, grn_counts):
+    """A PO only counts as "done, never needs re-fetching" once it's ALL of:
+    terminal, has its line items on file (per the real po_items table, not
+    the denormalized num_items copy -- see fetch_po_item_counts()), and --
+    if it actually received anything -- has at least one real grn row on
+    file too (see fetch_po_grn_counts()). Each of these was added after a
+    real PO got stuck permanently missing that one piece of data, since a
+    weaker check alone used to be enough to skip a PO on every future run
+    forever; now it keeps getting retried every run until the real rows are
+    on file."""
+    if row.get("status") not in TERMINAL_STATUSES or item_counts.get(row["po_code"], 0) == 0:
+        return False
+    if row.get("qty_received") and grn_counts.get(row["po_code"], 0) == 0:
+        return False
+    return True
 
 
 def merge_duplicate_item_rows(rows, key_fields, sum_fields):
@@ -442,6 +469,7 @@ def main():
     token = get_uniware_token()
     existing = fetch_existing_po_state(session, supabase_url, supabase_key)
     item_counts = fetch_po_item_counts(session, supabase_url, supabase_key)
+    grn_counts = fetch_po_grn_counts(session, supabase_url, supabase_key)
     now_utc = datetime.now(timezone.utc)
 
     # A vendor with zero rows synced so far has never been backfilled --
@@ -467,12 +495,12 @@ def main():
             cursor = chunk_end
         for code in found:
             prior = existing.get(code)
-            if prior and is_settled(prior, item_counts):
+            if prior and is_settled(prior, item_counts, grn_counts):
                 continue  # already settled, don't re-fetch just because a backfill search re-surfaced it
             codes_to_refresh[code] = facility
 
     for code, row in existing.items():
-        if not is_settled(row, item_counts):
+        if not is_settled(row, item_counts, grn_counts):
             codes_to_refresh.setdefault(code, row["facility"])
 
     # 2. Fetch fresh PO detail for all candidates, in parallel. Anything
