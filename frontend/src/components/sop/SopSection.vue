@@ -21,7 +21,7 @@ const SUBTABS = [
   { id: "daily-sales", label: "Day-on-Day Sales" },
   { id: "production", label: "Production Plan" },
   { id: "po-fulfillment", label: "PO Fulfillment" },
-  { id: "dispatch-plan", label: "Channel Dispatch Plan" },
+  { id: "dispatch-plan", label: "S&OP Planning" },
 ];
 
 const activeSubTab = ref(SUBTABS[0].id);
