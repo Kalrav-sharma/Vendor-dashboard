@@ -28,8 +28,9 @@ import requests
 
 sys.path.insert(0, __file__.rsplit("/", 1)[0])
 from sop_common import (  # noqa: E402
-    SKUS, WH_CHANNEL_SKU_ID, get_access_token, get_values, normalize_date, normalize_sku, pad_row,
-    parse_daily_trackr_tab, replace_by_filter, supabase_config, to_num,
+    SKUS, WH_CHANNEL_SKU_ID, add_days_ymd, compute_forward_doi_from_series, get_access_token,
+    get_values, normalize_date, normalize_sku, pad_row, parse_daily_trackr_tab, replace_by_filter,
+    supabase_config, to_num,
 )
 from sync_sop_production import parse_daily_production  # noqa: E402
 
@@ -37,7 +38,6 @@ CHANNELS = ["UC App + PLS", "Amazon", "Flipkart", "MT"]
 DOI_TARGETS = [30, 15, 7, 0]
 PRODUCTION_LEAD_DAYS = 5
 HORIZON_DAYS = [7, 15, 21, 30, 45, 60, 90]
-DOI_PROJECTION_MAX_DAYS = 400
 
 WAREHOUSES = ["Bangalore", "Gurgaon", "Hyderabad", "Mumbai", "Kolkata"]
 WH_SPLIT = {"Bangalore": 0.25, "Gurgaon": 0.23, "Hyderabad": 0.23, "Mumbai": 0.20, "Kolkata": 0.09}
@@ -53,10 +53,6 @@ PO_CHANNEL_BUCKET = {"Amazon": "Amazon", "Primarc": "Amazon", "Flipkart": "Flipk
                      "Croma": "MT", "Vijay Sales": "MT", "Reliance": "MT"}
 MONTH_ABBR = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
 CURRENT_YEAR = datetime.date.today().year
-
-
-def add_days_ymd(ymd, days):
-    return (datetime.date.fromisoformat(ymd) + datetime.timedelta(days=days)).isoformat()
 
 
 def channel_bucket(chan_raw):
@@ -305,25 +301,6 @@ def parse_diwali_opening_ask(rows, pinned_ymd):
                   f"Opening Ask row within 15 rows below it -- falling back to daily-trackr target for "
                   f"{channel}", file=sys.stderr)
     return out
-
-
-def compute_forward_doi_from_series(series, max_known_ymd, start_ymd, sku, quantity, rate_multiplier=1.0):
-    """Port of computeForwardDOIFromSeries(): forward walk consuming daily rate until exhausted.
-    Returns a float day count, None (capped at DOI_PROJECTION_MAX_DAYS), or 'INSUFFICIENT_DATA'."""
-    if not (quantity > 0):
-        return 0.0
-    remaining, ymd = quantity, start_ymd
-    for days in range(1, DOI_PROJECTION_MAX_DAYS + 1):
-        ymd = add_days_ymd(ymd, 1)
-        if not max_known_ymd or ymd > max_known_ymd:
-            return "INSUFFICIENT_DATA"
-        daily_rate = series.get(ymd, {}).get(sku, 0.0) * rate_multiplier
-        if daily_rate <= 0:
-            continue
-        if remaining <= daily_rate:
-            return (days - 1) + remaining / daily_rate
-        remaining -= daily_rate
-    return None
 
 
 def derive_status(target, projected_closing, required_dispatch):

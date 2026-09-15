@@ -153,6 +153,67 @@ def parse_daily_trackr_tab(rows, date_col, day_col_start):
     return {"series": series, "min_date": min_date, "max_date": max_date}
 
 
+DOI_PROJECTION_MAX_DAYS = 400
+
+
+def add_days_ymd(ymd, days):
+    import datetime
+    return (datetime.date.fromisoformat(ymd) + datetime.timedelta(days=days)).isoformat()
+
+
+def compute_forward_doi_from_series(series, max_known_ymd, start_ymd, sku, quantity, rate_multiplier=1.0):
+    """Port of computeForwardDOIFromSeries(): forward walk consuming daily rate until exhausted.
+    Returns a float day count, None (capped at DOI_PROJECTION_MAX_DAYS), or 'INSUFFICIENT_DATA'.
+    Shared by sync_sop_dispatch_plan.py (Target Closing / Required Dispatch) and
+    sync_sop_inventory.py (sop_channel_drr_doi's DOI column)."""
+    if not (quantity > 0):
+        return 0.0
+    remaining, ymd = quantity, start_ymd
+    for days in range(1, DOI_PROJECTION_MAX_DAYS + 1):
+        ymd = add_days_ymd(ymd, 1)
+        if not max_known_ymd or ymd > max_known_ymd:
+            return "INSUFFICIENT_DATA"
+        daily_rate = series.get(ymd, {}).get(sku, 0.0) * rate_multiplier
+        if daily_rate <= 0:
+            continue
+        if remaining <= daily_rate:
+            return (days - 1) + remaining / daily_rate
+        remaining -= daily_rate
+    return None
+
+
+def parse_uc_sales_trackr_facility_block(rows, title_col):
+    """Reads one per-facility 'Actual Sales' block from the 'UC sales trackr' tab. title_col is
+    BOTH the block's title cell (row 0, e.g. 'PB-UC-BLR') AND its first SKU data column (row 1 has
+    SKU headers M0/M1/M1 Pro/M2 Pro/M3/M3 Pro at title_col..title_col+5, Total at title_col+6) --
+    a different block shape from parse_daily_trackr_tab's Expected Sale blocks, which have no title
+    row occupying a data column. Verified live 2026-09-15: PB-UC-BLR@17, PB-UC-HYD@25,
+    PB-UC-GGN@33, PB-UC-BOMBAY@41, PB-UC-KOL@49 (8-column stride, one blank separator column
+    between blocks); the same stride continues rightward into the 19 individual dark-store blocks
+    (not read by this codebase yet -- Uniware-sync follow-up). Date column is always 0 (col A),
+    same convention as every other daily tab."""
+    import datetime
+    current_year = datetime.date.today().year
+    labels = ["M0", "M1", "M1 Pro", "M2 Pro", "M3", "M3 Pro"]
+    series = {}
+    min_date, max_date = None, None
+    for i in range(2, len(rows)):
+        row = rows[i]
+        ymd = normalize_date(row[0] if row else None, default_year=current_year)
+        if not ymd:
+            continue
+        raw = [row[c] if c < len(row) else None for c in range(title_col, title_col + 6)]
+        if not any(v not in (None, "") for v in raw):
+            continue
+        by_sku = {normalize_sku(label): to_num(raw[j]) for j, label in enumerate(labels)}
+        series[ymd] = by_sku
+        if min_date is None or ymd < min_date:
+            min_date = ymd
+        if max_date is None or ymd > max_date:
+            max_date = ymd
+    return {"series": series, "min_date": min_date, "max_date": max_date}
+
+
 def supabase_config():
     url = os.environ.get("SUPABASE_URL")
     key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")

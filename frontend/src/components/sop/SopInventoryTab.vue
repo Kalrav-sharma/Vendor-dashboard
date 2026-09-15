@@ -1,7 +1,14 @@
 <script setup>
-// S&OP > Inventory Overview -- channel x SKU matrix + UC APP warehouse view
-// (on-hand / in-transit / combined), replicating /sop-master's Inventory
-// Overview tab. No structural changes from that tab by design.
+// S&OP > Inventory Overview -- channel x SKU matrix + a channel-level
+// DRR/DOI health view (replacing the old UC APP warehouse tables, which
+// moved to their own "UC App + PLS" section -- see SopUcAppTab.vue).
+//
+// Redesigned 2026-09-15 per Anish: (a) Croma + Vijay Sales clubbed into one
+// "MT" bucket, (b) the 3 UC-warehouse on-hand/in-transit/combined tables
+// removed from this tab, (c) replaced with a channel x SKU DRR/DOI table
+// (DRR = trailing 10-day actual sales average, DOI = forward walk against
+// each channel's own "Expected Sale" daily-trackr series -- see
+// scripts/sync_sop_inventory.py's compute_channel_drr_doi docstring).
 import { computed } from "vue";
 import { useSopInventoryData } from "../../composables/useSopInventoryData.js";
 import SummaryKpis from "../SummaryKpis.vue";
@@ -9,11 +16,11 @@ import SummaryKpis from "../SummaryKpis.vue";
 const SKUS = ["M0", "M1-2nd Gen", "M1 Pro", "M2 Pro", "M3", "M3 Pro"];
 const CHANNELS = [
   "UC App+PLS", "Amazon", "Flipkart", "DTDC Bangalore", "DTDC Gurgaon",
-  "DTDC Kolkata", "SFX Mumbai", "SFX Hyderabad", "Croma", "Vijay Sales",
+  "DTDC Kolkata", "SFX Mumbai", "SFX Hyderabad", "MT",
 ];
-const WAREHOUSES = ["Bangalore", "Gurgaon", "Hyderabad", "Mumbai", "Kolkata"];
+const DRR_DOI_CHANNELS = ["UC App+PLS", "Amazon", "Flipkart", "MT"];
 
-const { channelRows, warehouseRows, loadError } = useSopInventoryData();
+const { channelRows, channelDrrDoiRows, loadError } = useSopInventoryData();
 
 function fmt(n) {
   return Math.round(n || 0).toLocaleString("en-IN");
@@ -42,15 +49,30 @@ function buildMatrix(rows, rowKey, rowLabels, valueKey) {
 }
 
 const channelMatrix = computed(() => buildMatrix(channelRows.value, "channel", CHANNELS, "qty"));
-const onHandMatrix = computed(() => buildMatrix(warehouseRows.value, "warehouse", WAREHOUSES, "on_hand"));
-const inTransitMatrix = computed(() => buildMatrix(warehouseRows.value, "warehouse", WAREHOUSES, "in_transit"));
-const combinedMatrix = computed(() => buildMatrix(warehouseRows.value, "warehouse", WAREHOUSES, "combined"));
+
+const drrDoiTable = computed(() => {
+  const byKey = Object.fromEntries(channelDrrDoiRows.value.map(r => [`${r.channel}|${r.sku}`, r]));
+  return DRR_DOI_CHANNELS.map(ch => ({
+    channel: ch,
+    cells: SKUS.map(s => byKey[`${ch}|${s}`]),
+  }));
+});
+
+function doiClass(row) {
+  if (!row || row.doi_flag === "INSUFFICIENT_DATA") return "";
+  if (row.doi == null) return "good"; // capped past 400 days -- definitely >= 30
+  if (row.doi < 10) return "critical";
+  if (row.doi >= 30) return "good";
+  return "";
+}
+function doiText(row) {
+  if (!row) return "–";
+  if (row.doi_flag === "INSUFFICIENT_DATA") return null; // rendered as a chip instead
+  return row.doi == null ? "400+" : (Math.round(row.doi * 10) / 10).toLocaleString("en-IN");
+}
 
 const kpiTiles = computed(() => [
   { label: "Total network units", value: fmt(channelMatrix.value.totalRow.total) },
-  { label: "UC on-hand", value: fmt(onHandMatrix.value.totalRow.total) },
-  { label: "UC in-transit", value: fmt(inTransitMatrix.value.totalRow.total) },
-  { label: "UC combined", value: fmt(combinedMatrix.value.totalRow.total) },
 ]);
 </script>
 
@@ -60,7 +82,7 @@ const kpiTiles = computed(() => [
   <div v-if="loadError" class="form-error">{{ loadError }}</div>
 
   <h3 style="font-size: 0.95rem; margin: 0 0 10px;">Channel x SKU inventory</h3>
-  <div class="table-card" style="margin-bottom: 24px;"><div class="table-scroll">
+  <div class="table-card" style="margin-bottom: 28px;"><div class="table-scroll">
     <table>
       <thead><tr><th>Channel</th><th v-for="s in SKUS" :key="s" class="num">{{ s }}</th><th class="num">Total</th></tr></thead>
       <tbody>
@@ -78,58 +100,37 @@ const kpiTiles = computed(() => [
     </table>
   </div></div>
 
-  <h3 style="font-size: 0.95rem; margin: 0 0 10px;">UC APP warehouse view -- on-hand</h3>
-  <div class="table-card" style="margin-bottom: 24px;"><div class="table-scroll">
-    <table>
-      <thead><tr><th>Warehouse</th><th v-for="s in SKUS" :key="s" class="num">{{ s }}</th><th class="num">Total</th></tr></thead>
-      <tbody>
-        <tr v-for="r in onHandMatrix.body" :key="r.label">
-          <td>{{ r.label }}</td>
-          <td v-for="(c, i) in r.cells" :key="i" class="num mono">{{ fmt(c) }}</td>
-          <td class="num mono"><b>{{ fmt(r.total) }}</b></td>
-        </tr>
-        <tr style="font-weight: 600;">
-          <td>{{ onHandMatrix.totalRow.label }}</td>
-          <td v-for="(c, i) in onHandMatrix.totalRow.cells" :key="i" class="num mono">{{ fmt(c) }}</td>
-          <td class="num mono">{{ fmt(onHandMatrix.totalRow.total) }}</td>
-        </tr>
-      </tbody>
-    </table>
-  </div></div>
-
-  <h3 style="font-size: 0.95rem; margin: 0 0 10px;">UC APP warehouse view -- in-transit</h3>
-  <div class="table-card" style="margin-bottom: 24px;"><div class="table-scroll">
-    <table>
-      <thead><tr><th>Warehouse</th><th v-for="s in SKUS" :key="s" class="num">{{ s }}</th><th class="num">Total</th></tr></thead>
-      <tbody>
-        <tr v-for="r in inTransitMatrix.body" :key="r.label">
-          <td>{{ r.label }}</td>
-          <td v-for="(c, i) in r.cells" :key="i" class="num mono">{{ fmt(c) }}</td>
-          <td class="num mono"><b>{{ fmt(r.total) }}</b></td>
-        </tr>
-        <tr style="font-weight: 600;">
-          <td>{{ inTransitMatrix.totalRow.label }}</td>
-          <td v-for="(c, i) in inTransitMatrix.totalRow.cells" :key="i" class="num mono">{{ fmt(c) }}</td>
-          <td class="num mono">{{ fmt(inTransitMatrix.totalRow.total) }}</td>
-        </tr>
-      </tbody>
-    </table>
-  </div></div>
-
-  <h3 style="font-size: 0.95rem; margin: 0 0 10px;">UC APP warehouse view -- on-hand + in-transit</h3>
+  <h3 style="font-size: 0.95rem; margin: 0 0 6px;">Channel DRR / DOI</h3>
+  <p class="field-hint" style="margin: 0 0 10px;">
+    DRR: trailing 10-day average actual sales. DOI: forward-looking days of inventory against each
+    channel's own daily sales plan.
+    <span class="chip chip-critical" style="margin-left: 6px;">DOI &lt; 10</span>
+    <span class="chip chip-good">DOI &#8805; 30</span>
+  </p>
   <div class="table-card"><div class="table-scroll">
     <table>
-      <thead><tr><th>Warehouse</th><th v-for="s in SKUS" :key="s" class="num">{{ s }}</th><th class="num">Total</th></tr></thead>
-      <tbody>
-        <tr v-for="r in combinedMatrix.body" :key="r.label">
-          <td>{{ r.label }}</td>
-          <td v-for="(c, i) in r.cells" :key="i" class="num mono">{{ fmt(c) }}</td>
-          <td class="num mono"><b>{{ fmt(r.total) }}</b></td>
+      <thead>
+        <tr>
+          <th rowspan="2">Channel</th>
+          <th v-for="s in SKUS" :key="s" colspan="2" class="num">{{ s }}</th>
         </tr>
-        <tr style="font-weight: 600;">
-          <td>{{ combinedMatrix.totalRow.label }}</td>
-          <td v-for="(c, i) in combinedMatrix.totalRow.cells" :key="i" class="num mono">{{ fmt(c) }}</td>
-          <td class="num mono">{{ fmt(combinedMatrix.totalRow.total) }}</td>
+        <tr>
+          <template v-for="s in SKUS" :key="s">
+            <th class="num">DRR</th>
+            <th class="num">DOI</th>
+          </template>
+        </tr>
+      </thead>
+      <tbody>
+        <tr v-for="r in drrDoiTable" :key="r.channel">
+          <td>{{ r.channel }}</td>
+          <template v-for="(c, i) in r.cells" :key="i">
+            <td class="num mono">{{ c ? fmt(c.drr) : "–" }}</td>
+            <td class="num mono" :class="doiClass(c)">
+              <span v-if="c && c.doi_flag === 'INSUFFICIENT_DATA'" class="chip chip-muted">insufficient data</span>
+              <span v-else>{{ doiText(c) }}</span>
+            </td>
+          </template>
         </tr>
       </tbody>
     </table>

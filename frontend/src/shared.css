@@ -206,6 +206,23 @@ tbody tr:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); 
    middle of the column instead of hugging its right edge. */
 .num { text-align: right; white-space: nowrap; width: 1%; }
 
+/* Generic text-color utilities for a single cell/value flagged red or green
+   (e.g. a Delta table's negative/positive cells) -- distinct from the
+   chip-* / *-soft pair below, which tint a whole cell/row's background. */
+.critical { color: var(--critical); }
+.good { color: var(--good); }
+
+/* Row/cell background tints, sharing the same tokens as the chip-* badges --
+   for flagging a whole row (e.g. S&OP Planning's per-status coloring)
+   rather than just one value's text color. */
+.bg-good-soft { background: var(--good-soft); }
+.bg-open-soft { background: var(--open-soft); }
+.bg-critical-soft { background: var(--critical-soft); }
+
+/* S&OP Planning's Channel/Warehouse view -- one small card per scope
+   instead of one shared 18-column table. */
+.dispatch-card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 16px; }
+
 /* Same shrink-to-content trick as .num, for icon-only columns that don't
    need the extra width a text-based column would (PO copy / Invoice
    upload) -- frees that space for columns that actually want it. */

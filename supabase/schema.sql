@@ -918,6 +918,64 @@ create policy sop_inventory_uc_warehouse_select on public.sop_inventory_uc_wareh
   using (public.is_internal_staff());
 
 -- ---------------------------------------------------------------------
+-- sop_channel_drr_doi — Inventory Overview tab, channel-level DRR/DOI health
+-- view (replaces the old UC-warehouse-only on-hand/in-transit/combined
+-- tables). DRR = trailing 10-day average from sop_daily_sales's
+-- by_sku_uc/by_sku_amazon/by_sku_flipkart/by_sku_mt series; DOI = forward
+-- walk against that channel's own "Expected Sale" daily-trackr series,
+-- starting from sop_inventory_channel's on-hand. doi_flag mirrors
+-- sop_dispatch_plan's projected_doi_flag sentinel for a walk that outruns
+-- known data. Wholesale-replaced each run by scripts/sync_sop_inventory.py.
+-- ---------------------------------------------------------------------
+create table if not exists public.sop_channel_drr_doi (
+  id bigserial primary key,
+  channel text not null,
+  sku text not null,
+  drr numeric not null default 0,
+  doi numeric,
+  doi_flag text,
+  synced_at timestamptz not null default now(),
+  unique (channel, sku)
+);
+
+alter table public.sop_channel_drr_doi enable row level security;
+
+drop policy if exists sop_channel_drr_doi_select on public.sop_channel_drr_doi;
+create policy sop_channel_drr_doi_select on public.sop_channel_drr_doi
+  for select
+  using (public.is_internal_staff());
+
+-- ---------------------------------------------------------------------
+-- sop_facility_drr_doi — new "UC App + PLS" tab's warehouse (and, in a
+-- later Uniware-sync follow-up, dark-store) DRR/DOI health view.
+-- facility_type is 'WAREHOUSE' today; 'DARK_STORE' rows land once
+-- individual dark-store on-hand inventory is synced from Uniware directly
+-- (the Google Sheet only has city-aggregated totals, not per-locality).
+-- DRR = trailing N-day average from "UC sales trackr"'s per-facility Actual
+-- Sales blocks (parse_uc_sales_trackr_facility_block in sop_common.py);
+-- DOI = simple on_hand/DRR ratio (not a forward-series walk, unlike
+-- sop_channel_drr_doi above).
+-- ---------------------------------------------------------------------
+create table if not exists public.sop_facility_drr_doi (
+  id bigserial primary key,
+  facility text not null,
+  facility_type text not null,  -- 'WAREHOUSE' | 'DARK_STORE'
+  sku text not null,
+  drr numeric not null default 0,
+  doi numeric,
+  on_hand numeric not null default 0,
+  synced_at timestamptz not null default now(),
+  unique (facility, sku)
+);
+
+alter table public.sop_facility_drr_doi enable row level security;
+
+drop policy if exists sop_facility_drr_doi_select on public.sop_facility_drr_doi;
+create policy sop_facility_drr_doi_select on public.sop_facility_drr_doi
+  for select
+  using (public.is_internal_staff());
+
+-- ---------------------------------------------------------------------
 -- sop_sales_plan_actual — Sales: Plan vs Actual tab, current month,
 -- channel x SKU. Synced from WH-Channel-SKU's "Dashboard" tab (projection,
 -- derived from Sale plan x Channel Split) and "actual sales" tab's Q:S

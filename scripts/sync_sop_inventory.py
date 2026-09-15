@@ -28,6 +28,7 @@ already provisioned for sync_mm_rate_card.py -- no new secrets needed):
   SUPABASE_URL
   SUPABASE_SERVICE_ROLE_KEY
 """
+import datetime
 import os
 import sys
 import tempfile
@@ -35,6 +36,12 @@ import tempfile
 import google.auth.transport.requests
 import requests
 from google.oauth2 import service_account
+
+sys.path.insert(0, __file__.rsplit("/", 1)[0])
+from sop_common import (  # noqa: E402
+    compute_forward_doi_from_series, parse_daily_trackr_tab, parse_uc_sales_trackr_facility_block,
+)
+from sync_sop_sales import DASH_CHANNELS, PROJECTION_TAB_CONFIG  # noqa: E402
 
 WH_CHANNEL_SKU_ID = "17VKM18L9vlo72LtcKvTOmCbcWqJaRc3sSJIwhthbW8U"
 COPY_DAILY_INPUT_ANISH_ID = "1e04j1Z77tp1dp-b45WSBE_fa-d_y38WlbHQPyeVOVzU"
@@ -54,7 +61,10 @@ SKU_ALIAS_MAP = {
 
 # WH-Channel-SKU "Current Inventory" tab channel-block labels -> display channel name. "DTDC Gurgaon"
 # is the sheet's real label (it also holds Delhi-coded PB-UC-DEL-* facilities) -- not renamed to
-# "DTDC Delhi", matching the existing /sop-master convention.
+# "DTDC Delhi", matching the existing /sop-master convention. Croma and Vijay Sales are clubbed into
+# one "MT" bucket (2026-09-15, per Anish) -- both map to the same display name, deduped below so it
+# doesn't appear twice in INV_CHANNELS (a duplicate would try to upsert the same (channel, sku) row
+# twice in one batch, which Postgres' ON CONFLICT rejects outright).
 INVENTORY_CHANNEL_MAP = {
     'UC APP - RO': 'UC App+PLS',
     'AMAZON': 'Amazon',
@@ -64,10 +74,10 @@ INVENTORY_CHANNEL_MAP = {
     'DTDC KOLKATA': 'DTDC Kolkata',
     'SFX MUMBAI': 'SFX Mumbai',
     'SFX HYDERABAD': 'SFX Hyderabad',
-    'CROMA': 'Croma',
-    'VIJAY SALES': 'Vijay Sales',
+    'CROMA': 'MT',
+    'VIJAY SALES': 'MT',
 }
-INV_CHANNELS = list(INVENTORY_CHANNEL_MAP.values())
+INV_CHANNELS = list(dict.fromkeys(INVENTORY_CHANNEL_MAP.values()))
 WAREHOUSES = ['Bangalore', 'Gurgaon', 'Hyderabad', 'Mumbai', 'Kolkata']
 
 # Facility code -> warehouse city, reused as-is from the JS scripts.
@@ -78,6 +88,14 @@ WH_CODE_MAP = {
     'PB-UC-HYD': 'Hyderabad',
     'PB-UC-KOL': 'Kolkata', 'PB-UC-KOL-PANCHLA': 'Kolkata', 'PB-UC-KOL-PANCHALA': 'Kolkata',
 }
+
+# "UC sales trackr" tab's per-warehouse "Actual Sales" block title columns (0-indexed) -- verified
+# live 2026-09-15: title cell and first SKU column share the same index (see
+# parse_uc_sales_trackr_facility_block's docstring in sop_common.py for the full block shape).
+FACILITY_TITLE_COLS = {
+    'Bangalore': 17, 'Hyderabad': 25, 'Gurgaon': 33, 'Mumbai': 41, 'Kolkata': 49,
+}
+DRR_LOOKBACK_DAYS = 10
 
 
 def normalize_sku(raw):
@@ -243,6 +261,88 @@ def parse_uc_warehouse_in_transit(rows):
     return result
 
 
+def fetch_channel_daily_sales_drr(supabase_url, key):
+    """Trailing-10-calendar-day average actual sales per channel x SKU, from sop_daily_sales
+    (already synced by sync_sop_sales.py) -- pure average over whichever of the last 10 days have a
+    row, no zero-fill and no minimum-populated-days guard (same convention as every other DRR-like
+    calc in this file, and these 4 channels' daily sales are reliably populated). Excludes today
+    (today's sales are still accumulating, not yet a complete day)."""
+    series_to_channel = {
+        "by_sku_uc": "UC App+PLS", "by_sku_amazon": "Amazon",
+        "by_sku_flipkart": "Flipkart", "by_sku_mt": "MT",
+    }
+    today = datetime.date.today()
+    start = (today - datetime.timedelta(days=DRR_LOOKBACK_DAYS)).isoformat()
+    end = (today - datetime.timedelta(days=1)).isoformat()
+    headers = {"apikey": key, "Authorization": f"Bearer {key}"}
+    params = [
+        ("select", "sale_date,series,dim,qty"),
+        ("series", f"in.({','.join(series_to_channel)})"),
+        ("sale_date", f"gte.{start}"),
+        ("sale_date", f"lte.{end}"),
+    ]
+    r = requests.get(f"{supabase_url}/rest/v1/sop_daily_sales", headers=headers, params=params,
+                      timeout=REQUEST_TIMEOUT)
+    if not r.ok:
+        sys.exit(f"Fetching sop_daily_sales for channel DRR failed ({r.status_code}): {r.text[:500]}")
+
+    sums = {ch: {s: 0.0 for s in SKUS} for ch in DASH_CHANNELS}
+    counts = {ch: {s: 0 for s in SKUS} for ch in DASH_CHANNELS}
+    for row in r.json():
+        ch = series_to_channel.get(row["series"])
+        sku = row["dim"]
+        if ch and sku in SKUS:
+            sums[ch][sku] += to_num(row["qty"])
+            counts[ch][sku] += 1
+    return {ch: {s: (sums[ch][s] / counts[ch][s] if counts[ch][s] else 0.0) for s in SKUS}
+            for ch in DASH_CHANNELS}
+
+
+def compute_channel_drr_doi(token, supabase_url, supabase_key, channel_on_hand):
+    """sop_channel_drr_doi: DRR from fetch_channel_daily_sales_drr above; DOI is a forward walk
+    (compute_forward_doi_from_series, same engine sync_sop_dispatch_plan.py uses for its own
+    Target Closing / Required Dispatch terms) against each channel's own "Expected Sale"
+    daily-trackr series, starting from that channel's current on-hand in sop_inventory_channel."""
+    drr = fetch_channel_daily_sales_drr(supabase_url, supabase_key)
+    today_ymd = datetime.date.today().isoformat()
+    rows = []
+    for ch in DASH_CHANNELS:
+        tab_name, day_col_start = PROJECTION_TAB_CONFIG[ch]
+        trackr_rows = get_values(token, WH_CHANNEL_SKU_ID, tab_name)
+        expected_sale = parse_daily_trackr_tab(trackr_rows, 0, day_col_start)
+        for sku in SKUS:
+            on_hand = channel_on_hand.get(ch, {}).get(sku, 0.0)
+            result = compute_forward_doi_from_series(
+                expected_sale["series"], expected_sale["max_date"], today_ymd, sku, on_hand,
+            )
+            doi, doi_flag = (None, "INSUFFICIENT_DATA") if result == "INSUFFICIENT_DATA" else \
+                (None, None) if result is None else (result, None)
+            rows.append({"channel": ch, "sku": sku, "drr": drr[ch][sku], "doi": doi, "doi_flag": doi_flag})
+    return rows
+
+
+def compute_facility_drr_doi(uc_trackr_rows, uc_warehouse_on_hand):
+    """sop_facility_drr_doi (WAREHOUSE rows only this phase): DRR is a trailing-10-day average of
+    each warehouse's own direct daily sales, read from "UC sales trackr"'s per-facility Actual
+    Sales blocks (FACILITY_TITLE_COLS); DOI is the simple on_hand/DRR ratio, not a forward-series
+    walk (unlike compute_channel_drr_doi above) -- matches warehouse-doi-alert's existing
+    projectedDOI = closing / effectiveDrr convention."""
+    today = datetime.date.today()
+    lookback_ymds = [(today - datetime.timedelta(days=d)).isoformat()
+                      for d in range(1, DRR_LOOKBACK_DAYS + 1)]
+    rows = []
+    for wh, title_col in FACILITY_TITLE_COLS.items():
+        series = parse_uc_sales_trackr_facility_block(uc_trackr_rows, title_col)["series"]
+        for sku in SKUS:
+            vals = [series[ymd][sku] for ymd in lookback_ymds if ymd in series]
+            drr = sum(vals) / len(vals) if vals else 0.0
+            on_hand = uc_warehouse_on_hand.get(wh, {}).get(sku, 0.0)
+            doi = (on_hand / drr) if drr > 0 else None
+            rows.append({"facility": wh, "facility_type": "WAREHOUSE", "sku": sku,
+                         "drr": drr, "doi": doi, "on_hand": on_hand})
+    return rows
+
+
 def supabase_config():
     url = os.environ.get("SUPABASE_URL")
     key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
@@ -286,13 +386,38 @@ def main():
         for wh in WAREHOUSES for s in SKUS
     ]
 
+    # One-time cleanup: "Croma" and "Vijay Sales" were retired as separate buckets (2026-09-15,
+    # merged into "MT") -- upsert alone would never remove their old rows, since they simply stop
+    # appearing in channel_rows from here on rather than getting overwritten. Safe to leave this in
+    # permanently; it's a no-op once those rows are gone.
+    r = requests.delete(f"{supabase_url}/rest/v1/sop_inventory_channel",
+                         headers={"apikey": supabase_key, "Authorization": f"Bearer {supabase_key}"},
+                         params={"channel": "in.(Croma,\"Vijay Sales\")"}, timeout=REQUEST_TIMEOUT)
+    if not r.ok:
+        print(f"WARNING: cleanup of retired Croma/Vijay Sales rows failed ({r.status_code}): "
+              f"{r.text[:300]}", file=sys.stderr)
+
     upsert(supabase_url, supabase_key, "sop_inventory_channel", channel_rows, "channel,sku")
     upsert(supabase_url, supabase_key, "sop_inventory_uc_warehouse", uc_warehouse_rows, "warehouse,sku")
 
+    # Channel and warehouse DRR/DOI health views (Inventory Overview item 1c, UC App+PLS item 2d).
+    channel_on_hand = {}
+    for r in channel_rows:
+        channel_on_hand.setdefault(r["channel"], {})[r["sku"]] = r["qty"]
+    channel_drr_doi_rows = compute_channel_drr_doi(token, supabase_url, supabase_key, channel_on_hand)
+    upsert(supabase_url, supabase_key, "sop_channel_drr_doi", channel_drr_doi_rows, "channel,sku")
+
+    uc_trackr_rows = get_values(token, WH_CHANNEL_SKU_ID, "'UC sales trackr'")
+    uc_warehouse_on_hand = {wh: {s: on_hand_by_key.get((wh, s), 0.0) for s in SKUS} for wh in WAREHOUSES}
+    facility_drr_doi_rows = compute_facility_drr_doi(uc_trackr_rows, uc_warehouse_on_hand)
+    upsert(supabase_url, supabase_key, "sop_facility_drr_doi", facility_drr_doi_rows, "facility,sku")
+
     total_channel_qty = sum(r["qty"] for r in channel_rows)
     total_uc_combined = sum(r["on_hand"] + r["in_transit"] for r in uc_warehouse_rows)
-    print(f"Synced {len(channel_rows)} channel-inventory row(s) (total qty {total_channel_qty:.0f}) "
-          f"and {len(uc_warehouse_rows)} UC-warehouse row(s) (total on-hand+in-transit {total_uc_combined:.0f}).")
+    print(f"Synced {len(channel_rows)} channel-inventory row(s) (total qty {total_channel_qty:.0f}), "
+          f"{len(uc_warehouse_rows)} UC-warehouse row(s) (total on-hand+in-transit {total_uc_combined:.0f}), "
+          f"{len(channel_drr_doi_rows)} channel DRR/DOI row(s), and {len(facility_drr_doi_rows)} "
+          f"facility DRR/DOI row(s).")
 
 
 if __name__ == "__main__":

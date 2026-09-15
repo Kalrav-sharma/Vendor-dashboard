@@ -1,7 +1,7 @@
-// S&OP > Inventory Overview -- public.sop_inventory_channel (10 channel
-// buckets x 6 SKUs) + public.sop_inventory_uc_warehouse (5 warehouses x 6
-// SKUs, on-hand/in-transit/combined), synced from WH-Channel-SKU /
-// Copy Daily Input Anish by scripts/sync_sop_inventory.py.
+// S&OP > Inventory Overview -- public.sop_inventory_channel (9 channel
+// buckets x 6 SKUs, Croma+Vijay Sales merged into "MT" 2026-09-15) +
+// public.sop_channel_drr_doi (DRR/DOI health view), synced from
+// WH-Channel-SKU / Copy Daily Input Anish by scripts/sync_sop_inventory.py.
 //
 // Same shape as useRateCard.js: fetch on mount, poll every 60s so an
 // already-open tab picks up the next sync without a manual refresh.
@@ -12,16 +12,16 @@ const POLL_INTERVAL_MS = 60 * 1000;
 
 export function useSopInventoryData() {
   const channelRows = ref([]);
-  const warehouseRows = ref([]);
+  const channelDrrDoiRows = ref([]);
   const loadError = ref("");
 
   async function refresh() {
-    const [{ data: c, error: e1 }, { data: w, error: e2 }] = await Promise.all([
+    const [{ data: c, error: e1 }, { data: d, error: e2 }] = await Promise.all([
       supabase.from("sop_inventory_channel").select("*"),
-      supabase.from("sop_inventory_uc_warehouse").select("*"),
+      supabase.from("sop_channel_drr_doi").select("*"),
     ]);
     if (!e1) channelRows.value = c;
-    if (!e2) warehouseRows.value = w;
+    if (!e2) channelDrrDoiRows.value = d;
     loadError.value = e1?.message || e2?.message || "";
   }
 
@@ -34,5 +34,5 @@ export function useSopInventoryData() {
     if (intervalId) clearInterval(intervalId);
   });
 
-  return { channelRows, warehouseRows, loadError, refresh };
+  return { channelRows, channelDrrDoiRows, loadError, refresh };
 }

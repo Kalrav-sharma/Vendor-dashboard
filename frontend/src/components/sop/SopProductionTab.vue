@@ -105,14 +105,20 @@ const combinedTable = computed(() => {
   });
 });
 
+// A facility usually only produces 1-2 SKUs on a given day -- a blind summed total hid which
+// SKU(s) that was. Comma-joined "SKU: qty" text (nonzero SKUs only) instead; Combined stays a
+// plain total since it's genuinely a network-wide figure, not one facility's own SKU mix.
+function facilityBreakdown(ymd, facility) {
+  const parts = SKUS
+    .map(sku => ({ sku, qty: (byDateSkuFacility.value[ymd] || {})[sku]?.[facility]?.actual_qty ?? 0 }))
+    .filter(p => p.qty > 0);
+  return parts.length ? parts.map(p => `${p.sku}: ${fmt(p.qty)}`).join(", ") : "–";
+}
+
 const facilitySummaryTable = computed(() => dateWindow.value.map(ymd => {
-  let ronch = 0, amber = 0, combined = 0;
-  for (const sku of SKUS) {
-    ronch += (byDateSkuFacility.value[ymd] || {})[sku]?.RONCH?.actual_qty ?? 0;
-    amber += (byDateSkuFacility.value[ymd] || {})[sku]?.AMBER?.actual_qty ?? 0;
-    combined += (byDateSkuFacility.value[ymd] || {})[sku]?.COMBINED?.actual_qty ?? 0;
-  }
-  return { ymd, ronch, amber, combined };
+  let combined = 0;
+  for (const sku of SKUS) combined += (byDateSkuFacility.value[ymd] || {})[sku]?.COMBINED?.actual_qty ?? 0;
+  return { ymd, ronch: facilityBreakdown(ymd, "RONCH"), amber: facilityBreakdown(ymd, "AMBER"), combined };
 }));
 
 const showPreAugCaveat = computed(() => dateWindow.value.some(d => d < FACILITY_SPLIT_RELIABLE_FROM));
@@ -177,7 +183,7 @@ const kpiTiles = computed(() => {
         <tbody>
           <tr v-for="r in combinedTable" :key="r.ymd">
             <td>{{ dateLabel(r.ymd) }}</td>
-            <td v-for="p in r.perSku" :key="p.sku" class="num mono" :class="{ critical: (p.actual - (p.planned||0)) < 0 }">
+            <td v-for="p in r.perSku" :key="p.sku" class="num mono" :class="r.ymd < todayYMD ? { critical: (p.actual - (p.planned||0)) < 0, good: (p.actual - (p.planned||0)) > 0 } : {}">
               {{ fmt(p.actual - (p.planned || 0)) }}
             </td>
             <td class="num mono"><b>{{ fmt(r.actualTotal - r.plannedTotal) }}</b></td>
@@ -194,12 +200,12 @@ const kpiTiles = computed(() => {
     </p>
     <div class="table-card"><div class="table-scroll">
       <table>
-        <thead><tr><th>Date</th><th class="num">Ronch</th><th class="num">Amber</th><th class="num">Combined</th></tr></thead>
+        <thead><tr><th>Date</th><th>Ronch</th><th>Amber</th><th class="num">Combined</th></tr></thead>
         <tbody>
           <tr v-for="r in facilitySummaryTable" :key="r.ymd">
             <td>{{ dateLabel(r.ymd) }}</td>
-            <td class="num mono">{{ fmt(r.ronch) }}</td>
-            <td class="num mono">{{ fmt(r.amber) }}</td>
+            <td class="mono">{{ r.ronch }}</td>
+            <td class="mono">{{ r.amber }}</td>
             <td class="num mono"><b>{{ fmt(r.combined) }}</b></td>
           </tr>
         </tbody>
