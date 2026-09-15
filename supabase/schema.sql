@@ -1142,15 +1142,21 @@ create policy sop_dispatch_production_check_select on public.sop_dispatch_produc
   for select
   using (public.is_internal_staff());
 
--- sop_dispatch_pinned_date — singleton row holding the Channel Dispatch Plan's one pinned target
--- date (moves periodically, e.g. around a sale event). Updated manually via SQL when it needs to
--- move -- no write policy for authenticated/anon at all, not even the usual service-role-only
--- pattern's implicit "the sync script could write this too": the sync script only ever READS it.
+-- sop_dispatch_pinned_date — the Channel Dispatch Plan's pinned target date(s) (the business can
+-- have more than one active at once -- e.g. 24-Sep-2026 and 30-Sep-2026 coexisted starting
+-- 2026-09-15 -- so this is a normal multi-row table, not a singleton). Updated manually via SQL
+-- when a date needs to move or a new one is added -- no write policy for authenticated/anon at
+-- all, not even the usual service-role-only pattern's implicit "the sync script could write this
+-- too": the sync script only ever READS it.
 create table if not exists public.sop_dispatch_pinned_date (
-  id bigserial primary key check (id = 1),
+  id bigserial primary key,
   pinned_date date not null,
   updated_at timestamptz not null default now()
 );
+-- Migrates a pre-existing singleton-era table (id bigserial primary key CHECK (id = 1)) to the
+-- current multi-row shape -- safe/idempotent to re-run: a no-op once already migrated.
+alter table public.sop_dispatch_pinned_date drop constraint if exists sop_dispatch_pinned_date_id_check;
+create unique index if not exists sop_dispatch_pinned_date_pinned_date_idx on public.sop_dispatch_pinned_date(pinned_date);
 
 alter table public.sop_dispatch_pinned_date enable row level security;
 drop policy if exists sop_dispatch_pinned_date_select on public.sop_dispatch_pinned_date;
@@ -1159,9 +1165,14 @@ create policy sop_dispatch_pinned_date_select on public.sop_dispatch_pinned_date
   using (public.is_internal_staff());
 
 -- ---------------------------------------------------------------------
--- Bootstrap the pinned dispatch date (required once -- the sync script skips the pinned view with
--- a warning if this row doesn't exist yet). Update the date here any time the business moves it;
--- re-running this exact statement is a no-op once the row already exists with the same id.
---   insert into public.sop_dispatch_pinned_date (id, pinned_date) values (1, '2026-09-24')
---   on conflict (id) do update set pinned_date = excluded.pinned_date, updated_at = now();
+-- Bootstrap/maintain the pinned dispatch dates (required once -- the sync script simply skips any
+-- pinned date not present here). Add a new date, or re-run this whole block after the business
+-- moves/adds one -- every statement is idempotent (on_conflict on the unique pinned_date index
+-- above is a no-op for a date already present). To retire a pinned date once it's passed and no
+-- longer needed, delete its row manually: delete from public.sop_dispatch_pinned_date where
+-- pinned_date = '...';
+insert into public.sop_dispatch_pinned_date (pinned_date) values ('2026-09-24')
+  on conflict (pinned_date) do nothing;
+insert into public.sop_dispatch_pinned_date (pinned_date) values ('2026-09-30')
+  on conflict (pinned_date) do nothing;
 -- ---------------------------------------------------------------------

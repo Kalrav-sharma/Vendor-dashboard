@@ -123,6 +123,36 @@ def pad_row(row, length):
     return row + [None] * (length - len(row))
 
 
+def parse_daily_trackr_tab(rows, date_col, day_col_start):
+    """Generic reader for the 4 single-channel daily tabs (UC sales trackr / Az / FK / MT - Daily
+    trackr) -- port of parse_channel_dispatch_plan.js's parseDailyTrackrTab(). A row's date cell must
+    parse (via normalize_date, handling both 'Jun 1 2026' and 'D-MMM' forms seen across these tabs);
+    a date row present but every SKU cell blank is treated as no data for that date. Shared by
+    sync_sop_dispatch_plan.py (Expected Sale + Planned Inward blocks) and sync_sop_sales.py (Expected
+    Sale block, for the Sales: Plan vs Actual projection)."""
+    import datetime
+    current_year = datetime.date.today().year
+    series = {}
+    min_date, max_date = None, None
+    for i in range(2, len(rows)):
+        row = rows[i]
+        date_cell = row[date_col] if date_col < len(row) else None
+        ymd = normalize_date(date_cell, default_year=current_year)
+        if not ymd:
+            continue
+        raw = [row[c] if c < len(row) else None for c in range(day_col_start, day_col_start + 6)]
+        if not any(v not in (None, "") for v in raw):
+            continue
+        by_sku = {"M0": to_num(raw[0]), "M1-2nd Gen": to_num(raw[1]), "M1 Pro": to_num(raw[2]),
+                  "M2 Pro": to_num(raw[3]), "M3": to_num(raw[4]), "M3 Pro": to_num(raw[5])}
+        series[ymd] = by_sku
+        if min_date is None or ymd < min_date:
+            min_date = ymd
+        if max_date is None or ymd > max_date:
+            max_date = ymd
+    return {"series": series, "min_date": min_date, "max_date": max_date}
+
+
 def supabase_config():
     url = os.environ.get("SUPABASE_URL")
     key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")

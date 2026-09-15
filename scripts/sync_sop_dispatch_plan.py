@@ -29,7 +29,7 @@ import requests
 sys.path.insert(0, __file__.rsplit("/", 1)[0])
 from sop_common import (  # noqa: E402
     SKUS, WH_CHANNEL_SKU_ID, get_access_token, get_values, normalize_date, normalize_sku, pad_row,
-    replace_by_filter, supabase_config, to_num,
+    parse_daily_trackr_tab, replace_by_filter, supabase_config, to_num,
 )
 from sync_sop_production import parse_daily_production  # noqa: E402
 
@@ -226,31 +226,6 @@ def sum_po_outflow_by_warehouse(records, today_ymd, target_ymd):
     return outflow
 
 
-def parse_daily_trackr_tab(rows, date_col, day_col_start):
-    """Port of parseDailyTrackrTab(): generic reader for the 4 single-channel daily tabs. A row's date
-    cell must parse (via normalize_date, handling both 'Jun 1 2026' and 'D-MMM' forms seen across
-    these tabs); a date row present but every SKU cell blank is treated as no data for that date."""
-    series = {}
-    min_date, max_date = None, None
-    for i in range(2, len(rows)):
-        row = rows[i]
-        date_cell = row[date_col] if date_col < len(row) else None
-        ymd = normalize_date(date_cell, default_year=CURRENT_YEAR)
-        if not ymd:
-            continue
-        raw = [row[c] if c < len(row) else None for c in range(day_col_start, day_col_start + 6)]
-        if not any(v not in (None, "") for v in raw):
-            continue
-        by_sku = {"M0": to_num(raw[0]), "M1-2nd Gen": to_num(raw[1]), "M1 Pro": to_num(raw[2]),
-                  "M2 Pro": to_num(raw[3]), "M3": to_num(raw[4]), "M3 Pro": to_num(raw[5])}
-        series[ymd] = by_sku
-        if min_date is None or ymd < min_date:
-            min_date = ymd
-        if max_date is None or ymd > max_date:
-            max_date = ymd
-    return {"series": series, "min_date": min_date, "max_date": max_date}
-
-
 def sum_daily_series_window(series, start_ymd, num_days, include_start_day=False):
     result = {s: 0.0 for s in SKUS}
     dates_missing = []
@@ -272,13 +247,40 @@ def ordinal_suffix(n):
 
 
 def parse_diwali_opening_ask(rows, pinned_ymd):
-    """Port of parseDiwaliOpeningAsk(): per channel, finds the '<Channel> >>' anchor, then an
-    'Opening Ask for <day-after><ordinal> <MonthAbbrev>(t)' row within 15 rows below it."""
+    """Per channel, finds the '<Channel> >>' anchor (column 0), then within 15 rows below it a cell
+    in the pinned date's OWN column block matching /^opening ask for/i.
+
+    2026-09-15 rewrite (a second pinned date, 30-Sep-2026, was added alongside the existing
+    24-Sep-2026): the sheet now has one column block per pinned date, side by side, each headed in
+    row 0 with the day-after label (e.g. '25th Sept' for 24-Sep, '1st Oct' for 30-Sep) -- verified
+    live. The block's 'label' column IS its title column (not title_col+1 as a naive read of the
+    single-block-era code might suggest), and its 6 SKU columns immediately follow at
+    title_col+1..title_col+6. Critically, the "Opening Ask for ..." row's OWN wording is NOT
+    consistent between blocks -- block 1 says "Opening Ask for 25th Sept" (day-after, matching its
+    block title), block 2 says "Opening Ask for 30th Sept" (the pinned date itself, not day-after)
+    -- a confirmed real sheet inconsistency, not a bug to fix upstream. So this matches any cell
+    starting with "opening ask for" case-insensitively, rather than requiring the exact day/month
+    suffix -- this works regardless of which convention a given block's author used, and
+    automatically generalizes to however many pinned-date blocks exist in the future."""
     day_after = add_days_ymd(pinned_ymd, 1)
     y, m, d = day_after.split("-")
     day_int = int(d)
     month_abbrev = MONTH_ABBR[int(m) - 1]
     day_label = f"{day_int}{ordinal_suffix(day_int)}"
+    block_title_prefix = f"{day_label} {month_abbrev}".lower()  # e.g. "25th sep" / "1st oct" -- a
+    # prefix match tolerates "Sept" vs "Sep" spelling variants in row 0's actual title text.
+
+    title_col = None
+    if rows:
+        for c, cell in enumerate(rows[0]):
+            if str(cell or "").strip().lower().startswith(block_title_prefix):
+                title_col = c
+                break
+    if title_col is None:
+        print(f"WARNING: Diwali tab: could not find a column block titled starting with "
+              f"'{block_title_prefix}' in row 0 -- pinned-view override unavailable for {pinned_ymd}, "
+              f"falling back to daily-trackr target", file=sys.stderr)
+        return {}
 
     channel_anchors = {"Amazon >>": "Amazon", "Flipkart >>": "Flipkart", "MT >>": "MT"}
     out = {}
@@ -288,12 +290,13 @@ def parse_diwali_opening_ask(rows, pinned_ymd):
             continue
         found = False
         for j in range(i, min(i + 15, len(rows))):
-            label = str(rows[j][1] if len(rows[j]) > 1 else "").strip().lower()
-            if label.startswith(f"opening ask for {day_label} {month_abbrev}"):
+            row_j = rows[j]
+            label = str(row_j[title_col] if title_col < len(row_j) else "").strip().lower()
+            if label.startswith("opening ask for"):
                 by_sku = {}
                 for k in range(6):
-                    col = 2 + k
-                    by_sku[SKUS[k]] = to_num(rows[j][col] if col < len(rows[j]) else None)
+                    col = title_col + 1 + k
+                    by_sku[SKUS[k]] = to_num(row_j[col] if col < len(row_j) else None)
                 out[channel] = by_sku
                 found = True
                 break
@@ -466,14 +469,15 @@ def compute_for_date(ctx, target_ymd, window_days, apply_fixed_targets=False, pr
             "has_production_window": has_production_window}
 
 
-def get_pinned_date(supabase_url, key):
+def get_pinned_dates(supabase_url, key):
+    """Returns every pinned date currently configured, ascending -- the business can have more than
+    one active at once (e.g. 24-Sep-2026 and 30-Sep-2026 coexisted starting 2026-09-15)."""
     r = requests.get(f"{supabase_url}/rest/v1/sop_dispatch_pinned_date", headers={
-        "apikey": key, "Authorization": f"Bearer {key}"}, params={"select": "pinned_date", "id": "eq.1"},
-        timeout=30)
+        "apikey": key, "Authorization": f"Bearer {key}"},
+        params={"select": "pinned_date", "order": "pinned_date.asc"}, timeout=30)
     if not r.ok:
         sys.exit(f"Reading sop_dispatch_pinned_date failed ({r.status_code}): {r.text[:500]}")
-    rows = r.json()
-    return rows[0]["pinned_date"] if rows else None
+    return [row["pinned_date"] for row in r.json()]
 
 
 def main():
@@ -512,14 +516,15 @@ def main():
         "MT": parse_daily_trackr_tab(mt_rows, 0, 9)["series"],
     }
 
-    pinned_ymd = get_pinned_date(supabase_url, supabase_key)
+    pinned_dates = get_pinned_dates(supabase_url, supabase_key)
     fixed_closing_targets = {}
-    if pinned_ymd:
+    if pinned_dates:
         diwali_rows = get_values(token, WH_CHANNEL_SKU_ID, "'Diwali Sales Plan - Overall '")
-        fixed_closing_targets[pinned_ymd] = parse_diwali_opening_ask(diwali_rows, pinned_ymd)
+        for ymd in pinned_dates:
+            fixed_closing_targets[ymd] = parse_diwali_opening_ask(diwali_rows, ymd)
     else:
-        print("WARNING: sop_dispatch_pinned_date has no row -- skipping the pinned view this run "
-              "(set it via SQL to enable).", file=sys.stderr)
+        print("WARNING: sop_dispatch_pinned_date has no rows -- skipping every pinned view this run "
+              "(add one via SQL to enable).", file=sys.stderr)
 
     ctx = {
         "today_ymd": today_ymd, "current_inv": current_inv, "current_inv_by_city_uc": current_inv_by_city_uc,
@@ -570,13 +575,15 @@ def main():
         result = compute_for_date(ctx, target_ymd, n)
         emit(f"+{n}", result)
 
-    if pinned_ymd:
+    pinned_views_emitted = 0
+    for pinned_ymd in pinned_dates:
         days_out = (datetime.date.fromisoformat(pinned_ymd) - today).days
         if days_out > 0:
             production_window_end_override = add_days_ymd(pinned_ymd, -1)
             result = compute_for_date(ctx, pinned_ymd, days_out, apply_fixed_targets=True,
                                        production_window_end_override=production_window_end_override)
-            emit("PINNED", result)
+            emit(f"PINNED_{pinned_ymd}", result)
+            pinned_views_emitted += 1
         else:
             print(f"NOTE: pinned date {pinned_ymd} has already passed -- skipping the pinned view this run.",
                   file=sys.stderr)
@@ -587,7 +594,7 @@ def main():
                        {"run_date": f"eq.{run_date}"}, allow_empty=True)
 
     print(f"Synced {len(plan_rows)} dispatch-plan row(s) and {len(prod_check_rows)} production-check "
-          f"row(s) across {len(HORIZON_DAYS) + (1 if pinned_ymd else 0)} view(s) for run_date {run_date}.")
+          f"row(s) across {len(HORIZON_DAYS) + pinned_views_emitted} view(s) for run_date {run_date}.")
 
 
 if __name__ == "__main__":
