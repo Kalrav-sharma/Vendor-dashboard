@@ -46,7 +46,7 @@ import requests
 IST = timezone(timedelta(hours=5, minutes=30))
 REQUEST_TIMEOUT = 30
 RESEND_API_URL = "https://api.resend.com/emails"
-PORTAL_URL = "https://native-vendors.com/vendor.html"
+PORTAL_URL = "https://kalrav-sharma.github.io/Vendor-dashboard/vendor.html"
 REMINDER_DELAY_DAYS = 7  # first reminder fires once this many days have passed since the anchor email was sent
 
 
