@@ -192,8 +192,8 @@ button.link-btn {
 
 .table-card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
 .table-scroll { overflow-x: auto; }
-table { width: 100%; border-collapse: collapse; font-size: 0.83rem; min-width: 920px; }
-th { text-align: left; padding: 10px 12px; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); font-weight: 600; border-bottom: 1px solid var(--line); background: var(--paper); white-space: nowrap; vertical-align: middle; }
+table { width: 100%; border-collapse: collapse; font-size: 0.86rem; min-width: 920px; }
+th { text-align: left; padding: 10px 12px; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); font-weight: 600; border-bottom: 1px solid var(--line); background: var(--paper); white-space: nowrap; vertical-align: middle; }
 /* A numeric column's header must right-align to match its data below it --
    .num already does this for td; th needs the same rule under the same
    class so a table only ever has to remember one class per numeric column,
@@ -201,8 +201,9 @@ th { text-align: left; padding: 10px 12px; font-size: 0.68rem; text-transform: u
 th.num { text-align: right; }
 td { padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: middle; }
 /* Bold total/summary row -- replaces the inline style="font-weight: 600;"
-   pattern repeated across every sop/*.vue table. */
-tr.row-total td { font-weight: 600; }
+   pattern repeated across every sop/*.vue table. The heavier top rule
+   detaches it from the body rows so the eye stops there. */
+tr.row-total td { font-weight: 600; border-top: 2px solid var(--line); }
 tbody tr:last-child td { border-bottom: none; }
 tbody tr:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); }
 .clickable-row { cursor: pointer; }
@@ -240,6 +241,40 @@ tbody tr:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); 
 /* Section heading used by every sop/*.vue tab -- replaces the ~15
    copy-pasted inline style="font-size: 0.95rem; margin: 0 0 10px;" h3s. */
 .section-title { font-size: 0.95rem; font-weight: 600; margin: 0 0 10px; }
+
+/* Grouped-column tables (the two DRR/DOI matrices, where every SKU spans a
+   DRR + DOI pair). Without these the pairs run together as one wall of
+   numbers and the SKU label sits hard-right over its pair, because th.num
+   right-aligns it. .col-group centres the spanning header; .col-sep draws
+   the vertical rule that opens each group and runs the full table height;
+   .num-c centres the values under it (Anish asked for centred text AND
+   numbers in these two tables specifically -- every other table keeps
+   right-aligned .num). */
+.col-group { text-align: center; border-left: 1px solid var(--line); }
+.col-sep { border-left: 1px solid var(--line); }
+.num-c { text-align: center; white-space: nowrap; width: 1%; }
+
+/* Card caption -- the small title bar inside a .table-card (dark-store city
+   names, per-scope plan sections). */
+.card-caption { font-size: 0.83rem; font-weight: 600; margin: 0; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+
+/* Heading above one channel/warehouse block in S&OP Planning. */
+.scope-title { font-size: 0.85rem; font-weight: 600; margin: 0 0 4px; text-transform: uppercase; letter-spacing: 0.02em; }
+
+/* Second line inside a sub-tab button (a horizon's resolved target date) and
+   inside a table header (the date a Proj. Closing is measured at). */
+.subtab-sub { display: block; font-size: 0.68rem; font-weight: 400; color: var(--muted); margin-top: 2px; }
+.th-sub { font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--muted); }
+
+/* Segmented toggle that swaps a whole view (S&OP Planning's Scope switch) --
+   a real button, unlike .radio-pill which labels a radio input. */
+.toggle-btn {
+  padding: 7px 14px; border-radius: 7px; border: 1px solid var(--line); background: var(--surface);
+  color: var(--ink); font-family: inherit; font-size: 0.85rem; cursor: pointer;
+}
+.toggle-btn:hover { background: var(--paper); }
+.toggle-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.toggle-btn .sub { opacity: 0.75; font-weight: 400; }
 
 /* Hand-rolled radio-button "pill" toggle row (DOI target, Scope, in-transit
    mode, etc.) -- replaces the twice-duplicated inline-styled flex/gap markup. */

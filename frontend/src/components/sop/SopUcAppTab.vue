@@ -80,13 +80,13 @@ const drrDoiTable = computed(() => {
   }));
 });
 
-// Warehouses: DOI < 10 red, >= 30 green. Dark stores: DOI < 10 red, >= 10 green (a lower bar,
-// per Anish -- a dark store restocks far more often than a warehouse).
+// Red-only, per Anish (2026-09-16): colour here means "needs attention" and nothing else -- no
+// green at any value, because a healthy DOI doesn't need to shout. Warehouses flag below 15 days,
+// dark stores below 10 (they restock far more often, so a lower cover is normal for them).
 function doiClass(row) {
   if (!row || row.doi == null) return "";
-  if (row.doi < 10) return "cell-critical";
-  if (row.doi >= (row.facility_type === "DARK_STORE" ? 10 : 30)) return "cell-good";
-  return "";
+  const floor = row.facility_type === "DARK_STORE" ? 10 : 15;
+  return row.doi < floor ? "cell-critical" : "";
 }
 function doiText(row) {
   if (!row) return "–";
@@ -135,7 +135,7 @@ const kpiTiles = computed(() => [
 
     <h3 class="section-title">Dark stores on-hand</h3>
     <div v-for="t in darkStoreTables" :key="t.city" class="table-card" style="margin-bottom: 16px;">
-      <h4 style="font-size: 0.83rem; margin: 0; padding: 10px 12px; border-bottom: 1px solid var(--line);">{{ t.city }}</h4>
+      <h4 class="card-caption">{{ t.city }}</h4>
       <div class="table-scroll">
         <table>
           <thead><tr><th>Store</th><th v-for="s in SKUS" :key="s" class="num">{{ s }}</th><th class="num">Total</th></tr></thead>
@@ -188,29 +188,30 @@ const kpiTiles = computed(() => [
     <h3 class="section-title" style="margin-bottom: 6px;">Warehouse &amp; dark-store DRR / DOI</h3>
     <p class="field-hint" style="margin: 0 0 10px;">
       DRR: trailing 10-day average (warehouses) / 15-day average (dark stores) direct sales. DOI: on-hand / DRR.
-      <span class="chip chip-critical" style="margin-left: 6px;">DOI &lt; 10</span>
-      <span class="chip chip-good">DOI &#8805; 30 (warehouses) / &#8805; 10 (dark stores)</span>
+      Only low cover is flagged:
+      <span class="chip chip-critical" style="margin-left: 6px;">warehouse DOI &lt; 15</span>
+      <span class="chip chip-critical" style="margin-left: 4px;">dark store DOI &lt; 10</span>
     </p>
     <div class="table-card"><div class="table-scroll">
       <table>
         <thead>
           <tr>
             <th rowspan="2">Facility</th>
-            <th v-for="s in SKUS" :key="s" colspan="2" class="num">{{ s }}</th>
+            <th v-for="s in SKUS" :key="s" colspan="2" class="col-group">{{ s }}</th>
           </tr>
           <tr>
             <template v-for="s in SKUS" :key="s">
-              <th class="num">DRR</th>
-              <th class="num">DOI</th>
+              <th class="num-c col-sep">DRR</th>
+              <th class="num-c">DOI</th>
             </template>
           </tr>
         </thead>
         <tbody>
           <tr v-for="r in drrDoiTable" :key="r.name">
-            <td :class="{ 'fac-code': r.isDarkStore }">{{ r.name }}</td>
+            <td :class="r.isDarkStore ? 'fac-code' : ''"><b v-if="!r.isDarkStore">{{ r.name }}</b><template v-else>{{ r.name }}</template></td>
             <template v-for="(c, i) in r.cells" :key="i">
-              <td class="num mono">{{ c ? fmt(c.drr) : "–" }}</td>
-              <td class="num mono" :class="doiClass(c)">{{ doiText(c) }}</td>
+              <td class="num-c mono col-sep">{{ c ? fmt(c.drr) : "–" }}</td>
+              <td class="num-c mono" :class="doiClass(c)">{{ doiText(c) }}</td>
             </template>
           </tr>
         </tbody>

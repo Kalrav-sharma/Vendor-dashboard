@@ -1247,6 +1247,7 @@ create table if not exists public.sop_dispatch_production_check (
   id bigserial primary key,
   run_date date not null,
   view_key text not null,
+  doi_target int,                    -- 30 | 15 | 7 | 0 -- `required` is computed per DOI target
   sku text not null,
   production_planned numeric,
   required numeric,
@@ -1254,6 +1255,9 @@ create table if not exists public.sop_dispatch_production_check (
   status text,                       -- SHORTFALL | ON TRACK | N/A
   synced_at timestamptz not null default now()
 );
+-- Added 2026-09-16: the sync always wrote one row per (view, DOI target, SKU) but had no column to
+-- say WHICH target, so the portal couldn't filter and stacked all four sets into one table.
+alter table public.sop_dispatch_production_check add column if not exists doi_target int;
 
 alter table public.sop_dispatch_production_check enable row level security;
 drop policy if exists sop_dispatch_production_check_select on public.sop_dispatch_production_check;

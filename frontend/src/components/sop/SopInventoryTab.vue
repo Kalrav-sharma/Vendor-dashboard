@@ -112,21 +112,21 @@ const kpiTiles = computed(() => [
       <thead>
         <tr>
           <th rowspan="2">Channel</th>
-          <th v-for="s in SKUS" :key="s" colspan="2" class="num">{{ s }}</th>
+          <th v-for="s in SKUS" :key="s" colspan="2" class="col-group">{{ s }}</th>
         </tr>
         <tr>
           <template v-for="s in SKUS" :key="s">
-            <th class="num">DRR</th>
-            <th class="num">DOI</th>
+            <th class="num-c col-sep">DRR</th>
+            <th class="num-c">DOI</th>
           </template>
         </tr>
       </thead>
       <tbody>
         <tr v-for="r in drrDoiTable" :key="r.channel">
-          <td>{{ r.channel }}</td>
+          <td><b>{{ r.channel }}</b></td>
           <template v-for="(c, i) in r.cells" :key="i">
-            <td class="num mono">{{ c ? fmt(c.drr) : "–" }}</td>
-            <td class="num mono" :class="doiClass(c)">{{ doiText(c) }}</td>
+            <td class="num-c mono col-sep">{{ c ? fmt(c.drr) : "–" }}</td>
+            <td class="num-c mono" :class="doiClass(c)">{{ doiText(c) }}</td>
           </template>
         </tr>
       </tbody>
