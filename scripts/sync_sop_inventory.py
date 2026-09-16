@@ -96,6 +96,27 @@ FACILITY_TITLE_COLS = {
     'Bangalore': 17, 'Hyderabad': 25, 'Gurgaon': 33, 'Mumbai': 41, 'Kolkata': 49,
 }
 DRR_LOOKBACK_DAYS = 10
+DARK_STORE_DRR_LOOKBACK_DAYS = 15  # dark stores use a 15-day lookback, per Anish -- warehouses use 10
+
+# The 5 DTDC/SFX buckets in "Current Inventory" are each an aggregate label over multiple individual
+# dark stores (confirmed live 2026-09-16, correcting an earlier wrong assumption that only
+# city-aggregated totals existed) -- these are the bucket labels whose individual City-column rows
+# get kept as separate stores instead of being summed away.
+DARK_STORE_CITY_BUCKETS = ['DTDC Bangalore', 'DTDC Gurgaon', 'DTDC Kolkata', 'SFX Mumbai', 'SFX Hyderabad']
+
+# "UC sales trackr" per-dark-store "Actual Sales" block title columns (0-indexed), same block shape
+# as FACILITY_TITLE_COLS above -- verified live 2026-09-16, same 8-column stride continuing right
+# after the 5 warehouse blocks. Only 19 of the 21 dark stores in Current Inventory have a block here
+# (PB-UC-DEL-JHILMIL and PB-UC-GGN-SOHNA don't) -- those two get on-hand rows but no DRR/DOI row.
+DARK_STORE_TITLE_COLS = {
+    'PB-UC-BLR-NERALURU': 57, 'PB-UC-BLR-WHITEFIELD': 65, 'PB-UC-BLR-YELAHANKA': 73,
+    'PB-UC-BLR-BUMMANAHALLI': 81, 'PB-UC-BLR-SARAKKI': 89,
+    'PB-UC-DEL-KAPASHERA': 97, 'PB-UC-DEL-OKHLA': 105, 'PB-UC-DEL-ROHINI': 113, 'PB-UC-DEL-SHADHARA': 121,
+    'PB-UC-KOL-AGARPARA': 129, 'PB-UC-KOL-CAMACSTREET': 137, 'PB-UC-KOL-TARATALA': 145, 'PB-UC-KOL-RAJARHAT': 153,
+    'PB-UC-BOM-SION': 161, 'PB-UC-BOM-MARINE-LINE': 169, 'PB-UC-BOM-POWAI': 177,
+    'PB-UC-BOM-MALAD-WEST': 185, 'PB-UC-BOM-MALAD-EAST': 193,
+    'PB-UC-HYD-MANIKONDA': 201,
+}
 
 
 def normalize_sku(raw):
@@ -200,6 +221,57 @@ def parse_channel_inventory_overview(rows):
     uc_rows = [{"warehouse": wh, "sku": s, "on_hand": uc_city_on_hand[wh][s]}
                for wh in WAREHOUSES for s in SKUS]
     return channel_rows, uc_rows
+
+
+def parse_dark_store_on_hand(rows):
+    """Same row-walk as parse_channel_inventory_overview above, but for the 5 DTDC/SFX channel
+    blocks specifically -- keeps each individual City-column value (a facility code, e.g.
+    'PB-UC-BLR-NERALURU') as its own store row instead of collapsing every row in the block into
+    one bucket total. Returns [{city, store, sku, on_hand}, ...] for all individual dark stores
+    found (21 as of 2026-09-16), regardless of whether that store also has a UC sales trackr DRR
+    block (2 of them don't -- see DARK_STORE_TITLE_COLS)."""
+    header_row_idx = -1
+    sku_col_map = {}
+    for i in range(min(10, len(rows))):
+        row = pad_row(rows[i], 2)
+        if str(row[0] or "").strip().lower() == "channel" and str(row[1] or "").strip().lower() == "city":
+            header_row_idx = i
+            for c in range(2, len(rows[i])):
+                sku = normalize_sku(rows[i][c])
+                if sku and sku not in sku_col_map:
+                    sku_col_map[sku] = c
+            break
+    if header_row_idx == -1:
+        print("WARNING: could not find 'Channel'/'City' header row in Current Inventory tab", file=sys.stderr)
+        return []
+
+    store_totals = {}
+    store_city = {}
+    current_channel = ""
+    for i in range(header_row_idx + 1, len(rows)):
+        row = pad_row(rows[i], 2)
+        chan_val = str(row[0] or "").strip()
+        city_val = str(row[1] or "").strip()
+        if city_val.lower() == "in transit inventory":
+            break
+        if chan_val:
+            current_channel = chan_val
+        if not city_val or city_val.lower() in ("total", "grand total"):
+            continue
+        bucket = INVENTORY_CHANNEL_MAP.get(current_channel.upper())
+        if bucket not in DARK_STORE_CITY_BUCKETS:
+            continue
+        store = city_val.upper()
+        store_city[store] = bucket
+        store_totals.setdefault(store, {s: 0.0 for s in SKUS})
+        for sku in SKUS:
+            col = sku_col_map.get(sku)
+            if col is None or col >= len(row):
+                continue
+            store_totals[store][sku] += to_num(row[col])
+
+    return [{"city": store_city[store], "store": store, "sku": s, "on_hand": store_totals[store][s]}
+            for store in store_totals for s in SKUS]
 
 
 def parse_uc_warehouse_in_transit(rows):
@@ -315,8 +387,7 @@ def compute_channel_drr_doi(token, supabase_url, supabase_key, channel_on_hand):
             result = compute_forward_doi_from_series(
                 expected_sale["series"], expected_sale["max_date"], today_ymd, sku, on_hand,
             )
-            doi, doi_flag = (None, "INSUFFICIENT_DATA") if result == "INSUFFICIENT_DATA" else \
-                (None, None) if result is None else (result, None)
+            doi, doi_flag = (None, result) if isinstance(result, str) else (result, None)
             rows.append({"channel": ch, "sku": sku, "drr": drr[ch][sku], "doi": doi, "doi_flag": doi_flag})
     return rows
 
@@ -339,6 +410,26 @@ def compute_facility_drr_doi(uc_trackr_rows, uc_warehouse_on_hand):
             on_hand = uc_warehouse_on_hand.get(wh, {}).get(sku, 0.0)
             doi = (on_hand / drr) if drr > 0 else None
             rows.append({"facility": wh, "facility_type": "WAREHOUSE", "sku": sku,
+                         "drr": drr, "doi": doi, "on_hand": on_hand})
+    return rows
+
+
+def compute_dark_store_drr_doi(uc_trackr_rows, dark_store_on_hand):
+    """sop_facility_drr_doi DARK_STORE rows: same on_hand/DRR ratio as compute_facility_drr_doi, but
+    a 15-day DRR lookback (not 10 -- per Anish, dark stores use a longer window than warehouses) and
+    only for the 19 of 21 dark stores that have their own UC sales trackr block."""
+    today = datetime.date.today()
+    lookback_ymds = [(today - datetime.timedelta(days=d)).isoformat()
+                      for d in range(1, DARK_STORE_DRR_LOOKBACK_DAYS + 1)]
+    rows = []
+    for store, title_col in DARK_STORE_TITLE_COLS.items():
+        series = parse_uc_sales_trackr_facility_block(uc_trackr_rows, title_col)["series"]
+        for sku in SKUS:
+            vals = [series[ymd][sku] for ymd in lookback_ymds if ymd in series]
+            drr = sum(vals) / len(vals) if vals else 0.0
+            on_hand = dark_store_on_hand.get(store, {}).get(sku, 0.0)
+            doi = (on_hand / drr) if drr > 0 else None
+            rows.append({"facility": store, "facility_type": "DARK_STORE", "sku": sku,
                          "drr": drr, "doi": doi, "on_hand": on_hand})
     return rows
 
@@ -410,14 +501,23 @@ def main():
     uc_trackr_rows = get_values(token, WH_CHANNEL_SKU_ID, "'UC sales trackr'")
     uc_warehouse_on_hand = {wh: {s: on_hand_by_key.get((wh, s), 0.0) for s in SKUS} for wh in WAREHOUSES}
     facility_drr_doi_rows = compute_facility_drr_doi(uc_trackr_rows, uc_warehouse_on_hand)
+
+    # Dark-store on-hand (UC App + PLS "On hand Inventory" view, item 2c) + DRR/DOI (item 2d).
+    dark_store_rows = parse_dark_store_on_hand(inv_rows)
+    upsert(supabase_url, supabase_key, "sop_dark_store_inventory", dark_store_rows, "store,sku")
+
+    dark_store_on_hand = {}
+    for r in dark_store_rows:
+        dark_store_on_hand.setdefault(r["store"], {})[r["sku"]] = r["on_hand"]
+    facility_drr_doi_rows += compute_dark_store_drr_doi(uc_trackr_rows, dark_store_on_hand)
     upsert(supabase_url, supabase_key, "sop_facility_drr_doi", facility_drr_doi_rows, "facility,sku")
 
     total_channel_qty = sum(r["qty"] for r in channel_rows)
     total_uc_combined = sum(r["on_hand"] + r["in_transit"] for r in uc_warehouse_rows)
     print(f"Synced {len(channel_rows)} channel-inventory row(s) (total qty {total_channel_qty:.0f}), "
           f"{len(uc_warehouse_rows)} UC-warehouse row(s) (total on-hand+in-transit {total_uc_combined:.0f}), "
-          f"{len(channel_drr_doi_rows)} channel DRR/DOI row(s), and {len(facility_drr_doi_rows)} "
-          f"facility DRR/DOI row(s).")
+          f"{len(channel_drr_doi_rows)} channel DRR/DOI row(s), {len(dark_store_rows)} dark-store "
+          f"on-hand row(s), and {len(facility_drr_doi_rows)} facility DRR/DOI row(s).")
 
 
 if __name__ == "__main__":

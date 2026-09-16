@@ -946,12 +946,38 @@ create policy sop_channel_drr_doi_select on public.sop_channel_drr_doi
   using (public.is_internal_staff());
 
 -- ---------------------------------------------------------------------
--- sop_facility_drr_doi — new "UC App + PLS" tab's warehouse (and, in a
--- later Uniware-sync follow-up, dark-store) DRR/DOI health view.
--- facility_type is 'WAREHOUSE' today; 'DARK_STORE' rows land once
--- individual dark-store on-hand inventory is synced from Uniware directly
--- (the Google Sheet only has city-aggregated totals, not per-locality).
--- DRR = trailing N-day average from "UC sales trackr"'s per-facility Actual
+-- sop_dark_store_inventory — new "UC App + PLS" tab's "On hand Inventory"
+-- view, individual dark-store rows shown below the 5 warehouses (city
+-- grouping: DTDC Bangalore/Gurgaon/Kolkata, SFX Mumbai/Hyderabad). Each
+-- DTDC/SFX bucket in "Current Inventory" is actually an aggregate label
+-- over multiple individual dark stores (21 as of 2026-09-16, confirmed
+-- live -- corrects an earlier wrong assumption that only city-aggregated
+-- totals existed) -- see parse_dark_store_on_hand in sync_sop_inventory.py.
+-- ---------------------------------------------------------------------
+create table if not exists public.sop_dark_store_inventory (
+  id bigserial primary key,
+  city text not null,           -- the DTDC/SFX bucket this store belongs to
+  store text not null,          -- individual facility code, e.g. 'PB-UC-BLR-NERALURU'
+  sku text not null,
+  on_hand numeric not null default 0,
+  synced_at timestamptz not null default now(),
+  unique (store, sku)
+);
+
+alter table public.sop_dark_store_inventory enable row level security;
+
+drop policy if exists sop_dark_store_inventory_select on public.sop_dark_store_inventory;
+create policy sop_dark_store_inventory_select on public.sop_dark_store_inventory
+  for select
+  using (public.is_internal_staff());
+
+-- ---------------------------------------------------------------------
+-- sop_facility_drr_doi — "UC App + PLS" tab's warehouse AND dark-store
+-- DRR/DOI health view. facility_type 'WAREHOUSE' rows use a 10-day DRR
+-- lookback; 'DARK_STORE' rows use 15 days (per Anish) and only exist for
+-- the 19 of 21 dark stores that have their own "UC sales trackr" block
+-- (2 don't -- see DARK_STORE_TITLE_COLS in sync_sop_inventory.py). DRR =
+-- trailing N-day average from "UC sales trackr"'s per-facility Actual
 -- Sales blocks (parse_uc_sales_trackr_facility_block in sop_common.py);
 -- DOI = simple on_hand/DRR ratio (not a forward-series walk, unlike
 -- sop_channel_drr_doi above).
@@ -1169,7 +1195,7 @@ create table if not exists public.sop_dispatch_plan (
   required_dispatch numeric,
   status text,
   projected_doi numeric,             -- null when projected_doi_flag is set
-  projected_doi_flag text,           -- null | 'INSUFFICIENT_DATA'
+  projected_doi_flag text,           -- null | '>60' (walk didn't exhaust within 60 days)
   synced_at timestamptz not null default now()
 );
 create index if not exists idx_sop_dispatch_plan_run_view on public.sop_dispatch_plan(run_date, view_key);

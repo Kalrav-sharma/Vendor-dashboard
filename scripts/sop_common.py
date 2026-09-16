@@ -153,7 +153,7 @@ def parse_daily_trackr_tab(rows, date_col, day_col_start):
     return {"series": series, "min_date": min_date, "max_date": max_date}
 
 
-DOI_PROJECTION_MAX_DAYS = 400
+DOI_DISPLAY_CAP_DAYS = 60
 
 
 def add_days_ymd(ymd, days):
@@ -161,25 +161,31 @@ def add_days_ymd(ymd, days):
     return (datetime.date.fromisoformat(ymd) + datetime.timedelta(days=days)).isoformat()
 
 
-def compute_forward_doi_from_series(series, max_known_ymd, start_ymd, sku, quantity, rate_multiplier=1.0):
+def compute_forward_doi_from_series(series, max_known_ymd, start_ymd, sku, quantity, rate_multiplier=1.0,
+                                     cap_days=DOI_DISPLAY_CAP_DAYS):
     """Port of computeForwardDOIFromSeries(): forward walk consuming daily rate until exhausted.
-    Returns a float day count, None (capped at DOI_PROJECTION_MAX_DAYS), or 'INSUFFICIENT_DATA'.
+    Returns a float day count if exhausted within cap_days, or the literal string f">{cap_days}"
+    otherwise -- whether that's because the walk ran past the series' own known forecast window, or
+    the quantity is just genuinely large. Per Anish: hitting that ceiling only ever means "this SKU
+    is so overstocked the forecast doesn't even reach far enough to exhaust it" -- one plain ">60"
+    outcome reads better on a leadership-facing dashboard than distinguishing "insufficient data"
+    from "400+" (the two outcomes this collapsed, before 2026-09-16).
     Shared by sync_sop_dispatch_plan.py (Target Closing / Required Dispatch) and
     sync_sop_inventory.py (sop_channel_drr_doi's DOI column)."""
     if not (quantity > 0):
         return 0.0
     remaining, ymd = quantity, start_ymd
-    for days in range(1, DOI_PROJECTION_MAX_DAYS + 1):
+    for days in range(1, cap_days + 1):
         ymd = add_days_ymd(ymd, 1)
         if not max_known_ymd or ymd > max_known_ymd:
-            return "INSUFFICIENT_DATA"
+            return f">{cap_days}"
         daily_rate = series.get(ymd, {}).get(sku, 0.0) * rate_multiplier
         if daily_rate <= 0:
             continue
         if remaining <= daily_rate:
             return (days - 1) + remaining / daily_rate
         remaining -= daily_rate
-    return None
+    return f">{cap_days}"
 
 
 def parse_uc_sales_trackr_facility_block(rows, title_col):
@@ -189,8 +195,8 @@ def parse_uc_sales_trackr_facility_block(rows, title_col):
     a different block shape from parse_daily_trackr_tab's Expected Sale blocks, which have no title
     row occupying a data column. Verified live 2026-09-15: PB-UC-BLR@17, PB-UC-HYD@25,
     PB-UC-GGN@33, PB-UC-BOMBAY@41, PB-UC-KOL@49 (8-column stride, one blank separator column
-    between blocks); the same stride continues rightward into the 19 individual dark-store blocks
-    (not read by this codebase yet -- Uniware-sync follow-up). Date column is always 0 (col A),
+    between blocks); the same stride continues rightward into the 21 individual dark-store blocks
+    (see DARK_STORE_TITLE_COLS in sync_sop_inventory.py). Date column is always 0 (col A),
     same convention as every other daily tab."""
     import datetime
     current_year = datetime.date.today().year

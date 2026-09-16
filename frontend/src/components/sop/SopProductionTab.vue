@@ -5,13 +5,15 @@
 // across all SKUs) the user specifically asked for. A view selector picks
 // one group at a time instead of stacking every table on screen.
 //
-// The "planned" figure for a past date is read from production_plan_snapshots
-// (frozen the morning of that date, before the sheet's own Actual
-// Production cell could flip from placeholder-plan to true-actual) rather
-// than sop_production_daily's live planned_qty, which may have already
-// flipped by the time anyone views this page. The Planned Production
-// table heading says "(snapshot)" to signal this rather than tagging
-// individual rows/cells.
+// Planned Production always reads the live sop_production_daily.planned_qty
+// (sourced from "Day wise trackr"'s "Combined Planned Production" header) --
+// per Anish, reiterated twice: "you have to take numbers from there
+// everytime". This used to prefer a pre-day snapshot of the Actual
+// Production column's placeholder value instead (a past fix for that
+// column's own overwrite-on-the-day quirk); that snapshot table
+// (production_plan_snapshots) still exists and is still populated daily --
+// sync_sop_po_fulfillment.py depends on it for its own RCA -- this tab
+// just no longer prefers it for display.
 import { computed, ref } from "vue";
 import { useSopProductionData } from "../../composables/useSopProductionData.js";
 import SummaryKpis from "../SummaryKpis.vue";
@@ -23,7 +25,7 @@ const VIEWS = [
   { key: "by-facility", label: "By Facility" },
 ];
 
-const { dailyRows, snapshotRows, loadError } = useSopProductionData();
+const { dailyRows, loadError } = useSopProductionData();
 
 const activeView = ref(VIEWS[0].key);
 
@@ -70,22 +72,9 @@ const byDateSkuFacility = computed(() => {
   }
   return map;
 });
-// snapshot_date -> sku -> facility -> planned_qty
-const snapshotMap = computed(() => {
-  const map = {};
-  for (const r of snapshotRows.value) {
-    map[r.snapshot_date] = map[r.snapshot_date] || {};
-    map[r.snapshot_date][r.sku] = map[r.snapshot_date][r.sku] || {};
-    map[r.snapshot_date][r.sku][r.facility] = r.planned_qty;
-  }
-  return map;
-});
-
-// Resolves the planned figure for one (date, sku, facility): a frozen snapshot if one exists,
-// else the live (possibly not-yet-final) figure.
+// Always the live figure -- sourced from "Day wise trackr"'s "Combined Planned Production"
+// header, per Anish's explicit instruction, for every date (past or future).
 function resolvedPlanned(ymd, sku, facility) {
-  const snap = (snapshotMap.value[ymd] || {})[sku]?.[facility];
-  if (snap !== undefined) return snap;
   return (byDateSkuFacility.value[ymd] || {})[sku]?.[facility]?.planned_qty ?? null;
 }
 
@@ -148,7 +137,7 @@ const kpiTiles = computed(() => {
   </div>
 
   <div v-show="activeView === 'planned-actual'">
-    <h3 style="font-size: 0.95rem; margin: 0 0 10px;">Planned Production (snapshot)</h3>
+    <h3 class="section-title">Planned Production</h3>
     <div class="table-card" style="margin-bottom: 24px;"><div class="table-scroll">
       <table>
         <thead><tr><th>Date</th><th v-for="s in SKUS" :key="s" class="num">{{ s }}</th><th class="num">Total</th></tr></thead>
@@ -162,7 +151,7 @@ const kpiTiles = computed(() => {
       </table>
     </div></div>
 
-    <h3 style="font-size: 0.95rem; margin: 0 0 10px;">Actual Production (network-wide)</h3>
+    <h3 class="section-title">Actual Production (network-wide)</h3>
     <div class="table-card" style="margin-bottom: 24px;"><div class="table-scroll">
       <table>
         <thead><tr><th>Date</th><th v-for="s in SKUS" :key="s" class="num">{{ s }}</th><th class="num">Total</th></tr></thead>
@@ -176,14 +165,14 @@ const kpiTiles = computed(() => {
       </table>
     </div></div>
 
-    <h3 style="font-size: 0.95rem; margin: 0 0 10px;">Delta (Actual - Planned)</h3>
+    <h3 class="section-title">Delta (Actual - Planned)</h3>
     <div class="table-card"><div class="table-scroll">
       <table>
         <thead><tr><th>Date</th><th v-for="s in SKUS" :key="s" class="num">{{ s }}</th><th class="num">Total</th></tr></thead>
         <tbody>
           <tr v-for="r in combinedTable" :key="r.ymd">
             <td>{{ dateLabel(r.ymd) }}</td>
-            <td v-for="p in r.perSku" :key="p.sku" class="num mono" :class="r.ymd < todayYMD ? { critical: (p.actual - (p.planned||0)) < 0, good: (p.actual - (p.planned||0)) > 0 } : {}">
+            <td v-for="p in r.perSku" :key="p.sku" class="num mono" :class="r.ymd < todayYMD ? { 'cell-critical': (p.actual - (p.planned||0)) < 0, 'cell-good': (p.actual - (p.planned||0)) > 0 } : {}">
               {{ fmt(p.actual - (p.planned || 0)) }}
             </td>
             <td class="num mono"><b>{{ fmt(r.actualTotal - r.plannedTotal) }}</b></td>
@@ -194,7 +183,7 @@ const kpiTiles = computed(() => {
   </div>
 
   <div v-show="activeView === 'by-facility'">
-    <h3 style="font-size: 0.95rem; margin: 0 0 10px;">Actual Production by facility (all SKUs combined)</h3>
+    <h3 class="section-title">Actual Production by facility (all SKUs combined)</h3>
     <p v-if="showPreAugCaveat" class="chip chip-muted" style="display: inline-block; margin-bottom: 12px;">
       Facility split was unmaintained before Aug 2026 -- treat pre-Aug-2026 Ronch/Amber figures as unreliable.
     </p>

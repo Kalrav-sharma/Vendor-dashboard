@@ -525,7 +525,7 @@ def main():
                     "target_closing": doi["target"], "required_dispatch": doi["required_dispatch"],
                     "status": doi["status"],
                     "projected_doi": r["projected_doi"] if isinstance(r["projected_doi"], (int, float)) else None,
-                    "projected_doi_flag": r["projected_doi"] if r["projected_doi"] == "INSUFFICIENT_DATA" else None,
+                    "projected_doi_flag": r["projected_doi"] if isinstance(r["projected_doi"], str) else None,
                 })
         for r in result["wh_rows"]:
             for d in DOI_TARGETS:
@@ -537,7 +537,7 @@ def main():
                     "target_closing": doi["target"], "required_dispatch": doi["required_dispatch"],
                     "status": doi["status"],
                     "projected_doi": r["projected_doi"] if isinstance(r["projected_doi"], (int, float)) else None,
-                    "projected_doi_flag": r["projected_doi"] if r["projected_doi"] == "INSUFFICIENT_DATA" else None,
+                    "projected_doi_flag": r["projected_doi"] if isinstance(r["projected_doi"], str) else None,
                 })
         for d in DOI_TARGETS:
             for r in result["production_rows_by_doi"][d]:

@@ -59,16 +59,16 @@ const drrDoiTable = computed(() => {
 });
 
 function doiClass(row) {
-  if (!row || row.doi_flag === "INSUFFICIENT_DATA") return "";
-  if (row.doi == null) return "good"; // capped past 400 days -- definitely >= 30
-  if (row.doi < 10) return "critical";
-  if (row.doi >= 30) return "good";
+  if (!row) return "";
+  if (row.doi_flag) return "cell-good"; // ">60" -- always well-stocked
+  if (row.doi < 10) return "cell-critical";
+  if (row.doi >= 30) return "cell-good";
   return "";
 }
 function doiText(row) {
   if (!row) return "–";
-  if (row.doi_flag === "INSUFFICIENT_DATA") return null; // rendered as a chip instead
-  return row.doi == null ? "400+" : (Math.round(row.doi * 10) / 10).toLocaleString("en-IN");
+  if (row.doi_flag) return row.doi_flag; // ">60"
+  return (Math.round(row.doi * 10) / 10).toLocaleString("en-IN");
 }
 
 const kpiTiles = computed(() => [
@@ -81,7 +81,7 @@ const kpiTiles = computed(() => [
 
   <div v-if="loadError" class="form-error">{{ loadError }}</div>
 
-  <h3 style="font-size: 0.95rem; margin: 0 0 10px;">Channel x SKU inventory</h3>
+  <h3 class="section-title">Channel x SKU inventory</h3>
   <div class="table-card" style="margin-bottom: 28px;"><div class="table-scroll">
     <table>
       <thead><tr><th>Channel</th><th v-for="s in SKUS" :key="s" class="num">{{ s }}</th><th class="num">Total</th></tr></thead>
@@ -91,7 +91,7 @@ const kpiTiles = computed(() => [
           <td v-for="(c, i) in r.cells" :key="i" class="num mono">{{ fmt(c) }}</td>
           <td class="num mono"><b>{{ fmt(r.total) }}</b></td>
         </tr>
-        <tr style="font-weight: 600;">
+        <tr class="row-total">
           <td>{{ channelMatrix.totalRow.label }}</td>
           <td v-for="(c, i) in channelMatrix.totalRow.cells" :key="i" class="num mono">{{ fmt(c) }}</td>
           <td class="num mono">{{ fmt(channelMatrix.totalRow.total) }}</td>
@@ -100,7 +100,7 @@ const kpiTiles = computed(() => [
     </table>
   </div></div>
 
-  <h3 style="font-size: 0.95rem; margin: 0 0 6px;">Channel DRR / DOI</h3>
+  <h3 class="section-title" style="margin-bottom: 6px;">Channel DRR / DOI</h3>
   <p class="field-hint" style="margin: 0 0 10px;">
     DRR: trailing 10-day average actual sales. DOI: forward-looking days of inventory against each
     channel's own daily sales plan.
@@ -126,10 +126,7 @@ const kpiTiles = computed(() => [
           <td>{{ r.channel }}</td>
           <template v-for="(c, i) in r.cells" :key="i">
             <td class="num mono">{{ c ? fmt(c.drr) : "–" }}</td>
-            <td class="num mono" :class="doiClass(c)">
-              <span v-if="c && c.doi_flag === 'INSUFFICIENT_DATA'" class="chip chip-muted">insufficient data</span>
-              <span v-else>{{ doiText(c) }}</span>
-            </td>
+            <td class="num mono" :class="doiClass(c)">{{ doiText(c) }}</td>
           </template>
         </tr>
       </tbody>

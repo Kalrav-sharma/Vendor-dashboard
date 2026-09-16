@@ -94,7 +94,7 @@ const tables = computed(() => SECTIONS.map(section => {
 
   <template v-for="t in tables" :key="t.series">
     <div v-show="activeSeries === t.series">
-    <h3 style="font-size: 0.95rem; margin: 0 0 10px;">{{ t.title }}</h3>
+    <h3 class="section-title">{{ t.title }}</h3>
     <div class="table-card" style="margin-bottom: 24px;"><div class="table-scroll">
       <table>
         <thead><tr><th>Date</th><th v-for="d in t.dims" :key="d" class="num">{{ d }}</th><th class="num">Total</th></tr></thead>
@@ -104,7 +104,7 @@ const tables = computed(() => SECTIONS.map(section => {
             <td v-for="(c, i) in r.cells" :key="i" class="num mono">{{ fmt(c) }}</td>
             <td class="num mono"><b>{{ fmt(r.total) }}</b></td>
           </tr>
-          <tr style="font-weight: 600;">
+          <tr class="row-total">
             <td>Total</td>
             <td v-for="(c, i) in t.totalRow.cells" :key="i" class="num mono">{{ fmt(c) }}</td>
             <td class="num mono">{{ fmt(t.totalRow.total) }}</td>
