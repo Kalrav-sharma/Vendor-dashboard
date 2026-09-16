@@ -16,10 +16,12 @@ const root = fileURLToPath(new URL('.', import.meta.url))
 // legacy docs/assets/ (app-common.js, styles.css, supabase-client.js),
 // which are still used by the not-yet-migrated pages.
 export default defineConfig({
-  // GitHub Pages serves this site from /Vendor-dashboard/, not the domain
-  // root -- without this, Vite's default root-absolute asset paths
-  // (/vite-assets/...) would resolve to the wrong URL on the live site.
-  base: '/Vendor-dashboard/',
+  // Served from vendor-portal.com's domain root via a custom domain
+  // (docs/CNAME) -- GitHub's default kalrav-sharma.github.io/Vendor-dashboard/
+  // project-path URL still works too, but base must match whichever one is
+  // actually live, since Vite's root-absolute asset paths (/vite-assets/...)
+  // resolve against it.
+  base: '/',
   plugins: [vue()],
   build: {
     assetsDir: 'vite-assets',

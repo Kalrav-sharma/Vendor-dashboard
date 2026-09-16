@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 # Builds this Vite project and copies its output into ../docs/, which is
 # what GitHub Pages actually serves (Settings -> Pages -> Deploy from a
-# branch -> main -> /docs). This is NOT run by any CI workflow -- it's run
-# locally (or by Claude Code) whenever a page here changes, then the
-# updated docs/ files get committed and pushed like any other change.
+# branch -> main -> /docs), at the custom domain vendor-portal.com
+# (docs/CNAME). This is NOT run by any CI workflow -- it's run locally (or
+# by Claude Code) whenever a page here changes, then the updated docs/
+# files get committed and pushed like any other change.
 #
 # Deliberately does NOT touch anything else in docs/ (vendor.html,
-# admin.html, docs/assets/, docs/.last_sync) -- those belong to pages not
-# yet migrated off plain HTML, or to the separate Uniware sync workflow.
+# admin.html, docs/assets/, docs/.last_sync, docs/CNAME) -- those belong to
+# pages not yet migrated off plain HTML, to the separate Uniware sync
+# workflow, or (CNAME) to GitHub Pages' own domain config.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
