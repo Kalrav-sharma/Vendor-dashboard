@@ -13,23 +13,29 @@ S&OP script derives its own view from that table:
 One writer, many readers, on purpose. Before this, three separate scripts each
 parsed on-hand out of the WH-Channel-SKU sheet's "Current Inventory" tab with
 slightly different rules, so the same warehouse could show different stock on
-different tabs. Going through one table makes that impossible -- and means we
-fire the (slow) Uniware export jobs once per cycle instead of three times.
+different tabs. Going through one table makes that impossible.
 
-HOW UNIWARE SERVES INVENTORY: there is no synchronous "give me stock" endpoint.
-The only way is an async export job -- create, poll until it completes, then
-download a CSV from the returned URL -- and the job is scoped to ONE facility
-via a `Facility:` request header, so this loops ~28 facilities sequentially and
-takes a few minutes. That is normal, not a hang. This whole flow (including the
-misspelled `exportColums` key, which the API requires, and the ['All'] sentinel,
-because enumerated column codes are rejected with INVALID_EXPORT_JOB_COLUMN) is
-a direct port of ~/.claude/scripts/sync-warehouse-inventory-to-sheet.js, which
-has been running this same configuration unattended against these same
-facilities and SKUs.
+HOW WE READ INVENTORY: POST /services/rest/v1/inventory/inventorySnapshot/get
+with {"itemTypeSKUs": [...]}, once per facility (facility is chosen by the
+`Facility:` request header, not by the body), ~0.1s each -- the whole network is
+under 3 seconds.
 
-ON-HAND is the CSV's "Inventory" column. Blocked / bad / quarantined /
-in-transit / open-purchase columns are deliberately ignored -- same choice the
-JS script makes, so the portal and the sheet agree on what "on hand" means.
+We originally did this via Uniware's async "Inventory Snapshot" EXPORT JOB
+(create -> poll -> download a CSV), ported from
+~/.claude/scripts/sync-warehouse-inventory-to-sheet.js, on the belief that no
+synchronous endpoint existed. It does, and it returns the same numbers: checked
+2026-09-16 across all 28 facilities x 6 SKUs, 165 of 168 cells identical and the
+3 others off by exactly 1 unit -- real sales in the 20 minutes between the two
+reads. The direct call is ~40x faster and, more importantly, doesn't depend on
+Uniware's export queue, which was observed failing every job for a ~3-minute
+stretch that same day. If this endpoint is ever withdrawn, the export-job
+version is in git history.
+
+ON-HAND is the response's `inventory` field. The call also returns
+inventoryBlocked / badInventory / quarantinedInventory / openSale /
+openPurchase / pendingStockTransfer / vendorInventory, all deliberately ignored
+-- `inventory` alone is what the sheet's "Inventory" column held, so the portal
+and the sheet keep meaning the same thing by "on hand".
 
 Credentials, as GitHub Actions repo secrets (already provisioned for
 refresh.yml -- no new secrets, but this workflow has to be granted them too):
@@ -38,8 +44,6 @@ refresh.yml -- no new secrets, but this workflow has to be granted them too):
   SUPABASE_URL
   SUPABASE_SERVICE_ROLE_KEY
 """
-import csv
-import io
 import os
 import sys
 import time
@@ -52,24 +56,13 @@ from sop_common import (  # noqa: E402
 )
 
 UNIWARE_BASE_URL = "https://urbanclap.unicommerce.com"
+INVENTORY_PATH = "/services/rest/v1/inventory/inventorySnapshot/get"
 
 AUTH_RETRY_ATTEMPTS = 3
 AUTH_RETRY_BACKOFF_SECONDS = 5      # doubles each attempt: 5s, 10s
-# 4 attempts with a generous linear backoff (15s, 30s, 45s), not the JS's 3x4s: Uniware's export
-# queue was observed failing every job for a ~3-minute stretch on 2026-09-16 and recovering on its
-# own, which a tight retry sits right through. Each attempt also spends up to MAX_POLLS waiting, so
-# a facility can take a few minutes before it's declared dead.
+# The call is ~0.1s, so retrying is nearly free -- be patient rather than clever.
 FACILITY_RETRY_ATTEMPTS = 4
-FACILITY_RETRY_BACKOFF_SECONDS = 15
-POLL_INTERVAL_SECONDS = 3
-MAX_POLLS = 60                      # 3 minutes; jobs normally finish in 1-2 polls
-
-EXPORT_BODY = {
-    "exportJobTypeName": "Inventory Snapshot",
-    "exportColums": ["All"],  # NOT a typo on our side -- the API spells it this way
-    "exportFilters": [],
-    "frequency": "ONETIME",
-}
+FACILITY_RETRY_BACKOFF_SECONDS = 5  # linear: 5s, 10s, 15s
 
 
 def get_uniware_token():
@@ -121,70 +114,37 @@ def uniware_headers(token, facility_code):
     }
 
 
-def run_export_job(token, facility):
-    """Create an Inventory Snapshot export for one facility, wait for it, return the CSV text."""
-    headers = uniware_headers(token, facility)
-    created = requests.post(f"{UNIWARE_BASE_URL}/services/rest/v1/export/job/create",
-                             headers=headers, json=EXPORT_BODY, timeout=REQUEST_TIMEOUT)
-    if not created.ok:
-        raise RuntimeError(f"create export failed (HTTP {created.status_code}): {created.text[:300]}")
-    job_code = created.json().get("jobCode")
-    if not job_code:
-        raise RuntimeError(f"create export returned no jobCode: {created.json()}")
-
-    for _ in range(MAX_POLLS):
-        status = requests.post(f"{UNIWARE_BASE_URL}/services/rest/v1/export/job/status",
-                                headers=headers, json={"jobCode": job_code}, timeout=REQUEST_TIMEOUT)
-        if not status.ok:
-            raise RuntimeError(f"poll failed (HTTP {status.status_code}): {status.text[:300]}")
-        payload = status.json()
-        state = payload.get("status")
-        if state in ("FAILED", "ERROR"):
-            raise RuntimeError(f"export job failed: {payload}")
-        # Both conditions matter: the job can report COMPLETE a moment before filePath is
-        # populated, and downloading "" would look like an empty (zero-stock) facility.
-        if state in ("COMPLETE", "SUCCESSFUL") and payload.get("filePath"):
-            # The CSV lives on public CloudFront -- sending the bearer token here 403s.
-            download = requests.get(payload["filePath"], timeout=REQUEST_TIMEOUT)
-            if not download.ok:
-                raise RuntimeError(f"CSV download failed (HTTP {download.status_code})")
-            return download.text
-        time.sleep(POLL_INTERVAL_SECONDS)
-    raise RuntimeError(f"export job timed out after {MAX_POLLS * POLL_INTERVAL_SECONDS}s")
+SKU_CODES = list(UNIWARE_SKU_MAP)
 
 
-def parse_facility_inventory(csv_text, facility):
-    """CSV -> {our SKU name: on-hand qty}, keeping only the 6 SKUs we track.
+def fetch_facility_inventory(token, facility):
+    """One facility's on-hand as {our SKU name: qty}.
 
-    Duplicate rows for one SKU are summed defensively (none observed in practice). A SKU absent
-    from the export genuinely means zero stock of it at that facility, so it's left at 0."""
-    reader = csv.reader(io.StringIO(csv_text))
-    rows = [r for r in reader if r]
-    if not rows:
-        raise RuntimeError("export CSV was empty")
-    header = rows[0]
-    try:
-        sku_idx = header.index("Item SkuCode")
-        inv_idx = header.index("Inventory")
-    except ValueError:
-        raise RuntimeError(f'unexpected CSV header (missing "Item SkuCode"/"Inventory"): {header[:12]}')
+    The facility comes from the `Facility:` header, not the body. A SKU missing from the response
+    genuinely means zero stock of it there, so it stays 0; duplicate entries for one SKU are summed
+    defensively (none observed)."""
+    resp = requests.post(f"{UNIWARE_BASE_URL}{INVENTORY_PATH}",
+                          headers=uniware_headers(token, facility),
+                          json={"itemTypeSKUs": SKU_CODES}, timeout=REQUEST_TIMEOUT)
+    if not resp.ok:
+        raise RuntimeError(f"inventorySnapshot/get failed (HTTP {resp.status_code}): {resp.text[:300]}")
+    payload = resp.json()
+    # Uniware answers 200 with successful:false for application-level problems (an unknown facility
+    # code, say), which would otherwise read as "this facility has no stock".
+    if not payload.get("successful", False):
+        raise RuntimeError(f"inventorySnapshot/get reported failure: {str(payload)[:300]}")
 
     by_sku = {sku: 0.0 for sku in UNIWARE_SKU_MAP.values()}
     matched = 0
-    for row in rows[1:]:
-        if sku_idx >= len(row) or inv_idx >= len(row):
-            continue
-        sku = UNIWARE_SKU_MAP.get(row[sku_idx])  # exact match -- casing differs between codes
+    for snap in payload.get("inventorySnapshots") or []:
+        sku = UNIWARE_SKU_MAP.get(snap.get("itemTypeSKU"))  # exact match -- codes differ in casing
         if not sku:
             continue
-        try:
-            by_sku[sku] += float(row[inv_idx] or 0)
-        except ValueError:
-            pass
+        by_sku[sku] += float(snap.get("inventory") or 0)
         matched += 1
     if matched == 0:
-        print(f"WARNING: {facility} returned {len(rows) - 1} CSV rows but none of our 6 SKUs -- "
-              f"treating the whole facility as zero stock.", file=sys.stderr)
+        print(f"WARNING: {facility} returned no rows for any of our 6 SKUs -- treating the whole "
+              f"facility as zero stock.", file=sys.stderr)
     return by_sku
 
 
@@ -192,7 +152,7 @@ def fetch_facility_with_retries(token, facility):
     last_error = None
     for attempt in range(1, FACILITY_RETRY_ATTEMPTS + 1):
         try:
-            return parse_facility_inventory(run_export_job(token, facility), facility)
+            return fetch_facility_inventory(token, facility)
         except Exception as e:  # noqa: BLE001 -- retry on anything; the last one is re-raised
             last_error = e
             print(f"WARN: {facility} attempt {attempt}/{FACILITY_RETRY_ATTEMPTS} failed: {e}",

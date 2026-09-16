@@ -6,9 +6,9 @@ name: Sync Uniware inventory to Supabase
 # fresh stock, starting at 03 UTC so the 04:00 UTC sync-sop-inventory run has
 # same-day numbers.
 #
-# One Uniware export job per facility, ~28 of them sequentially, so a run takes
-# several minutes -- that is the API's shape, not a hang. timeout-minutes caps a
-# genuinely stuck run rather than letting it burn the default 6 hours.
+# One direct inventorySnapshot/get call per facility, ~28 of them, so a whole
+# run is about 3 seconds. timeout-minutes caps a genuinely stuck run rather than
+# letting it burn the default 6 hours.
 on:
   schedule:
     - cron: '*/30 3-18 * * *'
@@ -18,15 +18,15 @@ permissions:
   contents: read
 
 concurrency:
-  # Two overlapping runs would fire duplicate export jobs at Uniware and race on
-  # the wholesale table replace. Let the in-flight one finish.
+  # Two overlapping runs would race on the wholesale table replace. Let the
+  # in-flight one finish.
   group: sync-uniware-inventory
   cancel-in-progress: false
 
 jobs:
   sync:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
