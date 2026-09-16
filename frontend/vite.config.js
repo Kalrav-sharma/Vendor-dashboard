@@ -19,6 +19,11 @@ export default defineConfig({
   // GitHub Pages serves this site from /Vendor-dashboard/, not the domain
   // root -- without this, Vite's default root-absolute asset paths
   // (/vite-assets/...) would resolve to the wrong URL on the live site.
+  // (A native-vendors.com custom domain was tried 2026-09-16 and reverted
+  // the same day -- Urban Company's Palo Alto security policy sinkholes
+  // brand-new domains, blocking it on managed laptops. Revisit once IT
+  // allow-lists the domain, or drop it if a subdomain of an
+  // already-trusted urbancompany.com becomes an option instead.)
   base: '/Vendor-dashboard/',
   plugins: [vue()],
   build: {
