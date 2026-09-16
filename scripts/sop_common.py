@@ -26,6 +26,77 @@ REQUEST_TIMEOUT = 30
 
 SKUS = ['M0', 'M1-2nd Gen', 'M1 Pro', 'M2 Pro', 'M3', 'M3 Pro']
 
+# ---------------------------------------------------------------------------
+# Uniware facility / SKU mappings.
+#
+# These live here (rather than in sync_uniware_inventory.py, which owns the HTTP
+# side) because four scripts have to roll the same raw per-facility snapshot up
+# the same way -- if any of them disagreed, the portal would show two different
+# on-hand numbers for the same warehouse on different tabs, which is exactly the
+# problem switching to Uniware is meant to end.
+#
+# Lifted from the already-proven ~/.claude/scripts/sync-warehouse-inventory-to-sheet.js,
+# which has been pulling these same facilities and SKUs unattended for a while --
+# same codes, same spellings, same city groupings.
+# ---------------------------------------------------------------------------
+
+# Uniware's Item SkuCode -> our SKU name. Case is NOT consistent across these
+# (M0 is "UC/NATIVE/..." while the rest are "UC/Native/...") and the CSV matches
+# verbatim, so never upper/lower-case these before comparing.
+UNIWARE_SKU_MAP = {
+    'UC/NATIVE/12501/M0': 'M0',
+    'UC/Native/M1/12401': 'M1-2nd Gen',   # Uniware calls this one M1AS
+    'UC/Native/M1Pro/12601': 'M1 Pro',
+    'UC/Native/M2/12502': 'M2 Pro',
+    'UC/Native/M3/12602': 'M3',
+    'UC/Native/M3Pro/12603': 'M3 Pro',
+}
+
+# The 5 mother warehouses. Gurgaon and Kolkata are each the sum of two real
+# Uniware facilities; the others are 1:1.
+WAREHOUSE_FACILITY_CODES = {
+    'Bangalore': ['PB-UC-BLR'],
+    'Gurgaon': ['PB-UC-GGN', 'PB-UC-GGN-PATAUDI'],
+    'Hyderabad': ['PB-UC-HYD'],
+    'Mumbai': ['PB-UC-BOMBAY'],
+    'Kolkata': ['PB-UC-KOL', 'PB-UC-KOL-PANCHLA'],
+}
+
+# Individual dark store -> the DTDC/SFX bucket it rolls into. Deliberately the 21
+# stores the business already tracks, NOT every dark store Uniware exposes (it has
+# ~22 more, 14 of them under Hyderabad alone) -- per Anish, so the totals stay
+# comparable to what the portal has always shown. Adding a store is a one-line
+# change here plus a column offset in DARK_STORE_TITLE_COLS for its DRR.
+DARK_STORE_FACILITIES = {
+    'PB-UC-BLR-NERALURU': 'DTDC Bangalore',
+    'PB-UC-BLR-WHITEFIELD': 'DTDC Bangalore',
+    'PB-UC-BLR-YELAHANKA': 'DTDC Bangalore',
+    'PB-UC-BLR-BUMMANAHALLI': 'DTDC Bangalore',
+    'PB-UC-BLR-SARAKKI': 'DTDC Bangalore',
+    'PB-UC-DEL-JHILMIL': 'DTDC Gurgaon',
+    'PB-UC-DEL-KAPASHERA': 'DTDC Gurgaon',
+    'PB-UC-DEL-OKHLA': 'DTDC Gurgaon',
+    'PB-UC-DEL-ROHINI': 'DTDC Gurgaon',
+    'PB-UC-DEL-SHAHDARA': 'DTDC Gurgaon',
+    'PB-UC-GGN-SOHNA': 'DTDC Gurgaon',
+    'PB-UC-KOL-AGARPARA': 'DTDC Kolkata',
+    'PB-UC-KOL-CAMACSTREET': 'DTDC Kolkata',
+    'PB-UC-KOL-TARATALA': 'DTDC Kolkata',
+    'PB-UC-KOL-RAJARHAT': 'DTDC Kolkata',
+    'PB-UC-BOM-SION': 'SFX Mumbai',
+    'PB-UC-BOM-MARINE-LINE': 'SFX Mumbai',
+    'PB-UC-BOM-POWAI': 'SFX Mumbai',
+    'PB-UC-BOM-MALAD-WEST': 'SFX Mumbai',
+    'PB-UC-BOM-MALAD-EAST': 'SFX Mumbai',
+    'PB-UC-HYD-MANIKONDA': 'SFX Hyderabad',
+}
+
+# Every facility the Uniware snapshot has to cover, warehouses first.
+ALL_UNIWARE_FACILITIES = (
+    [code for codes in WAREHOUSE_FACILITY_CODES.values() for code in codes]
+    + list(DARK_STORE_FACILITIES)
+)
+
 # Same alias map as parse_sop_master.js / parse_channel_dispatch_plan.js / parse_po_fulfillment.js.
 SKU_ALIAS_MAP = {
     'M0': 'M0', 'NATIVE M0': 'M0',
@@ -218,6 +289,49 @@ def parse_uc_sales_trackr_facility_block(rows, title_col):
         if max_date is None or ymd > max_date:
             max_date = ymd
     return {"series": series, "min_date": min_date, "max_date": max_date}
+
+
+def fetch_uniware_on_hand(supabase_url, key):
+    """Reads the live Uniware snapshot (sop_uniware_inventory, written by sync_uniware_inventory.py)
+    and returns {facility_code: {sku: on_hand}}.
+
+    Every on-hand figure in the S&OP section goes through this one read, so the Inventory Overview,
+    the UC App + PLS tables, S&OP Planning and PO Fulfillment can't drift apart the way they did
+    when each parsed the "Current Inventory" sheet with its own slightly different rules."""
+    headers = {"apikey": key, "Authorization": f"Bearer {key}"}
+    r = requests.get(f"{supabase_url}/rest/v1/sop_uniware_inventory",
+                      headers=headers, params={"select": "facility,sku,on_hand"},
+                      timeout=REQUEST_TIMEOUT)
+    if not r.ok:
+        sys.exit(f"Fetching sop_uniware_inventory failed ({r.status_code}): {r.text[:500]}")
+    rows = r.json()
+    if not rows:
+        sys.exit("sop_uniware_inventory is empty -- run sync_uniware_inventory.py first. Refusing to "
+                 "publish zeroed on-hand across the whole section.")
+    by_facility = {}
+    for row in rows:
+        by_facility.setdefault(row["facility"], {})[row["sku"]] = to_num(row["on_hand"])
+    return by_facility
+
+
+def uniware_qty(by_facility, facility, sku):
+    """One facility x SKU figure out of the snapshot. A facility missing entirely is a genuine
+    problem rather than a zero -- sync_uniware_inventory.py aborts rather than publishing a partial
+    snapshot, so this only fires if a facility is added to the mappings without re-running it."""
+    if facility not in by_facility:
+        print(f"WARNING: {facility} missing from the Uniware snapshot -- counting it as 0.",
+              file=sys.stderr)
+        return 0.0
+    return by_facility[facility].get(sku, 0.0)
+
+
+def uniware_warehouse_on_hand(by_facility):
+    """{city: {sku: on_hand}} for the 5 mother warehouses -- Gurgaon and Kolkata each sum two
+    real Uniware facilities."""
+    return {
+        city: {sku: sum(uniware_qty(by_facility, f, sku) for f in codes) for sku in SKUS}
+        for city, codes in WAREHOUSE_FACILITY_CODES.items()
+    }
 
 
 def supabase_config():

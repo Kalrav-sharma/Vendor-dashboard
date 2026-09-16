@@ -1,0 +1,44 @@
+name: Sync Uniware inventory to Supabase
+
+# The single writer of sop_uniware_inventory -- the live on-hand snapshot every
+# other S&OP sync reads (Inventory Overview, UC App + PLS, S&OP Planning, PO
+# Fulfillment). Runs 30 min before the hour's derived syncs so they always see
+# fresh stock, starting at 03 UTC so the 04:00 UTC sync-sop-inventory run has
+# same-day numbers.
+#
+# One Uniware export job per facility, ~28 of them sequentially, so a run takes
+# several minutes -- that is the API's shape, not a hang. timeout-minutes caps a
+# genuinely stuck run rather than letting it burn the default 6 hours.
+on:
+  schedule:
+    - cron: '*/30 3-18 * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  # Two overlapping runs would fire duplicate export jobs at Uniware and race on
+  # the wholesale table replace. Let the in-flight one finish.
+  group: sync-uniware-inventory
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - run: pip install -r requirements.txt
+
+      - run: python scripts/sync_uniware_inventory.py
+        env:
+          UNIWARE_USERNAME: ${{ secrets.UNIWARE_USERNAME }}
+          UNIWARE_PASSWORD: ${{ secrets.UNIWARE_PASSWORD }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

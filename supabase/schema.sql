@@ -946,13 +946,47 @@ create policy sop_channel_drr_doi_select on public.sop_channel_drr_doi
   using (public.is_internal_staff());
 
 -- ---------------------------------------------------------------------
+-- sop_uniware_inventory — raw per-facility x per-SKU on-hand, pulled straight
+-- from Uniware's Inventory Snapshot export by scripts/sync_uniware_inventory.py.
+--
+-- This is the single source of on-hand truth for the whole S&OP section. The
+-- derived tables below (sop_inventory_channel, sop_inventory_uc_warehouse,
+-- sop_dark_store_inventory) and the dispatch-plan / PO-fulfillment syncs all
+-- roll THIS up rather than each parsing the "Current Inventory" sheet with
+-- their own slightly different rules, which is what used to let the same
+-- warehouse show different stock on different tabs.
+--
+-- ~28 facilities x 6 SKUs, wholesale-replaced each run. facility is the Uniware
+-- code (e.g. 'PB-UC-BLR', 'PB-UC-DEL-SHAHDARA'); sku is our display name.
+-- synced_at is surfaced in the UI so a stalled Uniware sync is visible rather
+-- than quietly serving yesterday's stock.
+-- ---------------------------------------------------------------------
+create table if not exists public.sop_uniware_inventory (
+  id bigserial primary key,
+  facility text not null,
+  sku text not null,
+  on_hand numeric not null default 0,
+  synced_at timestamptz not null default now(),
+  unique (facility, sku)
+);
+
+alter table public.sop_uniware_inventory enable row level security;
+
+drop policy if exists sop_uniware_inventory_select on public.sop_uniware_inventory;
+create policy sop_uniware_inventory_select on public.sop_uniware_inventory
+  for select
+  using (public.is_internal_staff());
+
+-- ---------------------------------------------------------------------
 -- sop_dark_store_inventory — new "UC App + PLS" tab's "On hand Inventory"
 -- view, individual dark-store rows shown below the 5 warehouses (city
 -- grouping: DTDC Bangalore/Gurgaon/Kolkata, SFX Mumbai/Hyderabad). Each
 -- DTDC/SFX bucket in "Current Inventory" is actually an aggregate label
 -- over multiple individual dark stores (21 as of 2026-09-16, confirmed
 -- live -- corrects an earlier wrong assumption that only city-aggregated
--- totals existed) -- see parse_dark_store_on_hand in sync_sop_inventory.py.
+-- totals existed). Rolled up from sop_uniware_inventory by
+-- build_uniware_on_hand() in sync_sop_inventory.py; DARK_STORE_FACILITIES in
+-- sop_common.py is the store -> city bucket mapping.
 -- ---------------------------------------------------------------------
 create table if not exists public.sop_dark_store_inventory (
   id bigserial primary key,

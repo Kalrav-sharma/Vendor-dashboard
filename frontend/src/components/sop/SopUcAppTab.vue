@@ -11,6 +11,11 @@
 // existed) -- 21 stores total, 19 of which also have their own "UC sales
 // trackr" DRR block (2 don't, and so have no DRR/DOI row -- see
 // DARK_STORE_TITLE_COLS in sync_sop_inventory.py).
+//
+// On-hand is live Uniware stock (sop_uniware_inventory, since 2026-09-16) --
+// hence the "Stock as of" stamp on that view: it's the one figure here that
+// nobody can sanity-check against a sheet any more, so a stalled Uniware sync
+// has to be visible rather than silently serving yesterday's numbers.
 import { computed, ref } from "vue";
 import { useSopUcAppData } from "../../composables/useSopUcAppData.js";
 import SummaryKpis from "../SummaryKpis.vue";
@@ -28,7 +33,7 @@ const IN_TRANSIT_MODES = [
   { key: "combined", label: "On-Hand + In-Transit" },
 ];
 
-const { warehouseRows, darkStoreRows, facilityDrrDoiRows, loadError } = useSopUcAppData();
+const { warehouseRows, darkStoreRows, facilityDrrDoiRows, stockSyncedAt, loadError } = useSopUcAppData();
 
 const activeView = ref(VIEWS[0].key);
 const inTransitMode = ref(IN_TRANSIT_MODES[0].key);
@@ -36,6 +41,18 @@ const inTransitMode = ref(IN_TRANSIT_MODES[0].key);
 function fmt(n) {
   return Math.round(n || 0).toLocaleString("en-IN");
 }
+
+// "16 Sep, 10:42 pm" in IST -- the sync runs on a UTC cron, so an un-zoned
+// render would read hours off to everyone looking at it.
+const stockAsOf = computed(() => {
+  if (!stockSyncedAt.value) return "";
+  const d = new Date(stockSyncedAt.value);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleString("en-IN", {
+    day: "numeric", month: "short", hour: "numeric", minute: "2-digit",
+    hour12: true, timeZone: "Asia/Kolkata",
+  });
+});
 
 function buildMatrix(rowLabels, rowKey, rows, valueKey) {
   const byRow = {};
@@ -115,6 +132,9 @@ const kpiTiles = computed(() => [
 
   <div v-show="activeView === 'on-hand'">
     <h3 class="section-title">Warehouse on-hand</h3>
+    <p v-if="stockAsOf" class="muted-text" style="margin: -8px 0 12px;">
+      Live Uniware stock, as of {{ stockAsOf }} IST.
+    </p>
     <div class="table-card" style="margin-bottom: 24px;"><div class="table-scroll">
       <table>
         <thead><tr><th>Warehouse</th><th v-for="s in SKUS" :key="s" class="num">{{ s }}</th><th class="num">Total</th></tr></thead>

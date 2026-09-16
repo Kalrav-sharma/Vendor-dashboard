@@ -1,11 +1,17 @@
 name: Sync S&OP inventory to Supabase
 
 # Every 30 min during business hours IST (04:00-18:30 UTC = 09:30 AM-midnight
-# IST -- wide on purpose, inventory is edited throughout the working day) --
-# plus workflow_dispatch for an immediate manual run.
+# IST -- wide on purpose, inventory is edited throughout the working day), and
+# again straight after every successful "Sync Uniware inventory" run, since
+# on-hand now comes from the snapshot that workflow writes -- without the chain,
+# a fresh snapshot would sit unused for up to 30 min. Plus workflow_dispatch for
+# an immediate manual run.
 on:
   schedule:
     - cron: '*/30 4-18 * * *'
+  workflow_run:
+    workflows: ["Sync Uniware inventory to Supabase"]
+    types: [completed]
   workflow_dispatch: {}
 
 permissions:
@@ -14,6 +20,11 @@ permissions:
 jobs:
   sync:
     runs-on: ubuntu-latest
+    # A failed Uniware run publishes nothing, so there's no new snapshot to pick
+    # up -- don't chain off it (same guard as sync-sop-po-fulfillment).
+    if: >-
+      github.event_name != 'workflow_run' ||
+      github.event.workflow_run.conclusion == 'success'
     steps:
       - uses: actions/checkout@v4
 
