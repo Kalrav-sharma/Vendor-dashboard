@@ -160,6 +160,12 @@ const channelShare = computed(() => {
 
 // KPI tiles always reflect the CHANNEL scope regardless of which scope is toggled -- matches the
 // reference dashboard's own behaviour (confirmed live: its tiles don't move on the Warehouse view).
+// Required/gap/status here are computed per DOI target, so this must track the DOI toggle just
+// like the plan tables above do -- otherwise all four targets' rows render stacked.
+const productionCheckForView = computed(() =>
+  productionCheckRows.value.filter(r => r.view_key === activeView.value && r.doi_target === activeDoi.value),
+);
+
 const kpiTiles = computed(() => {
   const counts = { "ON TRACK": 0, "NEEDS DISPATCH": 0, "ALREADY SHORT": 0 };
   let totalRequired = 0;
@@ -170,9 +176,7 @@ const kpiTiles = computed(() => {
       totalRequired += c.required_dispatch || 0;
     }
   }
-  const productionShortfalls = productionCheckRows.value.filter(
-    r => r.view_key === activeView.value && r.status === "SHORTFALL",
-  ).length;
+  const productionShortfalls = productionCheckForView.value.filter(r => r.status === "SHORTFALL").length;
   const tiles = [
     { label: `Total units to dispatch (${activeDoi.value} DOI)`, value: fmt(totalRequired) },
     { label: "Already short", value: fmt(counts["ALREADY SHORT"]), cls: counts["ALREADY SHORT"] > 0 ? "critical" : undefined },
@@ -185,7 +189,6 @@ const kpiTiles = computed(() => {
   return tiles;
 });
 
-const productionCheckForView = computed(() => productionCheckRows.value.filter(r => r.view_key === activeView.value));
 const productionCheckTotal = computed(() => {
   const rows = productionCheckForView.value;
   if (!rows.length) return null;

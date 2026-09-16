@@ -541,8 +541,12 @@ def main():
                 })
         for d in DOI_TARGETS:
             for r in result["production_rows_by_doi"][d]:
+                # doi_target has to be stored: `required` (and therefore gap/status) is computed per
+                # DOI target, so without it all 4 targets' rows are indistinguishable and the
+                # frontend can't tell them apart -- it was stacking all 24 rows into one table and
+                # summing them in the Total.
                 prod_check_rows.append({
-                    "run_date": run_date, "view_key": view_key, "sku": r["sku"],
+                    "run_date": run_date, "view_key": view_key, "doi_target": d, "sku": r["sku"],
                     "production_planned": r["planned"], "required": r["required"], "gap": r["gap"],
                     "status": r["status"],
                 })
