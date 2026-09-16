@@ -162,8 +162,19 @@ const channelShare = computed(() => {
 // reference dashboard's own behaviour (confirmed live: its tiles don't move on the Warehouse view).
 // Required/gap/status here are computed per DOI target, so this must track the DOI toggle just
 // like the plan tables above do -- otherwise all four targets' rows render stacked.
-const productionCheckForView = computed(() =>
-  productionCheckRows.value.filter(r => r.view_key === activeView.value && r.doi_target === activeDoi.value),
+const productionCheckForView = computed(() => {
+  const forView = productionCheckRows.value.filter(r => r.view_key === activeView.value);
+  const scoped = forView.filter(r => r.doi_target === activeDoi.value);
+  if (scoped.length) return scoped;
+  // Rows written before doi_target existed carry null, which would otherwise render an empty
+  // table between the column being added and the next dispatch-plan sync backfilling it. Fall
+  // back to one row per SKU so the panel still says something truthful in that window.
+  const seen = new Set();
+  return forView.filter(r => r.doi_target == null && !seen.has(r.sku) && seen.add(r.sku));
+});
+// True while we're showing that fallback, so the panel can say the figures aren't DOI-specific yet.
+const productionCheckIsLegacy = computed(() =>
+  productionCheckForView.value.length > 0 && productionCheckForView.value[0].doi_target == null,
 );
 
 const kpiTiles = computed(() => {
@@ -330,6 +341,10 @@ const productionCheckTotal = computed(() => {
     </div>
 
     <h3 class="section-title">Production check ({{ activeDoi }} DOI)</h3>
+    <p v-if="productionCheckIsLegacy" class="field-hint" style="margin: 0 0 10px;">
+      Showing the last run's figures, which predate per-DOI-target tracking &mdash; they won't change
+      with the DOI toggle until the next dispatch-plan sync.
+    </p>
     <div class="table-card"><div class="table-scroll">
       <table>
         <thead><tr><th>SKU</th><th class="num">Planned</th><th class="num">Required</th><th class="num">Gap</th><th>Status</th></tr></thead>
