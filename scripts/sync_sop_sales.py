@@ -13,9 +13,13 @@ replaced an earlier version that derived projection from the Dashboard
 tab's monthly "Sale plan" blended by channel share -- per Anish, the
 daily-trackr numbers are the ones that should drive this table.
 
-Actuals (for both Sales: Plan vs Actual and Day-on-Day Sales) still come
-from the "actual sales" tab (Q:S block -> current-month channel x SKU
-actuals; 6 further Date-headed blocks -> the Day-on-Day Sales series). No
+Actuals (for both tabs) come from the "actual sales" tab's Date-headed
+blocks: parse_daily_sales_blocks() turns them into the per-date
+sop_daily_sales series, and Sales: Plan vs Actual's month-to-date actual is
+then summed from those same rows (build_actuals_for_month) so the two tabs
+-- and the DRR figures sync_sop_inventory.py derives from the same series
+-- can never disagree. Note the asymmetry, which is deliberate per Anish:
+projection is the FULL month's plan, actual is month-to-date. No
 Jarvis/Redash calls -- the "actual sales" tab is already kept fresh by a
 separate, existing actual-sales-sync job; this script only ever reads
 sheets.
@@ -31,12 +35,13 @@ SUPABASE_SERVICE_ROLE_KEY (all already provisioned, no new secrets).
 """
 import calendar
 import datetime
+import re
 import sys
 
 sys.path.insert(0, __file__.rsplit("/", 1)[0])
 from sop_common import (  # noqa: E402
-    SKUS, WH_CHANNEL_SKU_ID, get_access_token, get_values, normalize_sku, pad_row,
-    parse_daily_trackr_tab, supabase_config, to_num, upsert,
+    SKUS, WH_CHANNEL_SKU_ID, get_access_token, get_values, normalize_sku,
+    parse_daily_trackr_tab, replace_by_filter, supabase_config, to_num, upsert,
 )
 
 DASH_CHANNELS = ["UC App+PLS", "Amazon", "Flipkart", "MT"]
@@ -50,16 +55,17 @@ PROJECTION_TAB_CONFIG = {
     "Flipkart": ("'FK - Daily trackr'", 23),
     "MT": ("'MT - Daily trackr'", 23),
 }
-# Query 554462's channel buckets (now read straight from the sheet's own Q:S block, not Jarvis) --
-# same 4 channels as the projection, plus Others (footnote only, no daily-trackr counterpart).
-ACTUALS_CHANNEL_MAP = {
-    "UC APP + PLS": "UC App+PLS",
-    "AMAZON": "Amazon",
-    "FLIPKART": "Flipkart",
-    "MT": "MT",
-    "OTHERS": "Others",
-}
 ALL_ACTUALS_CHANNELS = DASH_CHANNELS + ["Others"]
+# Which per-SKU daily series (see parse_daily_sales_blocks) is which channel's actual sales.
+# "Others" has no per-SKU block anywhere in the sheet -- only the channel-totals block carries it --
+# so it's summed from there and written as a single sku='ALL' row (see build_actuals_for_month).
+DAILY_SERIES_TO_CHANNEL = {
+    "by_sku_uc": "UC App+PLS",
+    "by_sku_amazon": "Amazon",
+    "by_sku_flipkart": "Flipkart",
+    "by_sku_mt": "MT",
+}
+OTHERS_SKU_SENTINEL = "ALL"
 
 
 def compute_projection(token, month_start_ymd, month_end_ymd):
@@ -81,37 +87,30 @@ def compute_projection(token, month_start_ymd, month_end_ymd):
     return result
 
 
-def parse_actual_sales_current_month(rows):
-    """Port of parseActualSales(): the "actual sales" tab's Q:S block ('Sale Channel'/'SKU Name'/
-    'net_orders'), a long/row-format table with no date column -- it's already scoped to the current
-    month by whatever refreshes it (actual-sales-sync's own query rewrite), so no date filtering is
-    done here. Returns {channel: {sku: qty}} across DASH_CHANNELS + 'Others'."""
-    header = [str(c or "").strip().lower() for c in (rows[0] if rows else [])]
+def build_actuals_for_month(daily_rows, month_start_ymd, month_end_ymd):
+    """Month-to-date actuals per channel x SKU, summed from the very same per-date series this
+    script already emits into sop_daily_sales -- so Sales: Plan vs Actual and Day-on-Day Sales can
+    never disagree, and both agree with the DRR figures (sync_sop_inventory.py reads the same
+    series).
 
-    def col_index(*names):
-        for n in names:
-            if n in header:
-                return header.index(n)
-        return None
+    This replaced a parser that read the tab's 'Sale Channel'/'SKU Name'/'net_orders' long block and
+    summed EVERY row in it with no date predicate whatsoever -- its docstring claimed the block was
+    "already scoped to the current month by whatever refreshes it", which turned out to be false.
+    Live on 2026-09-16 that overstated every channel: Amazon 9,211 vs a true Sept-to-date 2,751
+    (3.3x), Flipkart 7,166 vs 1,333 (5.4x), UC App+PLS 6,024 vs 2,650, MT 2,754 vs 1,038.
 
-    ch_col = col_index("sale channel")
-    sku_col = col_index("sku name")
-    qty_col = col_index("net_orders", "net orders")
-    result = {ch: {s: 0.0 for s in SKUS} for ch in ALL_ACTUALS_CHANNELS}
-    if ch_col is None or sku_col is None or qty_col is None:
-        print('WARNING: could not find Sale Channel/SKU Name/net_orders header in actual sales '
-              'tab\'s Q:S block', file=sys.stderr)
-        return result
-    for row in rows[1:]:
-        row = pad_row(row, max(ch_col, sku_col, qty_col) + 1)
-        raw_channel = str(row[ch_col] or "").strip()
-        sku = normalize_sku(row[sku_col])
-        if not sku:
+    Returns {channel: {sku: qty}}; 'Others' is keyed by OTHERS_SKU_SENTINEL instead of a real SKU
+    because the sheet only carries it at channel-total granularity."""
+    result = {ch: {s: 0.0 for s in SKUS} for ch in DASH_CHANNELS}
+    result["Others"] = {OTHERS_SKU_SENTINEL: 0.0}
+    for r in daily_rows:
+        if not (month_start_ymd <= r["sale_date"] <= month_end_ymd):
             continue
-        bucket = ACTUALS_CHANNEL_MAP.get(raw_channel.upper())
-        if not bucket:
-            continue
-        result[bucket][sku] += to_num(row[qty_col])
+        channel = DAILY_SERIES_TO_CHANNEL.get(r["series"])
+        if channel and r["dim"] in SKUS:
+            result[channel][r["dim"]] += r["qty"]
+        elif r["series"] == "by_channel" and r["dim"] == "Others":
+            result["Others"][OTHERS_SKU_SENTINEL] += r["qty"]
     return result
 
 
@@ -236,21 +235,34 @@ def main():
     month_start = f"{month_key}-01"
     month_end = f"{month_key}-{calendar.monthrange(today.year, today.month)[1]:02d}"
     projection = compute_projection(token, month_start, month_end)
-    actuals = parse_actual_sales_current_month(actual_sales_rows)
 
+    # Actuals are derived from the daily series, so these must be parsed first.
+    daily_rows = parse_daily_sales_blocks(actual_sales_rows)
+    actuals = build_actuals_for_month(daily_rows, month_start, today.isoformat())
+
+    # Projection is the FULL month's plan (all of September), actual is month-to-date -- Anish's
+    # explicit choice: the gap should read "how much of the month's plan is still to sell", not a
+    # like-for-like pace comparison. The frontend labels both columns accordingly.
     plan_actual_rows = []
-    for ch in ALL_ACTUALS_CHANNELS:
+    for ch in DASH_CHANNELS:
         for sku in SKUS:
-            proj = projection.get(ch, {}).get(sku, 0.0) if ch != "Others" else 0.0
-            act = actuals.get(ch, {}).get(sku, 0.0)
             plan_actual_rows.append({
                 "month_start": month_start, "channel": ch, "sku": sku,
-                "projection": proj, "actual": act,
+                "projection": projection.get(ch, {}).get(sku, 0.0),
+                "actual": actuals.get(ch, {}).get(sku, 0.0),
             })
+    plan_actual_rows.append({
+        "month_start": month_start, "channel": "Others", "sku": OTHERS_SKU_SENTINEL,
+        "projection": 0.0, "actual": actuals["Others"][OTHERS_SKU_SENTINEL],
+    })
 
-    daily_rows = parse_daily_sales_blocks(actual_sales_rows)
-
-    upsert(supabase_url, supabase_key, "sop_sales_plan_actual", plan_actual_rows, "month_start,channel,sku")
+    # Wholesale-replace THIS month's rows rather than upsert them: the Others channel changed shape
+    # (6 per-SKU rows -> one sku='ALL' row) on 2026-09-16, and an upsert would leave the 6 stale
+    # per-SKU Others rows behind forever, which the frontend's Others footnote would then add on top
+    # of the new row. Scoped to month_start, so prior months' history is untouched.
+    replace_by_filter(supabase_url, supabase_key, "sop_sales_plan_actual", plan_actual_rows,
+                       {"month_start": f"eq.{month_start}"})
+    # sop_daily_sales stays an upsert -- it accumulates every month's history, never replaced.
     upsert(supabase_url, supabase_key, "sop_daily_sales", daily_rows, "sale_date,series,dim")
 
     print(f"Synced {len(plan_actual_rows)} sales plan/actual row(s) for {month_key} and "

@@ -1,8 +1,13 @@
 <script setup>
-// S&OP > Sales: Plan vs Actual -- current month, channel x SKU: Projection
-// (derived from the Dashboard tab's Sale plan x Channel Split), Actual
-// (from the "actual sales" tab), and Gap (Actual - Projection). No
-// structural changes from /sop-master's original tab.
+// S&OP > Sales: Plan vs Actual -- current month, channel x SKU.
+//
+// The two sides deliberately cover DIFFERENT periods (Anish's explicit
+// choice when asked): Projection is the FULL month's plan, Actual is only
+// month-to-date, so Gap reads "how much of the month's plan is still left
+// to sell". Every heading says which period it is, because comparing a
+// 30-day plan against 16 days of sales is otherwise easy to misread.
+// Actual comes from the same daily series as the Day-on-Day Sales tab (see
+// build_actuals_for_month in sync_sop_sales.py), so the two tabs always tie.
 import { computed } from "vue";
 import { useSopSalesData } from "../../composables/useSopSalesData.js";
 import SummaryKpis from "../SummaryKpis.vue";
@@ -37,7 +42,25 @@ function buildMatrix(valueKey) {
 
 const projectionMatrix = computed(() => buildMatrix("projection"));
 const actualMatrix = computed(() => buildMatrix("actual"));
-const gapMatrix = computed(() => buildMatrix("gap"));
+// The DB's `gap` column is actual - projection, which mid-month is hugely negative for everything
+// and reads like failure. Since projection here is the FULL month and actual is only month-to-date,
+// the honest framing is the other way round: projection - actual = units still to sell. A negative
+// value then genuinely means the channel has already beaten its whole-month plan.
+const remainingMatrix = computed(() => {
+  const proj = projectionMatrix.value, act = actualMatrix.value;
+  return {
+    body: proj.body.map((r, i) => ({
+      label: r.label,
+      cells: r.cells.map((c, j) => c - act.body[i].cells[j]),
+      total: r.total - act.body[i].total,
+    })),
+    totalRow: {
+      label: "Total",
+      cells: proj.totalRow.cells.map((c, j) => c - act.totalRow.cells[j]),
+      total: proj.totalRow.total - act.totalRow.total,
+    },
+  };
+});
 
 const othersActual = computed(() => {
   const total = rows.value.filter(r => r.channel === "Others").reduce((sum, r) => sum + (r.actual || 0), 0);
@@ -49,11 +72,16 @@ const monthLabel = computed(() => {
   if (!ms) return "";
   return new Date(ms + "T00:00:00").toLocaleDateString("en-IN", { month: "long", year: "numeric" });
 });
+// "1-16 Sept" -- the window the Actual side actually covers.
+const mtdLabel = computed(() => {
+  const now = new Date();
+  return `1–${now.getDate()} ${now.toLocaleDateString("en-IN", { month: "short" })}`;
+});
 
 const kpiTiles = computed(() => [
-  { label: "Projection (total)", value: fmt(projectionMatrix.value.totalRow.total) },
-  { label: "Actual (total)", value: fmt(actualMatrix.value.totalRow.total) },
-  { label: "Gap", value: fmt(gapMatrix.value.totalRow.total), cls: gapMatrix.value.totalRow.total < 0 ? "critical" : "good" },
+  { label: "Projection (full month)", value: fmt(projectionMatrix.value.totalRow.total) },
+  { label: "Actual (month to date)", value: fmt(actualMatrix.value.totalRow.total) },
+  { label: "Still to sell", value: fmt(remainingMatrix.value.totalRow.total) },
 ]);
 
 </script>
@@ -62,16 +90,18 @@ const kpiTiles = computed(() => [
   <SummaryKpis :tiles="kpiTiles" />
 
   <div v-if="loadError" class="form-error">{{ loadError }}</div>
-  <p v-if="monthLabel" class="scope" style="margin: -8px 0 16px;">Current month: {{ monthLabel }}</p>
+  <p v-if="monthLabel" class="scope" style="margin: -8px 0 16px;">
+    <b>{{ monthLabel }}</b> &middot; projection is the <b>full month</b>, actual is <b>{{ mtdLabel }}</b> so far
+  </p>
 
   <div v-if="othersActual" class="chip chip-muted" style="display: inline-block; margin-bottom: 16px;">
-    Note: "Others" channel has {{ fmt(othersActual) }} actual units with no plan/projection counterpart in the Dashboard tab.
+    Note: "Others" channel has {{ fmt(othersActual) }} actual units (channel total only, no SKU split) with no plan counterpart.
   </div>
 
   <template v-for="section in [
-    { title: 'Projection', matrix: projectionMatrix, signed: false },
-    { title: 'Actual', matrix: actualMatrix, signed: false },
-    { title: 'Gap (Actual - Projection)', matrix: gapMatrix, signed: true },
+    { title: `Projection — full ${monthLabel}`, matrix: projectionMatrix, signed: false },
+    { title: `Actual — month to date (${mtdLabel})`, matrix: actualMatrix, signed: false },
+    { title: 'Still to sell (Projection − Actual)', matrix: remainingMatrix, signed: true },
   ]" :key="section.title">
     <h3 class="section-title">{{ section.title }}</h3>
     <div class="table-card" style="margin-bottom: 24px;"><div class="table-scroll">
@@ -81,7 +111,7 @@ const kpiTiles = computed(() => [
           <tr v-for="r in section.matrix.body" :key="r.label">
             <td>{{ r.label }}</td>
             <td v-for="(c, i) in r.cells" :key="i" class="num mono"
-                :class="section.signed ? { 'cell-critical': c < 0, 'cell-good': c > 0 } : {}">{{ fmt(c) }}</td>
+                :class="section.signed && c <= 0 ? 'cell-good' : ''">{{ fmt(c) }}</td>
             <td class="num mono"><b>{{ fmt(r.total) }}</b></td>
           </tr>
           <tr class="row-total">
