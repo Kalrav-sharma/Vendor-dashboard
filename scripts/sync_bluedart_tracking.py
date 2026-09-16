@@ -1,5 +1,7 @@
 """Polls Bluedart's legacy Track & Trace API for every AWB logged in
-po_item_shipments and upserts the latest status into shipment_tracking.
+po_item_shipments with courier='bluedart' (DTDC's own AWBs are
+scripts/sync_dtdc_tracking.py's job) and upserts the latest status into
+shipment_tracking.
 
 Auth is LoginID + LicenceKey (query params on every call, no separate
 token/login step) -- confirmed working 2026-09-13 against a real AWB.
@@ -44,14 +46,17 @@ def supabase_config():
 
 
 def fetch_awbs_to_poll(supabase_url, key):
-    """Distinct (awb_number, vendor_code) pairs from po_item_shipments,
-    minus AWBs already terminal in shipment_tracking."""
+    """Distinct (awb_number, vendor_code) pairs from po_item_shipments
+    whose courier is 'bluedart', minus AWBs already terminal in
+    shipment_tracking -- DTDC's own AWBs (scripts/sync_dtdc_tracking.py's
+    job) are filtered out here, not just left to fetch_awbs_to_poll's
+    caller, so this script never wastes a Bluedart API call on one."""
     headers = {"apikey": key, "Authorization": f"Bearer {key}"}
 
     r = requests.get(
         f"{supabase_url}/rest/v1/po_item_shipments",
         headers=headers,
-        params={"select": "awb_number,vendor_code"},
+        params={"select": "awb_number,vendor_code", "courier": "eq.bluedart"},
         timeout=REQUEST_TIMEOUT,
     )
     if not r.ok:
@@ -61,7 +66,10 @@ def fetch_awbs_to_poll(supabase_url, key):
     r = requests.get(
         f"{supabase_url}/rest/v1/shipment_tracking",
         headers=headers,
-        params={"select": "awb_number,status_type", "status_type": f"in.({','.join(TERMINAL_STATUS_TYPES)})"},
+        params={
+            "select": "awb_number,status_type", "courier": "eq.bluedart",
+            "status_type": f"in.({','.join(TERMINAL_STATUS_TYPES)})",
+        },
         timeout=REQUEST_TIMEOUT,
     )
     if not r.ok:
@@ -124,6 +132,7 @@ def parse_shipment(shipment_el):
 
     return {
         "awb_number": awb,
+        "courier": "bluedart",
         "status_type": text_of(shipment_el, "StatusType"),
         "status_text": text_of(shipment_el, "Status"),
         "origin": text_of(shipment_el, "Origin"),
@@ -187,7 +196,7 @@ def upsert_rows(supabase_url, key, rows):
     r = requests.post(
         f"{supabase_url}/rest/v1/shipment_tracking",
         headers=headers,
-        params={"on_conflict": "awb_number"},
+        params={"on_conflict": "courier,awb_number"},
         json=rows,
         timeout=REQUEST_TIMEOUT,
     )

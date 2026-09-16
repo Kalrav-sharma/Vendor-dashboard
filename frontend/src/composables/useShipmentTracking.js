@@ -1,7 +1,9 @@
 // Fetches po_item_shipments (the dispatch log, RLS-scoped to the caller --
 // internal staff see all, a vendor sees only their own) and shipment_tracking
-// (Bluedart status per AWB, kept fresh by scripts/sync_bluedart_tracking.py),
-// then merges them client-side by awb_number -- same "join in JS, not SQL"
+// (per-courier status per AWB, kept fresh by scripts/sync_bluedart_tracking.py
+// and scripts/sync_dtdc_tracking.py), then merges them client-side by
+// (courier, awb_number) -- not awb_number alone, since AWB numbers are only
+// unique within one courier's own numbering -- same "join in JS, not SQL"
 // convention as usePurchaseOrders.js. Polls every 60s, same pattern too.
 import { ref, onMounted, onUnmounted } from "vue";
 import { supabase } from "../supabaseClient.js";
@@ -24,10 +26,10 @@ export function useShipmentTracking() {
     }
     loadError.value = null;
 
-    const trackingByAwb = {};
-    for (const t of (tracking || [])) trackingByAwb[t.awb_number] = t;
+    const trackingByKey = {};
+    for (const t of (tracking || [])) trackingByKey[`${t.courier}|${t.awb_number}`] = t;
 
-    rows.value = (shipments || []).map((s) => ({ ...s, tracking: trackingByAwb[s.awb_number] || null }));
+    rows.value = (shipments || []).map((s) => ({ ...s, tracking: trackingByKey[`${s.courier}|${s.awb_number}`] || null }));
   }
 
   let intervalId = null;
