@@ -1,5 +1,5 @@
 <script setup>
-import { reactive, ref, computed } from "vue";
+import { reactive, ref, computed, watch } from "vue";
 import { supabase } from "../supabaseClient.js";
 import { fmtNum, fmtDateOnly, fmtDate } from "../format.js";
 import SummaryKpis from "./SummaryKpis.vue";
@@ -16,17 +16,36 @@ const props = defineProps({
   onDispatched: { type: Function, default: null }, // () => void -- called after a successful confirm, for an instant refresh
 });
 
-// "Dispatched" -- confirm_dispatched() logs the shipment (with its AWB)
-// then either clears the estimate + queues a fresh vendor notification
-// (still pending) or leaves it locked (fully dispatched) -- see
-// schema.sql. Either way the row that was "pending" drops off (or its
+// "Dispatched" -- confirm_dispatched() logs the shipment (with its AWB and
+// courier) then either clears the estimate + queues a fresh vendor
+// notification (still pending) or leaves it locked (fully dispatched) --
+// see schema.sql. Either way the row that was "pending" drops off (or its
 // estimate resets) once poItemsByPo re-fetches (immediately via
 // onDispatched, or within the next 60s poll), and the new "shipped" row
-// (with its AWB and, shortly after, live Bluedart status) appears in the
+// (with its AWB and, shortly after, live courier status) appears in the
 // same table automatically once shipmentRows re-fetches too.
-const awbInputs = reactive({});  // "po|sku" -> typed AWB/Tracking ID, mandatory
+const COURIER_OPTIONS = [
+  { value: "bluedart", label: "Bluedart" },
+  { value: "dtdc", label: "DTDC" },
+];
+const awbInputs = reactive({});     // "po|sku" -> typed AWB/Tracking ID, mandatory
+const courierInputs = reactive({}); // "po|sku" -> selected courier, defaults to Bluedart
 const rowErrors = reactive({});  // "po|sku" -> error message
 const workingKey = ref(null);
+
+function courierLabel(courier) {
+  return COURIER_OPTIONS.find((c) => c.value === courier)?.label || courier || "–";
+}
+
+// Seeds a default courier ("Bluedart", by far the more common of the two
+// today) for every still-pending row's dropdown as soon as it appears --
+// otherwise a plain v-model against an unset reactive key renders with no
+// option selected until the user touches the dropdown themselves.
+watch(() => props.rows, (rows) => {
+  for (const row of rows) {
+    if (row.kind === "pending" && courierInputs[keyFor(row)] === undefined) courierInputs[keyFor(row)] = "bluedart";
+  }
+}, { immediate: true });
 
 function keyFor(row) {
   return row.kind === "shipped" ? `shipped|${row.id}` : `pending|${row.po_code}|${row.item_sku}`;
@@ -68,6 +87,7 @@ async function handleConfirmDispatch(row) {
   rowErrors[key] = "";
   const { error } = await supabase.rpc("confirm_dispatched", {
     p_po_code: row.po_code, p_item_sku: row.item_sku, p_awb_number: awb,
+    p_courier: courierInputs[key] || "bluedart",
   });
   workingKey.value = null;
   if (error) {
@@ -75,6 +95,7 @@ async function handleConfirmDispatch(row) {
     return;
   }
   delete awbInputs[key];
+  delete courierInputs[key];
   if (props.onDispatched) await props.onDispatched();
 }
 </script>
@@ -94,7 +115,7 @@ async function handleConfirmDispatch(row) {
           <th v-if="vendorOptions">Vendor</th>
           <th>PO code</th><th>SKU</th><th>Item</th>
           <th class="num">Qty</th><th>Dispatch date</th>
-          <th>AWB / Tracking ID</th><th>Status</th><th>Route</th><th>Expected delivery</th><th>Last scan</th>
+          <th>AWB / Tracking ID</th><th>Courier</th><th>Status</th><th>Route</th><th>Expected delivery</th><th>Last scan</th>
           <th v-if="allowConfirmDispatch"></th>
         </tr>
         <tr class="filter-row">
@@ -111,6 +132,12 @@ async function handleConfirmDispatch(row) {
           <td><input v-model="filters.dispatchDate" type="text" placeholder="Filter…"></td>
           <td><input v-model="filters.awb" type="text" placeholder="Filter…"></td>
           <td>
+            <select v-model="filters.courier">
+              <option value="">All</option>
+              <option v-for="c in COURIER_OPTIONS" :key="c.value" :value="c.value">{{ c.label }}</option>
+            </select>
+          </td>
+          <td>
             <select v-model="filters.status">
               <option value="">All</option>
               <option value="IT">In transit</option>
@@ -126,7 +153,7 @@ async function handleConfirmDispatch(row) {
       </thead>
       <tbody>
         <tr v-if="!rows.length">
-          <td :colspan="(vendorOptions ? 11 : 10) + (allowConfirmDispatch ? 1 : 0)" class="empty-state">Nothing here yet -- rows appear once a vendor fills in an estimated dispatch date and quantity for a SKU, and stay once dispatched with their live shipment status.</td>
+          <td :colspan="(vendorOptions ? 12 : 11) + (allowConfirmDispatch ? 1 : 0)" class="empty-state">Nothing here yet -- rows appear once a vendor fills in an estimated dispatch date and quantity for a SKU, and stay once dispatched with their live shipment status.</td>
         </tr>
         <tr v-for="row in rows" :key="keyFor(row)">
           <td v-if="vendorOptions">{{ vendorLabel(row.vendor_code) }}</td>
@@ -142,7 +169,16 @@ async function handleConfirmDispatch(row) {
           </td>
           <td v-else class="cell-empty">–</td>
 
-          <td v-if="row.kind === 'shipped'"><BluedartStatusChip :status-type="row.tracking?.status_type" /></td>
+          <td v-if="row.kind === 'shipped'">{{ courierLabel(row.courier) }}</td>
+          <td v-else-if="allowConfirmDispatch">
+            <select v-model="courierInputs[keyFor(row)]">
+              <option v-for="c in COURIER_OPTIONS" :key="c.value" :value="c.value">{{ c.label }}</option>
+            </select>
+          </td>
+          <td v-else class="cell-empty">–</td>
+
+          <td v-if="row.kind === 'shipped' && row.courier === 'bluedart'"><BluedartStatusChip :status-type="row.tracking?.status_type" /></td>
+          <td v-else-if="row.kind === 'shipped'">{{ row.tracking?.status_text || row.tracking?.status_type || "–" }}</td>
           <td v-else class="cell-empty">Awaiting dispatch</td>
 
           <td v-if="row.kind === 'shipped'">{{ row.tracking ? `${row.tracking.origin || "–"} → ${row.tracking.destination || "–"}` : "–" }}</td>

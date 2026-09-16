@@ -420,6 +420,15 @@ create table if not exists public.po_item_shipments (
 create index if not exists po_item_shipments_po_code_idx on public.po_item_shipments(po_code);
 create index if not exists po_item_shipments_awb_idx on public.po_item_shipments(awb_number);
 
+-- po_item_shipments already existed before DTDC support -- these two
+-- statements retroactively add the courier column on an already-deployed
+-- database (no-op if already there). 'bluedart' | 'dtdc', which tracking
+-- API owns this AWB -- the default backfills the Bluedart-only rows
+-- created before DTDC existed; every new row sets it explicitly
+-- (Dispatch Planning's courier dropdown -- see confirm_dispatched()).
+alter table public.po_item_shipments add column if not exists courier text not null default 'bluedart';
+create index if not exists po_item_shipments_courier_idx on public.po_item_shipments(courier);
+
 alter table public.po_item_shipments enable row level security;
 
 drop policy if exists po_item_shipments_select on public.po_item_shipments;
@@ -433,22 +442,30 @@ create policy po_item_shipments_select on public.po_item_shipments
 -- confirm_dispatched() (SECURITY DEFINER) below ever writes this.
 
 -- ---------------------------------------------------------------------
--- shipment_tracking -- live Bluedart status per AWB, one row per unique
--- awb_number (NOT per po_item_shipments row -- several SKUs dispatched
--- together under one physical package share one AWB, so this stays a
--- separate table keyed by awb_number rather than columns bolted onto
--- po_item_shipments). vendor_code is denormalized here too, same
+-- shipment_tracking -- live courier status per AWB, one row per unique
+-- (courier, awb_number) pair (NOT per po_item_shipments row -- several
+-- SKUs dispatched together under one physical package share one AWB, so
+-- this stays a separate table keyed by awb rather than columns bolted
+-- onto po_item_shipments). Keyed on (courier, awb_number) together, not
+-- awb_number alone, since AWB numbers are only unique within one
+-- courier's own numbering -- two different couriers could in principle
+-- issue the same number. vendor_code is denormalized here too, same
 -- join-free-RLS-check reason as po_item_shipments.vendor_code above.
 --
--- Populated by scripts/sync_bluedart_tracking.py polling Bluedart's
--- legacy Track & Trace API (LoginID + LicenceKey auth) on a schedule via
+-- Populated by scripts/sync_bluedart_tracking.py (Bluedart's legacy
+-- Track & Trace API, LoginID + LicenceKey auth) and
+-- scripts/sync_dtdc_tracking.py (DTDC's tracking API) on a schedule via
 -- GitHub Actions -- never written from the browser, so there's no
--- insert/update policy for authenticated.
+-- insert/update policy for authenticated. status_type/status_text/raw are
+-- deliberately generic (each courier has its own status-code vocabulary
+-- and response shape) -- see BluedartStatusChip.vue/DtdcStatusChip.vue on
+-- the frontend for how each courier's own codes get a friendly label.
 -- ---------------------------------------------------------------------
 create table if not exists public.shipment_tracking (
-  awb_number text primary key,
+  awb_number text not null,
+  courier text not null default 'bluedart',  -- 'bluedart' | 'dtdc'
   vendor_code text,
-  status_type text,          -- Bluedart's raw code: IT/UD/DL/RL/RT/NF/...
+  status_type text,          -- the courier's own raw status code
   status_text text,          -- human-readable status, e.g. "In Transit. Await delivery information"
   origin text,
   destination text,
@@ -456,11 +473,20 @@ create table if not exists public.shipment_tracking (
   last_scan_text text,
   last_scan_location text,
   last_scan_at timestamptz,
-  raw jsonb,                 -- full parsed Bluedart response, for fields not modeled above
-  updated_at timestamptz not null default now()
+  raw jsonb,                 -- full parsed courier response, for fields not modeled above
+  updated_at timestamptz not null default now(),
+  primary key (courier, awb_number)
 );
 
 create index if not exists shipment_tracking_vendor_code_idx on public.shipment_tracking(vendor_code);
+
+-- shipment_tracking already existed as a Bluedart-only table (primary key
+-- on awb_number alone) before DTDC support -- these retroactively widen
+-- it on an already-deployed database (no-op on a fresh install, where the
+-- create table above already has the right shape).
+alter table public.shipment_tracking add column if not exists courier text not null default 'bluedart';
+alter table public.shipment_tracking drop constraint if exists shipment_tracking_pkey;
+alter table public.shipment_tracking add primary key (courier, awb_number);
 
 alter table public.shipment_tracking enable row level security;
 
@@ -475,12 +501,16 @@ create policy shipment_tracking_select on public.shipment_tracking
 -- scripts/sync_bluedart_tracking.py (service_role key) ever writes this.
 
 -- ---------------------------------------------------------------------
--- confirm_dispatched(po_code, item_sku, awb_number): called from Dispatch
--- Planning's "Dispatched" button (internal staff only) when Operations
--- confirms a SKU's estimated dispatch actually went out. awb_number is
--- mandatory (Kalrav's explicit spec) -- rejected server-side too, not
--- just in the UI, since RLS/grants alone can't enforce a required-field
--- rule on an RPC call.
+-- confirm_dispatched(po_code, item_sku, awb_number, courier): called from
+-- Dispatch Planning's "Dispatched" button (internal staff only) when
+-- Operations confirms a SKU's estimated dispatch actually went out.
+-- awb_number is mandatory (Kalrav's explicit spec) -- rejected server-side
+-- too, not just in the UI, since RLS/grants alone can't enforce a
+-- required-field rule on an RPC call. courier is mandatory too, once
+-- DTDC joined Bluedart as a second tracked courier (Kalrav's call: an
+-- explicit dropdown in the UI, not guessed from the AWB's format) --
+-- it's what tells scripts/sync_bluedart_tracking.py /
+-- sync_dtdc_tracking.py which AWBs are theirs to poll.
 --
 -- Always logs the shipment (po_item_shipments above) first, then:
 --   - If that SKU still has pending_quantity > 0 (Uniware's own synced
@@ -501,8 +531,9 @@ create policy shipment_tracking_select on public.shipment_tracking
 -- gate an RPC call itself.
 -- ---------------------------------------------------------------------
 drop function if exists public.confirm_dispatched(text, text);
+drop function if exists public.confirm_dispatched(text, text, text);
 
-create or replace function public.confirm_dispatched(p_po_code text, p_item_sku text, p_awb_number text)
+create or replace function public.confirm_dispatched(p_po_code text, p_item_sku text, p_awb_number text, p_courier text)
 returns void
 language plpgsql
 security definer
@@ -523,6 +554,10 @@ begin
     raise exception 'AWB/Tracking ID is required';
   end if;
 
+  if p_courier not in ('bluedart', 'dtdc') then
+    raise exception 'courier must be one of: bluedart, dtdc';
+  end if;
+
   select vendor_code, pending_quantity, estimated_dispatch_qty, estimated_dispatch_date
     into v_vendor_code, v_pending, v_qty, v_date
   from public.po_items
@@ -534,8 +569,8 @@ begin
 
   select coalesce(vendor_name, email) into v_by from public.profiles where id = auth.uid();
 
-  insert into public.po_item_shipments (po_code, item_sku, vendor_code, awb_number, dispatched_qty, dispatched_date, confirmed_by)
-  values (p_po_code, p_item_sku, v_vendor_code, trim(p_awb_number), v_qty, v_date, v_by);
+  insert into public.po_item_shipments (po_code, item_sku, vendor_code, awb_number, courier, dispatched_qty, dispatched_date, confirmed_by)
+  values (p_po_code, p_item_sku, v_vendor_code, trim(p_awb_number), p_courier, v_qty, v_date, v_by);
 
   if coalesce(v_pending, 0) > 0 then
     update public.po_items
@@ -548,7 +583,7 @@ begin
 end;
 $$;
 
-grant execute on function public.confirm_dispatched(text, text, text) to authenticated;
+grant execute on function public.confirm_dispatched(text, text, text, text) to authenticated;
 
 -- ---------------------------------------------------------------------
 -- grn_items — one row per SKU line item on a GRN. Same purpose as

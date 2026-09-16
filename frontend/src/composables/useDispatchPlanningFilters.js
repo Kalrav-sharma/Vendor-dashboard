@@ -15,7 +15,7 @@ import { fmtNum, fmtDateOnly, bluedartStatusLabel } from "../format.js";
 
 export function useDispatchPlanningFilters(rows, resolveVendorLabel) {
   const filters = reactive({
-    search: "", vendor: "", poCode: "", sku: "", item: "", qty: "", dispatchDate: "", awb: "", status: "",
+    search: "", vendor: "", poCode: "", sku: "", item: "", qty: "", dispatchDate: "", awb: "", courier: "", status: "",
   });
 
   function rowFields(row) {
@@ -27,7 +27,10 @@ export function useDispatchPlanningFilters(rows, resolveVendorLabel) {
       qty: fmtNum(row.kind === "shipped" ? row.dispatched_qty : row.estimated_dispatch_qty),
       dispatchDate: fmtDateOnly(row.kind === "shipped" ? row.dispatched_date : row.estimated_dispatch_date),
       awb: row.kind === "shipped" ? (row.awb_number || "") : "",
-      status: row.kind === "shipped" ? bluedartStatusLabel(row.tracking?.status_type) : "",
+      // Bluedart-specific label today (DTDC's own status vocabulary isn't
+      // wired up yet) -- fine as a search/filter aid either way, since a
+      // DTDC row's raw status_type still shows through the filter value.
+      status: row.kind === "shipped" && row.courier === "bluedart" ? bluedartStatusLabel(row.tracking?.status_type) : "",
     };
   }
 
@@ -35,6 +38,7 @@ export function useDispatchPlanningFilters(rows, resolveVendorLabel) {
     const fields = rowFields(row);
     const f = filters;
     if (resolveVendorLabel && f.vendor && row.vendor_code !== f.vendor) return false;
+    if (f.courier && (row.kind !== "shipped" || row.courier !== f.courier)) return false;
     if (f.status && (row.kind !== "shipped" || row.tracking?.status_type !== f.status)) return false;
     for (const key of ["poCode", "sku", "item", "qty", "dispatchDate", "awb"]) {
       if (f[key] && !fields[key].toLowerCase().includes(f[key].toLowerCase())) return false;
