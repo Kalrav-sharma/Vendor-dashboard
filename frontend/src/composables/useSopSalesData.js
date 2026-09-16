@@ -11,7 +11,12 @@ export function useSopSalesData() {
   const loadError = ref("");
 
   async function refresh() {
-    const { data, error } = await supabase.from("sop_sales_plan_actual").select("*");
+    // sop_sales_plan_actual is upserted (never wholesale-replaced), so every prior month's rows
+    // stay in the table forever -- must filter to the current month explicitly, otherwise a stale
+    // month's row can silently win when the frontend has no ordering guarantee to rely on.
+    const currentMonthStart = new Date().toISOString().slice(0, 7) + "-01";
+    const { data, error } = await supabase.from("sop_sales_plan_actual").select("*")
+      .eq("month_start", currentMonthStart);
     if (!error) rows.value = data;
     loadError.value = error?.message || "";
   }

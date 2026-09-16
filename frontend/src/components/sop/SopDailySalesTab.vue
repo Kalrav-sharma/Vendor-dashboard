@@ -5,7 +5,7 @@
 // data turned out to already carry it). Date window: current month's
 // elapsed days, padded backward to a minimum of 7 rows -- same logic as
 // the original /sop-master tab.
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import { useSopDailySalesData } from "../../composables/useSopDailySalesData.js";
 
 const SKUS = ["M0", "M1-2nd Gen", "M1 Pro", "M2 Pro", "M3", "M3 Pro"];
@@ -22,6 +22,7 @@ const SECTIONS = [
 ];
 
 const { rows, loadError } = useSopDailySalesData();
+const activeSeries = ref(SECTIONS[0].series);
 
 function fmt(n) {
   return Math.round(n || 0).toLocaleString("en-IN");
@@ -83,8 +84,17 @@ const tables = computed(() => SECTIONS.map(section => {
 <template>
   <div v-if="loadError" class="form-error">{{ loadError }}</div>
 
+  <div class="subtabs" style="margin-bottom: 14px;">
+    <button
+      v-for="s in SECTIONS" :key="s.series"
+      class="subtab-item" :class="{ active: activeSeries === s.series }"
+      @click="activeSeries = s.series"
+    >{{ s.title }}</button>
+  </div>
+
   <template v-for="t in tables" :key="t.series">
-    <h3 style="font-size: 0.95rem; margin: 0 0 10px;">{{ t.title }}</h3>
+    <div v-show="activeSeries === t.series">
+    <h3 class="section-title">{{ t.title }}</h3>
     <div class="table-card" style="margin-bottom: 24px;"><div class="table-scroll">
       <table>
         <thead><tr><th>Date</th><th v-for="d in t.dims" :key="d" class="num">{{ d }}</th><th class="num">Total</th></tr></thead>
@@ -94,7 +104,7 @@ const tables = computed(() => SECTIONS.map(section => {
             <td v-for="(c, i) in r.cells" :key="i" class="num mono">{{ fmt(c) }}</td>
             <td class="num mono"><b>{{ fmt(r.total) }}</b></td>
           </tr>
-          <tr style="font-weight: 600;">
+          <tr class="row-total">
             <td>Total</td>
             <td v-for="(c, i) in t.totalRow.cells" :key="i" class="num mono">{{ fmt(c) }}</td>
             <td class="num mono">{{ fmt(t.totalRow.total) }}</td>
@@ -102,5 +112,6 @@ const tables = computed(() => SECTIONS.map(section => {
         </tbody>
       </table>
     </div></div>
+    </div>
   </template>
 </template>

@@ -193,8 +193,16 @@ button.link-btn {
 .table-card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
 .table-scroll { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; font-size: 0.83rem; min-width: 920px; }
-th { text-align: left; padding: 10px 12px; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); font-weight: 600; border-bottom: 1px solid var(--line); background: var(--paper); white-space: nowrap; }
+th { text-align: left; padding: 10px 12px; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); font-weight: 600; border-bottom: 1px solid var(--line); background: var(--paper); white-space: nowrap; vertical-align: middle; }
+/* A numeric column's header must right-align to match its data below it --
+   .num already does this for td; th needs the same rule under the same
+   class so a table only ever has to remember one class per numeric column,
+   not two. */
+th.num { text-align: right; }
 td { padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+/* Bold total/summary row -- replaces the inline style="font-weight: 600;"
+   pattern repeated across every sop/*.vue table. */
+tr.row-total td { font-weight: 600; }
 tbody tr:last-child td { border-bottom: none; }
 tbody tr:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); }
 .clickable-row { cursor: pointer; }
@@ -205,6 +213,38 @@ tbody tr:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); 
    right-aligned number and header looking like they're floating in the
    middle of the column instead of hugging its right edge. */
 .num { text-align: right; white-space: nowrap; width: 1%; }
+
+/* Generic text-color utilities for a single cell/value flagged red or green
+   (e.g. a Delta table's negative/positive cells) -- distinct from the
+   chip-* / *-soft pair below, which tint a whole cell/row's background. */
+.critical { color: var(--critical); }
+.good { color: var(--good); }
+
+/* Row/cell background tints, sharing the same tokens as the chip-* badges --
+   for flagging a whole row (e.g. S&OP Planning's per-status coloring)
+   rather than just one value's text color. */
+.bg-good-soft { background: var(--good-soft); }
+.bg-open-soft { background: var(--open-soft); }
+.bg-critical-soft { background: var(--critical-soft); }
+
+/* Single-CELL status highlight -- background + matching text + bold, all in
+   one class, for a value that needs to stand out on its own within an
+   otherwise plain row (a DOI figure, a Delta, a Gap) -- unlike .bg-*-soft
+   above (background only, for tinting a whole row) or .critical/.good above
+   (text color only). This is the fix for "don't just color the text,
+   highlight the space the number carries." */
+.cell-good { background: var(--good-soft); color: var(--good); font-weight: 600; }
+.cell-open { background: var(--open-soft); color: var(--open); font-weight: 600; }
+.cell-critical { background: var(--critical-soft); color: var(--critical); font-weight: 600; }
+
+/* Section heading used by every sop/*.vue tab -- replaces the ~15
+   copy-pasted inline style="font-size: 0.95rem; margin: 0 0 10px;" h3s. */
+.section-title { font-size: 0.95rem; font-weight: 600; margin: 0 0 10px; }
+
+/* Hand-rolled radio-button "pill" toggle row (DOI target, Scope, in-transit
+   mode, etc.) -- replaces the twice-duplicated inline-styled flex/gap markup. */
+.radio-pill-group { display: flex; gap: 14px; flex-wrap: wrap; }
+.radio-pill { display: flex; align-items: center; gap: 5px; cursor: pointer; font-size: 0.85rem; }
 
 /* Same shrink-to-content trick as .num, for icon-only columns that don't
    need the extra width a text-based column would (PO copy / Invoice

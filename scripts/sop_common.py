@@ -123,6 +123,103 @@ def pad_row(row, length):
     return row + [None] * (length - len(row))
 
 
+def parse_daily_trackr_tab(rows, date_col, day_col_start):
+    """Generic reader for the 4 single-channel daily tabs (UC sales trackr / Az / FK / MT - Daily
+    trackr) -- port of parse_channel_dispatch_plan.js's parseDailyTrackrTab(). A row's date cell must
+    parse (via normalize_date, handling both 'Jun 1 2026' and 'D-MMM' forms seen across these tabs);
+    a date row present but every SKU cell blank is treated as no data for that date. Shared by
+    sync_sop_dispatch_plan.py (Expected Sale + Planned Inward blocks) and sync_sop_sales.py (Expected
+    Sale block, for the Sales: Plan vs Actual projection)."""
+    import datetime
+    current_year = datetime.date.today().year
+    series = {}
+    min_date, max_date = None, None
+    for i in range(2, len(rows)):
+        row = rows[i]
+        date_cell = row[date_col] if date_col < len(row) else None
+        ymd = normalize_date(date_cell, default_year=current_year)
+        if not ymd:
+            continue
+        raw = [row[c] if c < len(row) else None for c in range(day_col_start, day_col_start + 6)]
+        if not any(v not in (None, "") for v in raw):
+            continue
+        by_sku = {"M0": to_num(raw[0]), "M1-2nd Gen": to_num(raw[1]), "M1 Pro": to_num(raw[2]),
+                  "M2 Pro": to_num(raw[3]), "M3": to_num(raw[4]), "M3 Pro": to_num(raw[5])}
+        series[ymd] = by_sku
+        if min_date is None or ymd < min_date:
+            min_date = ymd
+        if max_date is None or ymd > max_date:
+            max_date = ymd
+    return {"series": series, "min_date": min_date, "max_date": max_date}
+
+
+DOI_DISPLAY_CAP_DAYS = 60
+
+
+def add_days_ymd(ymd, days):
+    import datetime
+    return (datetime.date.fromisoformat(ymd) + datetime.timedelta(days=days)).isoformat()
+
+
+def compute_forward_doi_from_series(series, max_known_ymd, start_ymd, sku, quantity, rate_multiplier=1.0,
+                                     cap_days=DOI_DISPLAY_CAP_DAYS):
+    """Port of computeForwardDOIFromSeries(): forward walk consuming daily rate until exhausted.
+    Returns a float day count if exhausted within cap_days, or the literal string f">{cap_days}"
+    otherwise -- whether that's because the walk ran past the series' own known forecast window, or
+    the quantity is just genuinely large. Per Anish: hitting that ceiling only ever means "this SKU
+    is so overstocked the forecast doesn't even reach far enough to exhaust it" -- one plain ">60"
+    outcome reads better on a leadership-facing dashboard than distinguishing "insufficient data"
+    from "400+" (the two outcomes this collapsed, before 2026-09-16).
+    Shared by sync_sop_dispatch_plan.py (Target Closing / Required Dispatch) and
+    sync_sop_inventory.py (sop_channel_drr_doi's DOI column)."""
+    if not (quantity > 0):
+        return 0.0
+    remaining, ymd = quantity, start_ymd
+    for days in range(1, cap_days + 1):
+        ymd = add_days_ymd(ymd, 1)
+        if not max_known_ymd or ymd > max_known_ymd:
+            return f">{cap_days}"
+        daily_rate = series.get(ymd, {}).get(sku, 0.0) * rate_multiplier
+        if daily_rate <= 0:
+            continue
+        if remaining <= daily_rate:
+            return (days - 1) + remaining / daily_rate
+        remaining -= daily_rate
+    return f">{cap_days}"
+
+
+def parse_uc_sales_trackr_facility_block(rows, title_col):
+    """Reads one per-facility 'Actual Sales' block from the 'UC sales trackr' tab. title_col is
+    BOTH the block's title cell (row 0, e.g. 'PB-UC-BLR') AND its first SKU data column (row 1 has
+    SKU headers M0/M1/M1 Pro/M2 Pro/M3/M3 Pro at title_col..title_col+5, Total at title_col+6) --
+    a different block shape from parse_daily_trackr_tab's Expected Sale blocks, which have no title
+    row occupying a data column. Verified live 2026-09-15: PB-UC-BLR@17, PB-UC-HYD@25,
+    PB-UC-GGN@33, PB-UC-BOMBAY@41, PB-UC-KOL@49 (8-column stride, one blank separator column
+    between blocks); the same stride continues rightward into the 21 individual dark-store blocks
+    (see DARK_STORE_TITLE_COLS in sync_sop_inventory.py). Date column is always 0 (col A),
+    same convention as every other daily tab."""
+    import datetime
+    current_year = datetime.date.today().year
+    labels = ["M0", "M1", "M1 Pro", "M2 Pro", "M3", "M3 Pro"]
+    series = {}
+    min_date, max_date = None, None
+    for i in range(2, len(rows)):
+        row = rows[i]
+        ymd = normalize_date(row[0] if row else None, default_year=current_year)
+        if not ymd:
+            continue
+        raw = [row[c] if c < len(row) else None for c in range(title_col, title_col + 6)]
+        if not any(v not in (None, "") for v in raw):
+            continue
+        by_sku = {normalize_sku(label): to_num(raw[j]) for j, label in enumerate(labels)}
+        series[ymd] = by_sku
+        if min_date is None or ymd < min_date:
+            min_date = ymd
+        if max_date is None or ymd > max_date:
+            max_date = ymd
+    return {"series": series, "min_date": min_date, "max_date": max_date}
+
+
 def supabase_config():
     url = os.environ.get("SUPABASE_URL")
     key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")

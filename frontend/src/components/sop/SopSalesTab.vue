@@ -69,21 +69,22 @@ const kpiTiles = computed(() => [
   </div>
 
   <template v-for="section in [
-    { title: 'Projection', matrix: projectionMatrix },
-    { title: 'Actual', matrix: actualMatrix },
-    { title: 'Gap (Actual - Projection)', matrix: gapMatrix },
+    { title: 'Projection', matrix: projectionMatrix, signed: false },
+    { title: 'Actual', matrix: actualMatrix, signed: false },
+    { title: 'Gap (Actual - Projection)', matrix: gapMatrix, signed: true },
   ]" :key="section.title">
-    <h3 style="font-size: 0.95rem; margin: 0 0 10px;">{{ section.title }}</h3>
+    <h3 class="section-title">{{ section.title }}</h3>
     <div class="table-card" style="margin-bottom: 24px;"><div class="table-scroll">
       <table>
         <thead><tr><th>Channel</th><th v-for="s in SKUS" :key="s" class="num">{{ s }}</th><th class="num">Total</th></tr></thead>
         <tbody>
           <tr v-for="r in section.matrix.body" :key="r.label">
             <td>{{ r.label }}</td>
-            <td v-for="(c, i) in r.cells" :key="i" class="num mono">{{ fmt(c) }}</td>
+            <td v-for="(c, i) in r.cells" :key="i" class="num mono"
+                :class="section.signed ? { 'cell-critical': c < 0, 'cell-good': c > 0 } : {}">{{ fmt(c) }}</td>
             <td class="num mono"><b>{{ fmt(r.total) }}</b></td>
           </tr>
-          <tr style="font-weight: 600;">
+          <tr class="row-total">
             <td>{{ section.matrix.totalRow.label }}</td>
             <td v-for="(c, i) in section.matrix.totalRow.cells" :key="i" class="num mono">{{ fmt(c) }}</td>
             <td class="num mono">{{ fmt(section.matrix.totalRow.total) }}</td>

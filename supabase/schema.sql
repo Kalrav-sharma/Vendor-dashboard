@@ -918,6 +918,90 @@ create policy sop_inventory_uc_warehouse_select on public.sop_inventory_uc_wareh
   using (public.is_internal_staff());
 
 -- ---------------------------------------------------------------------
+-- sop_channel_drr_doi — Inventory Overview tab, channel-level DRR/DOI health
+-- view (replaces the old UC-warehouse-only on-hand/in-transit/combined
+-- tables). DRR = trailing 10-day average from sop_daily_sales's
+-- by_sku_uc/by_sku_amazon/by_sku_flipkart/by_sku_mt series; DOI = forward
+-- walk against that channel's own "Expected Sale" daily-trackr series,
+-- starting from sop_inventory_channel's on-hand. doi_flag mirrors
+-- sop_dispatch_plan's projected_doi_flag sentinel for a walk that outruns
+-- known data. Wholesale-replaced each run by scripts/sync_sop_inventory.py.
+-- ---------------------------------------------------------------------
+create table if not exists public.sop_channel_drr_doi (
+  id bigserial primary key,
+  channel text not null,
+  sku text not null,
+  drr numeric not null default 0,
+  doi numeric,
+  doi_flag text,
+  synced_at timestamptz not null default now(),
+  unique (channel, sku)
+);
+
+alter table public.sop_channel_drr_doi enable row level security;
+
+drop policy if exists sop_channel_drr_doi_select on public.sop_channel_drr_doi;
+create policy sop_channel_drr_doi_select on public.sop_channel_drr_doi
+  for select
+  using (public.is_internal_staff());
+
+-- ---------------------------------------------------------------------
+-- sop_dark_store_inventory — new "UC App + PLS" tab's "On hand Inventory"
+-- view, individual dark-store rows shown below the 5 warehouses (city
+-- grouping: DTDC Bangalore/Gurgaon/Kolkata, SFX Mumbai/Hyderabad). Each
+-- DTDC/SFX bucket in "Current Inventory" is actually an aggregate label
+-- over multiple individual dark stores (21 as of 2026-09-16, confirmed
+-- live -- corrects an earlier wrong assumption that only city-aggregated
+-- totals existed) -- see parse_dark_store_on_hand in sync_sop_inventory.py.
+-- ---------------------------------------------------------------------
+create table if not exists public.sop_dark_store_inventory (
+  id bigserial primary key,
+  city text not null,           -- the DTDC/SFX bucket this store belongs to
+  store text not null,          -- individual facility code, e.g. 'PB-UC-BLR-NERALURU'
+  sku text not null,
+  on_hand numeric not null default 0,
+  synced_at timestamptz not null default now(),
+  unique (store, sku)
+);
+
+alter table public.sop_dark_store_inventory enable row level security;
+
+drop policy if exists sop_dark_store_inventory_select on public.sop_dark_store_inventory;
+create policy sop_dark_store_inventory_select on public.sop_dark_store_inventory
+  for select
+  using (public.is_internal_staff());
+
+-- ---------------------------------------------------------------------
+-- sop_facility_drr_doi — "UC App + PLS" tab's warehouse AND dark-store
+-- DRR/DOI health view. facility_type 'WAREHOUSE' rows use a 10-day DRR
+-- lookback; 'DARK_STORE' rows use 15 days (per Anish) and only exist for
+-- the 19 of 21 dark stores that have their own "UC sales trackr" block
+-- (2 don't -- see DARK_STORE_TITLE_COLS in sync_sop_inventory.py). DRR =
+-- trailing N-day average from "UC sales trackr"'s per-facility Actual
+-- Sales blocks (parse_uc_sales_trackr_facility_block in sop_common.py);
+-- DOI = simple on_hand/DRR ratio (not a forward-series walk, unlike
+-- sop_channel_drr_doi above).
+-- ---------------------------------------------------------------------
+create table if not exists public.sop_facility_drr_doi (
+  id bigserial primary key,
+  facility text not null,
+  facility_type text not null,  -- 'WAREHOUSE' | 'DARK_STORE'
+  sku text not null,
+  drr numeric not null default 0,
+  doi numeric,
+  on_hand numeric not null default 0,
+  synced_at timestamptz not null default now(),
+  unique (facility, sku)
+);
+
+alter table public.sop_facility_drr_doi enable row level security;
+
+drop policy if exists sop_facility_drr_doi_select on public.sop_facility_drr_doi;
+create policy sop_facility_drr_doi_select on public.sop_facility_drr_doi
+  for select
+  using (public.is_internal_staff());
+
+-- ---------------------------------------------------------------------
 -- sop_sales_plan_actual — Sales: Plan vs Actual tab, current month,
 -- channel x SKU. Synced from WH-Channel-SKU's "Dashboard" tab (projection,
 -- derived from Sale plan x Channel Split) and "actual sales" tab's Q:S
@@ -1111,7 +1195,7 @@ create table if not exists public.sop_dispatch_plan (
   required_dispatch numeric,
   status text,
   projected_doi numeric,             -- null when projected_doi_flag is set
-  projected_doi_flag text,           -- null | 'INSUFFICIENT_DATA'
+  projected_doi_flag text,           -- null | '>60' (walk didn't exhaust within 60 days)
   synced_at timestamptz not null default now()
 );
 create index if not exists idx_sop_dispatch_plan_run_view on public.sop_dispatch_plan(run_date, view_key);
@@ -1142,15 +1226,21 @@ create policy sop_dispatch_production_check_select on public.sop_dispatch_produc
   for select
   using (public.is_internal_staff());
 
--- sop_dispatch_pinned_date — singleton row holding the Channel Dispatch Plan's one pinned target
--- date (moves periodically, e.g. around a sale event). Updated manually via SQL when it needs to
--- move -- no write policy for authenticated/anon at all, not even the usual service-role-only
--- pattern's implicit "the sync script could write this too": the sync script only ever READS it.
+-- sop_dispatch_pinned_date — the Channel Dispatch Plan's pinned target date(s) (the business can
+-- have more than one active at once -- e.g. 24-Sep-2026 and 30-Sep-2026 coexisted starting
+-- 2026-09-15 -- so this is a normal multi-row table, not a singleton). Updated manually via SQL
+-- when a date needs to move or a new one is added -- no write policy for authenticated/anon at
+-- all, not even the usual service-role-only pattern's implicit "the sync script could write this
+-- too": the sync script only ever READS it.
 create table if not exists public.sop_dispatch_pinned_date (
-  id bigserial primary key check (id = 1),
+  id bigserial primary key,
   pinned_date date not null,
   updated_at timestamptz not null default now()
 );
+-- Migrates a pre-existing singleton-era table (id bigserial primary key CHECK (id = 1)) to the
+-- current multi-row shape -- safe/idempotent to re-run: a no-op once already migrated.
+alter table public.sop_dispatch_pinned_date drop constraint if exists sop_dispatch_pinned_date_id_check;
+create unique index if not exists sop_dispatch_pinned_date_pinned_date_idx on public.sop_dispatch_pinned_date(pinned_date);
 
 alter table public.sop_dispatch_pinned_date enable row level security;
 drop policy if exists sop_dispatch_pinned_date_select on public.sop_dispatch_pinned_date;
@@ -1159,9 +1249,14 @@ create policy sop_dispatch_pinned_date_select on public.sop_dispatch_pinned_date
   using (public.is_internal_staff());
 
 -- ---------------------------------------------------------------------
--- Bootstrap the pinned dispatch date (required once -- the sync script skips the pinned view with
--- a warning if this row doesn't exist yet). Update the date here any time the business moves it;
--- re-running this exact statement is a no-op once the row already exists with the same id.
---   insert into public.sop_dispatch_pinned_date (id, pinned_date) values (1, '2026-09-24')
---   on conflict (id) do update set pinned_date = excluded.pinned_date, updated_at = now();
+-- Bootstrap/maintain the pinned dispatch dates (required once -- the sync script simply skips any
+-- pinned date not present here). Add a new date, or re-run this whole block after the business
+-- moves/adds one -- every statement is idempotent (on_conflict on the unique pinned_date index
+-- above is a no-op for a date already present). To retire a pinned date once it's passed and no
+-- longer needed, delete its row manually: delete from public.sop_dispatch_pinned_date where
+-- pinned_date = '...';
+insert into public.sop_dispatch_pinned_date (pinned_date) values ('2026-09-24')
+  on conflict (pinned_date) do nothing;
+insert into public.sop_dispatch_pinned_date (pinned_date) values ('2026-09-30')
+  on conflict (pinned_date) do nothing;
 -- ---------------------------------------------------------------------

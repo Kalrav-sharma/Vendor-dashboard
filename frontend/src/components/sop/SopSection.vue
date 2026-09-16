@@ -9,6 +9,7 @@
 // same convention AdminApp.vue itself uses for its top-level nav.
 import { ref } from "vue";
 import SopInventoryTab from "./SopInventoryTab.vue";
+import SopUcAppTab from "./SopUcAppTab.vue";
 import SopSalesTab from "./SopSalesTab.vue";
 import SopDailySalesTab from "./SopDailySalesTab.vue";
 import SopProductionTab from "./SopProductionTab.vue";
@@ -17,6 +18,7 @@ import SopDispatchPlanTab from "./SopDispatchPlanTab.vue";
 
 const SUBTABS = [
   { id: "inventory", label: "Inventory Overview" },
+  { id: "uc-app", label: "UC App + PLS" },
   { id: "sales", label: "Sales: Plan vs Actual" },
   { id: "daily-sales", label: "Day-on-Day Sales" },
   { id: "production", label: "Production Plan" },
@@ -37,6 +39,7 @@ const activeSubTab = ref(SUBTABS[0].id);
   </div>
 
   <div v-show="activeSubTab === 'inventory'"><SopInventoryTab /></div>
+  <div v-show="activeSubTab === 'uc-app'"><SopUcAppTab /></div>
   <div v-show="activeSubTab === 'sales'"><SopSalesTab /></div>
   <div v-show="activeSubTab === 'daily-sales'"><SopDailySalesTab /></div>
   <div v-show="activeSubTab === 'production'"><SopProductionTab /></div>
