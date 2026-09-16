@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Builds this Vite project and copies its output into ../docs/, which is
 # what GitHub Pages actually serves (Settings -> Pages -> Deploy from a
-# branch -> main -> /docs), at the custom domain vendor-portal.com
+# branch -> main -> /docs), at the custom domain native-vendors.com
 # (docs/CNAME). This is NOT run by any CI workflow -- it's run locally (or
 # by Claude Code) whenever a page here changes, then the updated docs/
 # files get committed and pushed like any other change.
