@@ -17,6 +17,12 @@ then the SUM of those 5 already-clamped warehouse values, never a
 separately-computed pooled network figure. Do not "simplify" this by
 computing UC App+PLS's channel row directly from network totals.
 
+ON-HAND SOURCE: UC's own stock (the 5 warehouses, and therefore the
+UC App + PLS channel row) comes from sop_uniware_inventory -- the live
+Uniware snapshot -- not from the "Current Inventory" sheet (2026-09-16).
+Amazon / Flipkart / MT are still sheet-parsed: that stock sits in the
+marketplaces' own warehouses, which Uniware can't see.
+
 Credentials: GOOGLE_SERVICE_ACCOUNT_JSON, SUPABASE_URL,
 SUPABASE_SERVICE_ROLE_KEY (all already provisioned, no new secrets).
 """
@@ -28,9 +34,9 @@ import requests
 
 sys.path.insert(0, __file__.rsplit("/", 1)[0])
 from sop_common import (  # noqa: E402
-    SKUS, WH_CHANNEL_SKU_ID, add_days_ymd, compute_forward_doi_from_series, get_access_token,
-    get_values, normalize_date, normalize_sku, pad_row, parse_daily_trackr_tab, replace_by_filter,
-    supabase_config, to_num,
+    SKUS, WH_CHANNEL_SKU_ID, add_days_ymd, compute_forward_doi_from_series, fetch_uniware_on_hand,
+    get_access_token, get_values, normalize_date, normalize_sku, pad_row, parse_daily_trackr_tab,
+    replace_by_filter, supabase_config, to_num, uniware_warehouse_on_hand,
 )
 from sync_sop_production import parse_daily_production  # noqa: E402
 
@@ -71,7 +77,13 @@ def channel_bucket(chan_raw):
 def parse_current_inventory_by_channel(rows):
     """Port of parseCurrentInventoryByChannel(): 4-channel bucket totals + UC App+PLS's per-city
     breakdown, with the defensive re-spelled-header detection for a second unrelated table
-    sometimes pasted mid-block with no Channel label of its own."""
+    sometimes pasted mid-block with no Channel label of its own.
+
+    NOTE (2026-09-16): the UC App + PLS bucket and the whole per-city breakdown this returns are
+    now overwritten in main() with the live Uniware snapshot -- only the Amazon / Flipkart / MT
+    figures survive, since that's marketplace-held stock Uniware can't see. The UC parsing is left
+    in place rather than ripped out because it's a single shared pass over the same rows, and
+    keeping it means a Uniware outage shows up as an explicit abort instead of a silent 0."""
     header_row, channel_col, city_col = -1, -1, -1
     sku_col_map = {}
     for i in range(min(20, len(rows))):
@@ -476,6 +488,13 @@ def main():
     today_ymd = today.isoformat()
 
     current_inv, current_inv_by_city_uc = parse_current_inventory_by_channel(inv_rows)
+
+    # UC's own stock comes from the live Uniware snapshot, not the sheet (2026-09-16) -- same read
+    # that feeds the Inventory Overview and UC App + PLS tabs, so S&OP Planning's On-Hand column
+    # can no longer disagree with them. Amazon / Flipkart / MT stay sheet-sourced above.
+    current_inv_by_city_uc = uniware_warehouse_on_hand(fetch_uniware_on_hand(supabase_url, supabase_key))
+    current_inv["UC App + PLS"] = {s: sum(current_inv_by_city_uc[wh][s] for wh in WAREHOUSES)
+                                    for s in SKUS}
     in_transit_network, in_transit_by_city_uc = parse_in_transit_from_current_inventory(inv_rows)
     po_records = parse_raw_data_helper(rdh_rows)
     actual_production_full = parse_daily_production(day_wise_rows)

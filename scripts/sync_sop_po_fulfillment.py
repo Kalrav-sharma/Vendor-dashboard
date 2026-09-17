@@ -3,8 +3,11 @@
 S&OP: PO Fulfillment tab.
 
 Direct port of ~/.claude/scripts/parse_po_fulfillment.js's rolling 10-day
-PO fulfillment simulation. Reads WH-Channel-SKU's "Current Inventory" tab
-(on-hand + in-transit) and Copy Daily Input Anish's "Raw Data Sheet"
+PO fulfillment simulation. Reads on-hand from sop_uniware_inventory (the
+live Uniware snapshot -- since 2026-09-16, no longer parsed out of the
+"Current Inventory" sheet, so the figure seeding this simulation is the
+same one S&OP Planning and the UC App + PLS tab show), in-transit from
+WH-Channel-SKU's "Current Inventory" tab, and Copy Daily Input Anish's "Raw Data Sheet"
 (dispatch records + channel POs), simulates day-by-day fulfillment status
 for every individual PO row, groups RESCHEDULE/PARTIAL rows by SKU, and
 computes a production-shortfall RCA against Phase B's
@@ -34,8 +37,9 @@ import zoneinfo
 
 sys.path.insert(0, __file__.rsplit("/", 1)[0])
 from sop_common import (  # noqa: E402
-    COPY_DAILY_INPUT_ANISH_ID, SKUS, WH_CHANNEL_SKU_ID, get_access_token, get_values, normalize_sku,
-    pad_row, replace_by_filter, supabase_config, to_num,
+    COPY_DAILY_INPUT_ANISH_ID, SKUS, WH_CHANNEL_SKU_ID, fetch_uniware_on_hand, get_access_token,
+    get_values, normalize_sku, pad_row, replace_by_filter, supabase_config, to_num,
+    uniware_warehouse_on_hand,
 )
 from sync_sop_production import parse_daily_production  # noqa: E402
 
@@ -85,58 +89,6 @@ def parse_rdh_date(raw):
     situation as Day wise trackr, same fix (this run's own year as the fallback)."""
     from sop_common import normalize_date
     return normalize_date(raw, default_year=CURRENT_YEAR)
-
-
-def parse_on_hand(rows):
-    """Port of parse_po_fulfillment.js's parseOnHand(): UC App-RO on-hand by city, from WH-Channel-SKU's
-    Current Inventory tab. Distinct from Phase A's channel-bucket parser -- this one filters to any
-    channel label containing 'UC APP'/'UC-APP' (not the exact INVENTORY_CHANNEL_MAP bucket match) and
-    excludes a literal 'Delhi' city row, matching the source script exactly."""
-    header_row, channel_col, city_col = -1, -1, -1
-    sku_col_map = {}
-    for i in range(min(20, len(rows))):
-        row = rows[i]
-        sku_count = 0
-        for c, cell in enumerate(row):
-            s = str(cell or "").strip()
-            sl = s.lower()
-            if sl == "channel":
-                channel_col = c
-            if sl in ("city", "location"):
-                city_col = c
-            sku = normalize_sku(s)
-            if sku and sku not in sku_col_map:
-                sku_col_map[sku] = c
-                sku_count += 1
-        if sku_count >= 3 and channel_col != -1:
-            header_row = i
-            break
-    if header_row == -1:
-        print("WARNING: could not find on-hand header in Current Inventory", file=sys.stderr)
-        return {}
-    if city_col == -1:
-        city_col = 1
-
-    result = {}
-    current_channel = ""
-    for i in range(header_row + 1, len(rows)):
-        row = rows[i]
-        channel_val = str(pad_row(row, channel_col + 1)[channel_col] or "").strip()
-        city_val = str(pad_row(row, city_col + 1)[city_col] or "").strip()
-        if channel_val:
-            current_channel = channel_val
-        if not city_val:
-            continue
-        chan_upper = current_channel.upper()
-        if "UC APP" not in chan_upper and "UC-APP" not in chan_upper:
-            continue
-        if city_val.lower() == "delhi":
-            continue
-        result[city_val] = {}
-        for sku in SKUS:
-            col = sku_col_map.get(sku)
-            result[city_val][sku] = to_num(row[col]) if col is not None and col < len(row) else 0.0
-    return result
 
 
 def parse_in_transit(rows):
@@ -477,7 +429,10 @@ def main():
     today = datetime.datetime.now(zoneinfo.ZoneInfo("Asia/Kolkata")).date()
     end_date = today + datetime.timedelta(days=WINDOW_DAYS - 1)
 
-    on_hand = parse_on_hand(inv_rows)
+    # On-hand is the live Uniware snapshot (2026-09-16), not the "Current Inventory" sheet --
+    # it seeds this whole rolling simulation, so it has to be the same figure S&OP Planning and
+    # the UC App + PLS tab show. In-transit below is still sheet-sourced.
+    on_hand = uniware_warehouse_on_hand(fetch_uniware_on_hand(supabase_url, supabase_key))
     in_transit = parse_in_transit(inv_rows)
     dispatches = parse_dispatch_records(raw_data_rows)
     eta_map = compute_in_transit_etas(in_transit, dispatches, today)

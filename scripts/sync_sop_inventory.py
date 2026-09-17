@@ -2,13 +2,23 @@
 """
 S&OP: Inventory Overview tab.
 
-Pulls WH-Channel-SKU's "Current Inventory" tab (channel x SKU matrix, plus
-the "UC App - RO" block's per-city on-hand rows) and Copy Daily Input
-Anish's "Dispatch Planning" tab (the "Intransit Inventory" block's
-per-warehouse in-transit rows) via a Google service account (Sheets API),
-and upserts the result into Supabase's sop_inventory_channel /
-sop_inventory_uc_warehouse tables. Powers the portal's S&OP > Inventory
-Overview page.
+Three sources, combined into the portal's S&OP > Inventory Overview page and
+the UC App + PLS tab's "On hand Inventory" view:
+
+  - ON-HAND for anything in a UC facility (the 5 warehouses and the 21 dark
+    stores) comes from sop_uniware_inventory -- the live Uniware snapshot
+    written by sync_uniware_inventory.py. It is NOT parsed from the sheet any
+    more (2026-09-16, per Anish): the sheet's "Current Inventory" tab is itself
+    Uniware-fed, so reading it made the portal only as fresh as the last time
+    someone pushed that sync.
+  - ON-HAND for the marketplace channels (Amazon / Flipkart / MT) still comes
+    from WH-Channel-SKU's "Current Inventory" tab -- that's stock sitting in
+    the marketplaces' own warehouses, which Uniware can't see.
+  - IN-TRANSIT still comes from Copy Daily Input Anish's "Dispatch Planning"
+    tab ("Intransit Inventory" block), via a Google service account.
+
+So a sop_inventory_uc_warehouse row is deliberately mixed-source: Uniware
+on_hand next to sheet in_transit.
 
 This is a direct port of parseChannelInventoryOverview() and
 parseDispatchPlanningBlock() in
@@ -19,8 +29,9 @@ an earlier hardcoded version silently let a lookalike second table's
 ambiguous "M1AS" column overwrite the correct one -- see that guard below).
 
 Runs on a schedule (every 30 min, business hours IST) via the "Sync S&OP
-inventory" GitHub Actions workflow; also has workflow_dispatch for a manual
-run.
+inventory" GitHub Actions workflow, and again right after every successful
+"Sync Uniware inventory" run so the derived tables always reflect the
+snapshot just taken; also has workflow_dispatch for a manual run.
 
 Credentials, as GitHub Actions repo secrets, never committed (all three
 already provisioned for sync_mm_rate_card.py -- no new secrets needed):
@@ -39,7 +50,9 @@ from google.oauth2 import service_account
 
 sys.path.insert(0, __file__.rsplit("/", 1)[0])
 from sop_common import (  # noqa: E402
-    compute_forward_doi_from_series, parse_daily_trackr_tab, parse_uc_sales_trackr_facility_block,
+    DARK_STORE_FACILITIES, compute_forward_doi_from_series, fetch_uniware_on_hand,
+    parse_daily_trackr_tab, parse_uc_sales_trackr_facility_block, uniware_qty,
+    uniware_warehouse_on_hand,
 )
 from sync_sop_sales import DASH_CHANNELS, PROJECTION_TAB_CONFIG  # noqa: E402
 
@@ -104,6 +117,12 @@ DARK_STORE_DRR_LOOKBACK_DAYS = 15  # dark stores use a 15-day lookback, per Anis
 # get kept as separate stores instead of being summed away.
 DARK_STORE_CITY_BUCKETS = ['DTDC Bangalore', 'DTDC Gurgaon', 'DTDC Kolkata', 'SFX Mumbai', 'SFX Hyderabad']
 
+# The only channels whose on-hand still comes out of the sheet. These are marketplace-held stock --
+# units sitting in Amazon's / Flipkart's / the MT retailers' own warehouses, which Uniware can't see.
+# Everything in a UC facility (UC App+PLS and the DTDC/SFX dark stores) now comes from the live
+# Uniware snapshot instead.
+MARKETPLACE_CHANNELS = ['Amazon', 'Flipkart', 'MT']
+
 # "UC sales trackr" per-dark-store "Actual Sales" block title columns (0-indexed), same block shape
 # as FACILITY_TITLE_COLS above -- verified live 2026-09-16, same 8-column stride continuing right
 # after the 5 warehouse blocks. Only 19 of the 21 dark stores in Current Inventory have a block here
@@ -111,7 +130,7 @@ DARK_STORE_CITY_BUCKETS = ['DTDC Bangalore', 'DTDC Gurgaon', 'DTDC Kolkata', 'SF
 DARK_STORE_TITLE_COLS = {
     'PB-UC-BLR-NERALURU': 57, 'PB-UC-BLR-WHITEFIELD': 65, 'PB-UC-BLR-YELAHANKA': 73,
     'PB-UC-BLR-BUMMANAHALLI': 81, 'PB-UC-BLR-SARAKKI': 89,
-    'PB-UC-DEL-KAPASHERA': 97, 'PB-UC-DEL-OKHLA': 105, 'PB-UC-DEL-ROHINI': 113, 'PB-UC-DEL-SHADHARA': 121,
+    'PB-UC-DEL-KAPASHERA': 97, 'PB-UC-DEL-OKHLA': 105, 'PB-UC-DEL-ROHINI': 113, 'PB-UC-DEL-SHAHDARA': 121,
     'PB-UC-KOL-AGARPARA': 129, 'PB-UC-KOL-CAMACSTREET': 137, 'PB-UC-KOL-TARATALA': 145, 'PB-UC-KOL-RAJARHAT': 153,
     'PB-UC-BOM-SION': 161, 'PB-UC-BOM-MARINE-LINE': 169, 'PB-UC-BOM-POWAI': 177,
     'PB-UC-BOM-MALAD-WEST': 185, 'PB-UC-BOM-MALAD-EAST': 193,
@@ -165,12 +184,14 @@ def pad_row(row, length):
 
 
 def parse_channel_inventory_overview(rows):
-    """Port of parse_sop_master.js's parseChannelInventoryOverview(). Returns
-    (channel_rows, uc_city_rows) where channel_rows is [{channel, sku, qty}, ...] across all 10
-    buckets, and uc_city_rows is [{warehouse, sku, on_hand}, ...] for the UC App+PLS channel's 5
-    city rows specifically (the "UC App - RO" block), unsummed."""
+    """Port of parse_sop_master.js's parseChannelInventoryOverview(), now scoped to the MARKETPLACE
+    channels only -- Amazon, Flipkart and MT (Croma + Vijay Sales). That's stock sitting with the
+    marketplaces, which Uniware has no visibility of, so the sheet stays its source.
+
+    UC App+PLS and the DTDC/SFX dark-store buckets are no longer read from here: they're UC's own
+    facilities, so they come from the live Uniware snapshot instead (see build_uniware_on_hand).
+    Returns [{channel, sku, qty}, ...] for the marketplace channels only."""
     channel_totals = {ch: {s: 0.0 for s in SKUS} for ch in INV_CHANNELS}
-    uc_city_on_hand = {wh: {s: 0.0 for s in SKUS} for wh in WAREHOUSES}
 
     header_row_idx = -1
     sku_col_map = {}
@@ -207,71 +228,40 @@ def parse_channel_inventory_overview(rows):
         bucket = INVENTORY_CHANNEL_MAP.get(current_channel.upper())
         if not bucket:
             continue
+        if bucket not in MARKETPLACE_CHANNELS:
+            continue  # UC's own facilities now come from Uniware, not this sheet
         for sku in SKUS:
             col = sku_col_map.get(sku)
             if col is None or col >= len(row):
                 continue
-            qty = to_num(row[col])
-            channel_totals[bucket][sku] += qty
-            if bucket == "UC App+PLS" and city_val in uc_city_on_hand:
-                uc_city_on_hand[city_val][sku] += qty
+            channel_totals[bucket][sku] += to_num(row[col])
 
+    return [{"channel": ch, "sku": s, "qty": channel_totals[ch][s]}
+            for ch in MARKETPLACE_CHANNELS for s in SKUS]
+
+
+def build_uniware_on_hand(by_facility):
+    """Rolls the raw per-facility snapshot into the three shapes this tab needs:
+      - warehouse on-hand per city (Gurgaon and Kolkata each sum two real facilities)
+      - per dark store
+      - per channel bucket: UC App+PLS = the 5 cities, each DTDC/SFX = its own stores"""
+    def qty(facility, sku):
+        return uniware_qty(by_facility, facility, sku)
+
+    warehouse_on_hand = uniware_warehouse_on_hand(by_facility)
+    dark_store_rows = [
+        {"city": city, "store": store, "sku": s, "on_hand": qty(store, s)}
+        for store, city in DARK_STORE_FACILITIES.items() for s in SKUS
+    ]
+
+    channel_totals = {"UC App+PLS": {s: sum(warehouse_on_hand[c][s] for c in WAREHOUSES) for s in SKUS}}
+    for bucket in DARK_STORE_CITY_BUCKETS:
+        stores = [st for st, c in DARK_STORE_FACILITIES.items() if c == bucket]
+        channel_totals[bucket] = {s: sum(qty(st, s) for st in stores) for s in SKUS}
     channel_rows = [{"channel": ch, "sku": s, "qty": channel_totals[ch][s]}
-                     for ch in INV_CHANNELS for s in SKUS]
-    uc_rows = [{"warehouse": wh, "sku": s, "on_hand": uc_city_on_hand[wh][s]}
-               for wh in WAREHOUSES for s in SKUS]
-    return channel_rows, uc_rows
+                    for ch in channel_totals for s in SKUS]
 
-
-def parse_dark_store_on_hand(rows):
-    """Same row-walk as parse_channel_inventory_overview above, but for the 5 DTDC/SFX channel
-    blocks specifically -- keeps each individual City-column value (a facility code, e.g.
-    'PB-UC-BLR-NERALURU') as its own store row instead of collapsing every row in the block into
-    one bucket total. Returns [{city, store, sku, on_hand}, ...] for all individual dark stores
-    found (21 as of 2026-09-16), regardless of whether that store also has a UC sales trackr DRR
-    block (2 of them don't -- see DARK_STORE_TITLE_COLS)."""
-    header_row_idx = -1
-    sku_col_map = {}
-    for i in range(min(10, len(rows))):
-        row = pad_row(rows[i], 2)
-        if str(row[0] or "").strip().lower() == "channel" and str(row[1] or "").strip().lower() == "city":
-            header_row_idx = i
-            for c in range(2, len(rows[i])):
-                sku = normalize_sku(rows[i][c])
-                if sku and sku not in sku_col_map:
-                    sku_col_map[sku] = c
-            break
-    if header_row_idx == -1:
-        print("WARNING: could not find 'Channel'/'City' header row in Current Inventory tab", file=sys.stderr)
-        return []
-
-    store_totals = {}
-    store_city = {}
-    current_channel = ""
-    for i in range(header_row_idx + 1, len(rows)):
-        row = pad_row(rows[i], 2)
-        chan_val = str(row[0] or "").strip()
-        city_val = str(row[1] or "").strip()
-        if city_val.lower() == "in transit inventory":
-            break
-        if chan_val:
-            current_channel = chan_val
-        if not city_val or city_val.lower() in ("total", "grand total"):
-            continue
-        bucket = INVENTORY_CHANNEL_MAP.get(current_channel.upper())
-        if bucket not in DARK_STORE_CITY_BUCKETS:
-            continue
-        store = city_val.upper()
-        store_city[store] = bucket
-        store_totals.setdefault(store, {s: 0.0 for s in SKUS})
-        for sku in SKUS:
-            col = sku_col_map.get(sku)
-            if col is None or col >= len(row):
-                continue
-            store_totals[store][sku] += to_num(row[col])
-
-    return [{"city": store_city[store], "store": store, "sku": s, "on_hand": store_totals[store][s]}
-            for store in store_totals for s in SKUS]
+    return warehouse_on_hand, dark_store_rows, channel_rows
 
 
 def parse_uc_warehouse_in_transit(rows):
@@ -466,13 +456,18 @@ def main():
     inv_rows = get_values(token, WH_CHANNEL_SKU_ID, "'Current Inventory'")
     dispatch_rows = get_values(token, COPY_DAILY_INPUT_ANISH_ID, "'Dispatch Planning'")
 
-    channel_rows, uc_on_hand_rows = parse_channel_inventory_overview(inv_rows)
+    # On-hand for everything in a UC facility comes from the live Uniware snapshot; the sheet is
+    # still the source for marketplace-held stock and for in-transit, so sop_inventory_uc_warehouse
+    # is deliberately a mixed-source row (Uniware on_hand + sheet in_transit).
+    uniware_by_facility = fetch_uniware_on_hand(supabase_url, supabase_key)
+    uc_warehouse_on_hand, dark_store_rows, uc_channel_rows = build_uniware_on_hand(uniware_by_facility)
+
+    channel_rows = parse_channel_inventory_overview(inv_rows) + uc_channel_rows
     uc_in_transit = parse_uc_warehouse_in_transit(dispatch_rows)
 
-    on_hand_by_key = {(r["warehouse"], r["sku"]): r["on_hand"] for r in uc_on_hand_rows}
     uc_warehouse_rows = [
         {"warehouse": wh, "sku": s,
-         "on_hand": on_hand_by_key.get((wh, s), 0.0),
+         "on_hand": uc_warehouse_on_hand[wh][s],
          "in_transit": uc_in_transit[wh][s]}
         for wh in WAREHOUSES for s in SKUS
     ]
@@ -499,11 +494,9 @@ def main():
     upsert(supabase_url, supabase_key, "sop_channel_drr_doi", channel_drr_doi_rows, "channel,sku")
 
     uc_trackr_rows = get_values(token, WH_CHANNEL_SKU_ID, "'UC sales trackr'")
-    uc_warehouse_on_hand = {wh: {s: on_hand_by_key.get((wh, s), 0.0) for s in SKUS} for wh in WAREHOUSES}
     facility_drr_doi_rows = compute_facility_drr_doi(uc_trackr_rows, uc_warehouse_on_hand)
 
     # Dark-store on-hand (UC App + PLS "On hand Inventory" view, item 2c) + DRR/DOI (item 2d).
-    dark_store_rows = parse_dark_store_on_hand(inv_rows)
     upsert(supabase_url, supabase_key, "sop_dark_store_inventory", dark_store_rows, "store,sku")
 
     dark_store_on_hand = {}
