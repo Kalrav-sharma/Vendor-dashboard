@@ -87,6 +87,28 @@ export function bluedartStatusClass(statusType) {
   return (BLUEDART_STATUS_META[statusType] || [null, "muted"])[1];
 }
 
+// DTDC's shipment_tracking.status_type -- unlike Bluedart, DTDC gives no
+// short code at the shipment-header level, just a free-text status
+// (trackHeader.strStatus, e.g. "Delivered") -- so this keys on that text
+// directly (case-insensitive) rather than a fixed code. Only "Delivered"
+// is confirmed so far (see scripts/sync_dtdc_tracking.py) -- add other
+// known values here as they're observed; anything unmapped still shows
+// its own raw text via the fallback, so nothing silently disappears.
+export const DTDC_STATUS_META = {
+  delivered: ["Delivered", "good"],
+  "in transit": ["In transit", "open"],
+  "out for delivery": ["Out for delivery", "open"],
+  "pickup awaited": ["Pickup awaited", "muted"],
+};
+
+export function dtdcStatusLabel(statusType) {
+  return (DTDC_STATUS_META[(statusType || "").toLowerCase()] || [statusType || "Not tracked", "muted"])[0];
+}
+
+export function dtdcStatusClass(statusType) {
+  return (DTDC_STATUS_META[(statusType || "").toLowerCase()] || [null, "muted"])[1];
+}
+
 export function visiblePos(pos) {
   return pos.filter(p => !HIDDEN_STATUSES.has(p.status));
 }

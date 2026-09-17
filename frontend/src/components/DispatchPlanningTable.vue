@@ -4,6 +4,7 @@ import { supabase } from "../supabaseClient.js";
 import { fmtNum, fmtDateOnly, fmtDate } from "../format.js";
 import SummaryKpis from "./SummaryKpis.vue";
 import BluedartStatusChip from "./BluedartStatusChip.vue";
+import DtdcStatusChip from "./DtdcStatusChip.vue";
 
 const props = defineProps({
   rows: { type: Array, required: true },        // mix of kind: "pending" (po_items row, awaiting dispatch) and
@@ -59,13 +60,32 @@ function isOverdue(row) {
   return row.kind === "pending" && !!row.estimated_dispatch_date && new Date(row.estimated_dispatch_date) < todayStart;
 }
 
+// Buckets a shipped row's courier-specific status_type into one of the
+// three KPI tiles below -- each courier has its own status vocabulary
+// (Bluedart: short codes; DTDC: free text), so this is the one place that
+// needs to know both, rather than spreading courier-specific checks
+// across the KPI computation itself.
+function trackingBucket(row) {
+  const status = row.tracking?.status_type;
+  if (row.courier === "bluedart") {
+    if (status === "IT") return "in_transit";
+    if (status === "DL") return "delivered";
+    if (["UD", "RT"].includes(status)) return "exception";
+  } else if (row.courier === "dtdc") {
+    const s = (status || "").toLowerCase();
+    if (["in transit", "out for delivery", "pickup awaited"].includes(s)) return "in_transit";
+    if (s === "delivered") return "delivered";
+  }
+  return null;
+}
+
 const kpiTiles = computed(() => {
   const pending = props.rows.filter((r) => r.kind === "pending");
   const shipped = props.rows.filter((r) => r.kind === "shipped");
   const overdue = pending.filter(isOverdue).length;
-  const inTransit = shipped.filter((r) => r.tracking?.status_type === "IT").length;
-  const delivered = shipped.filter((r) => r.tracking?.status_type === "DL").length;
-  const exceptions = shipped.filter((r) => ["UD", "RT"].includes(r.tracking?.status_type)).length;
+  const inTransit = shipped.filter((r) => trackingBucket(r) === "in_transit").length;
+  const delivered = shipped.filter((r) => trackingBucket(r) === "delivered").length;
+  const exceptions = shipped.filter((r) => trackingBucket(r) === "exception").length;
   return [
     { label: "Awaiting dispatch", value: pending.length },
     { label: "Overdue", value: overdue, cls: overdue > 0 ? "critical" : "" },
@@ -178,6 +198,7 @@ async function handleConfirmDispatch(row) {
           <td v-else class="cell-empty">–</td>
 
           <td v-if="row.kind === 'shipped' && row.courier === 'bluedart'"><BluedartStatusChip :status-type="row.tracking?.status_type" /></td>
+          <td v-else-if="row.kind === 'shipped' && row.courier === 'dtdc'"><DtdcStatusChip :status-type="row.tracking?.status_type" /></td>
           <td v-else-if="row.kind === 'shipped'">{{ row.tracking?.status_text || row.tracking?.status_type || "–" }}</td>
           <td v-else class="cell-empty">Awaiting dispatch</td>
 
