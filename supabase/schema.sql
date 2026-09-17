@@ -1421,3 +1421,153 @@ insert into public.sop_dispatch_pinned_date (pinned_date) values ('2026-09-24')
 insert into public.sop_dispatch_pinned_date (pinned_date) values ('2026-09-30')
   on conflict (pinned_date) do nothing;
 -- ---------------------------------------------------------------------
+
+-- ---------------------------------------------------------------------
+-- Daily Dispatch Planner (S&OP tab 8) — output of the first-mile dispatch
+-- engine, scripts/vendor/first_mile_dispatch.js, which is the SAME engine
+-- the /first-mile-dispatch-decision skill runs. Verified 2026-09-17 to
+-- produce byte-identical dispatch plans to the skill on identical input;
+-- that parity is the whole point of vendoring rather than re-implementing.
+--
+-- Every table here is keyed (run_date, scenario) and wholesale-replaced per
+-- run_date. `scenario` is the toggle the tab exposes:
+--   'EXCLUDE_TODAY' — plan from finished goods on the floor right now
+--   'INCLUDE_TODAY' — plan assuming today's production run also lands
+-- The skill asks this as a question on every run (the FG snapshot carries no
+-- timestamp, so it can't be inferred). The portal can't ask, so it computes
+-- both and lets you flip between them.
+-- ---------------------------------------------------------------------
+create table if not exists public.sop_first_mile_plan (
+  id bigserial primary key,
+  run_date date not null,
+  scenario text not null,          -- EXCLUDE_TODAY | INCLUDE_TODAY
+  dispatch_date date not null,
+  facility text not null,          -- RONCH | AMBER
+  warehouse text not null,
+  sku text not null,
+  qty numeric not null,
+  truck_total numeric not null,    -- whole-truck total, repeated on each SKU line of that truck
+  eta date not null,
+  reason text not null,            -- EMERGENCY | PILE-UP
+  tier int,                        -- 0 = a committed PO goes unserved, 1-4 = DOI rungs 7/15/30/45,
+                                    -- 5 = pile-gap toward the target split, 6 = nothing needed.
+                                    -- Kept because reason flattens all seven into two words.
+  synced_at timestamptz not null default now()
+);
+create index if not exists idx_sop_first_mile_plan_run
+  on public.sop_first_mile_plan (run_date, scenario);
+
+-- Plant-side picture: what's on the floor at each plant and what was made today.
+-- fg_qty is dispatchable; hold_qty is real stock that is deliberately NOT dispatchable (QC /
+-- quarantine / allocation) and is shown separately so it can't be mistaken for available supply.
+-- production_raw is the sheet figure; production_yielded applies the engine's 0.9 factor.
+create table if not exists public.sop_first_mile_plant (
+  id bigserial primary key,
+  run_date date not null,
+  scenario text not null,
+  facility text not null,
+  sku text not null,
+  fg_qty numeric not null default 0,
+  hold_qty numeric not null default 0,
+  production_raw numeric not null default 0,
+  production_yielded numeric not null default 0,
+  synced_at timestamptz not null default now(),
+  unique (run_date, scenario, facility, sku)
+);
+
+create table if not exists public.sop_first_mile_fill_rate (
+  id bigserial primary key,
+  run_date date not null,
+  scenario text not null,
+  sku text not null,
+  ordered numeric not null default 0,
+  served numeric not null default 0,
+  short numeric not null default 0,
+  fill_pct numeric,
+  hard_deficit numeric not null default 0,      -- short because supply never existed
+  dispatch_fixable numeric not null default 0,  -- short that better routing could still recover
+  synced_at timestamptz not null default now(),
+  unique (run_date, scenario, sku)
+);
+
+create table if not exists public.sop_first_mile_facility_util (
+  id bigserial primary key,
+  run_date date not null,
+  scenario text not null,
+  facility text not null,
+  opening_fg numeric not null default 0,
+  production numeric not null default 0,
+  dispatched numeric not null default 0,
+  trucks int not null default 0,
+  residual numeric not null default 0,
+  synced_at timestamptz not null default now(),
+  unique (run_date, scenario, facility)
+);
+
+alter table public.sop_first_mile_plan enable row level security;
+alter table public.sop_first_mile_plant enable row level security;
+alter table public.sop_first_mile_fill_rate enable row level security;
+alter table public.sop_first_mile_facility_util enable row level security;
+
+drop policy if exists sop_first_mile_plan_select on public.sop_first_mile_plan;
+create policy sop_first_mile_plan_select on public.sop_first_mile_plan
+  for select using (public.is_internal_staff());
+drop policy if exists sop_first_mile_plant_select on public.sop_first_mile_plant;
+create policy sop_first_mile_plant_select on public.sop_first_mile_plant
+  for select using (public.is_internal_staff());
+drop policy if exists sop_first_mile_fill_rate_select on public.sop_first_mile_fill_rate;
+create policy sop_first_mile_fill_rate_select on public.sop_first_mile_fill_rate
+  for select using (public.is_internal_staff());
+drop policy if exists sop_first_mile_facility_util_select on public.sop_first_mile_facility_util;
+create policy sop_first_mile_facility_util_select on public.sop_first_mile_facility_util
+  for select using (public.is_internal_staff());
+-- ---------------------------------------------------------------------
+
+-- ---------------------------------------------------------------------
+-- sop_first_mile_missed_po — the individual channel POs the dispatch plan
+-- leaves short, replacing the per-SKU fill-rate table on the tab. An
+-- aggregate tells you M3 Pro is 1,752 short; this tells you which order to
+-- ring someone about.
+--
+-- status is derived from this plan's own simulation, NOT mirrored from
+-- sop_po_fulfillment_daily: 'PARTIAL' when the trucks cover some of the
+-- order, 'RESCHEDULE' when they cover none of it. The two tabs can disagree,
+-- and that's correct -- PO Fulfillment simulates warehouse-side stock over a
+-- 10-day window; this simulates plant->warehouse trucks over 15 days and
+-- answers "given this plan, what still breaks".
+--
+-- ATTRIBUTION CAVEAT: the engine serves demand per (date, warehouse, SKU),
+-- and several POs routinely share one bucket. Splitting a bucket shortfall
+-- across them is an interpretation, done first-come-first-served in sheet
+-- order -- the same order parse_po_fulfillment.js walks. The per-PO short
+-- figures sum exactly to the headline short in sop_first_mile_fill_rate,
+-- which is the invariant worth checking if this is ever changed.
+--
+-- po_number comes from Raw Data Sheet col 38 and so_number from col 37 --
+-- note those columns' HEADERS are swapped relative to their data, so trust
+-- the indices, not the labels.
+-- ---------------------------------------------------------------------
+create table if not exists public.sop_first_mile_missed_po (
+  id bigserial primary key,
+  run_date date not null,
+  scenario text not null,          -- EXCLUDE_TODAY | INCLUDE_TODAY
+  po_date date not null,
+  po_number text,                  -- blank on ~19% of rows (no PO raised yet); renders as "–"
+  so_number text,
+  warehouse text not null,
+  channel text not null,
+  sku text not null,
+  ordered numeric not null,
+  served numeric not null,
+  short numeric not null,
+  status text not null,            -- PARTIAL | RESCHEDULE
+  synced_at timestamptz not null default now()
+);
+create index if not exists idx_sop_first_mile_missed_po_run
+  on public.sop_first_mile_missed_po (run_date, scenario);
+
+alter table public.sop_first_mile_missed_po enable row level security;
+drop policy if exists sop_first_mile_missed_po_select on public.sop_first_mile_missed_po;
+create policy sop_first_mile_missed_po_select on public.sop_first_mile_missed_po
+  for select using (public.is_internal_staff());
+-- ---------------------------------------------------------------------

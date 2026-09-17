@@ -12,7 +12,9 @@ import SummaryKpis from "../SummaryKpis.vue";
 const STATUS_CHIP_CLASS = {
   "CONFIRMED": "chip-open",
   "FULFILL": "chip-good",
-  "TRANSIT-FULFILL": "chip-good",
+  // Teal, not green: fulfillable only once in-transit stock lands, which is a different
+  // operational answer from "dispatchable now" even though both end in the order being served.
+  "TRANSIT-FULFILL": "chip-info",
   "PARTIAL/NEEDS IN-TRANSIT": "chip-critical",
   "RESCHEDULE": "chip-critical",
 };
@@ -34,7 +36,10 @@ const kpiTiles = computed(() => {
   for (const r of rows.value) counts[r.status] = (counts[r.status] || 0) + 1;
   return [
     { label: "Confirmed", value: fmt(counts["CONFIRMED"]) },
-    { label: "Fulfill", value: fmt((counts["FULFILL"] || 0) + (counts["TRANSIT-FULFILL"] || 0)), cls: "good" },
+    { label: "Fulfill", value: fmt(counts["FULFILL"]), cls: "good" },
+    // Split out of "Fulfill" (2026-09-17): summing the two overstated what's dispatchable today,
+    // since these orders can't move until their in-transit stock arrives.
+    { label: "On Arrival", value: fmt(counts["TRANSIT-FULFILL"]), cls: "info" },
     { label: "Partial", value: fmt(counts["PARTIAL/NEEDS IN-TRANSIT"]), cls: "critical" },
     { label: "Reschedule", value: fmt(counts["RESCHEDULE"]), cls: "critical" },
   ];

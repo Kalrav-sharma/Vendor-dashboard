@@ -15,6 +15,7 @@ import SopDailySalesTab from "./SopDailySalesTab.vue";
 import SopProductionTab from "./SopProductionTab.vue";
 import SopPoFulfillmentTab from "./SopPoFulfillmentTab.vue";
 import SopDispatchPlanTab from "./SopDispatchPlanTab.vue";
+import SopDailyDispatchTab from "./SopDailyDispatchTab.vue";
 
 const SUBTABS = [
   { id: "inventory", label: "Inventory Overview" },
@@ -24,6 +25,7 @@ const SUBTABS = [
   { id: "production", label: "Production Plan" },
   { id: "po-fulfillment", label: "PO Fulfillment" },
   { id: "dispatch-plan", label: "S&OP Planning" },
+  { id: "daily-dispatch", label: "Daily Dispatch Planner" },
 ];
 
 const activeSubTab = ref(SUBTABS[0].id);
@@ -45,4 +47,5 @@ const activeSubTab = ref(SUBTABS[0].id);
   <div v-show="activeSubTab === 'production'"><SopProductionTab /></div>
   <div v-show="activeSubTab === 'po-fulfillment'"><SopPoFulfillmentTab /></div>
   <div v-show="activeSubTab === 'dispatch-plan'"><SopDispatchPlanTab /></div>
+  <div v-show="activeSubTab === 'daily-dispatch'"><SopDailyDispatchTab /></div>
 </template>
