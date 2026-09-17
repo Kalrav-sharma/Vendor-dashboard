@@ -35,6 +35,12 @@
   --open-soft: #F5E9D0;
   --critical: #C33A3A;
   --critical-soft: #FBE7E7;
+  /* Teal, for "true but conditional" states -- currently PO Fulfillment's TRANSIT-FULFILL, which
+     is fulfillable only once in-transit stock lands. Deliberately not green: painting it as
+     --good made the Fulfill tile overstate what's actually dispatchable today. Matches the
+     po-fulfillment skill's own teal for the same status. */
+  --info: #0F766E;
+  --info-soft: #D6F1EE;
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -51,6 +57,8 @@
     --open-soft: #3A2E12;
     --critical: #F08585;
     --critical-soft: #3B1D1D;
+    --info: #5EC7BC;
+    --info-soft: #12302D;
   }
 }
 
@@ -167,6 +175,7 @@ button.link-btn {
 .kpi .value { font-size: 1.3rem; font-weight: 600; font-family: "IBM Plex Mono", monospace; font-variant-numeric: tabular-nums; }
 .kpi .value.critical { color: var(--critical); }
 .kpi .value.good { color: var(--good); }
+.kpi .value.info { color: var(--info); }
 /* Explicit rules (not the --kpi-cols var) on purpose -- these must always
    win on small screens regardless of how many tiles a given page passes. */
 @media (max-width: 900px) { .kpis { grid-template-columns: repeat(3, 1fr); } }
@@ -180,6 +189,7 @@ button.link-btn {
 .chip-good { background: var(--good-soft); color: var(--good); }
 .chip-open { background: var(--open-soft); color: var(--open); }
 .chip-critical { background: var(--critical-soft); color: var(--critical); }
+.chip-info { background: var(--info-soft); color: var(--info); }
 .chip-muted { background: var(--line); color: var(--muted); }
 
 .invoice-upload-cell { display: flex; flex-direction: column; align-items: center; gap: 4px; }

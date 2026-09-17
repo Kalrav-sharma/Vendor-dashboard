@@ -447,7 +447,13 @@ def main():
     fulfillment_rows = [{"run_date": run_date, **r} for r in results]
 
     action_item_rows = []
-    for bucket, status_filter in (("RESCHEDULE", "RESCHEDULE"), ("PARTIAL", "PARTIAL/NEEDS IN-TRANSIT")):
+    # TRANSIT-FULFILL is the skill's third bullet (parse_po_fulfillment.js's "Fulfillable when
+    # same-day in-transit arrives") and was missing here. It isn't a problem bucket like the other
+    # two -- these orders do get served -- but they're the ones whose service depends on an arrival
+    # landing on time, so they're exactly what someone wants listed before committing to a day.
+    for bucket, status_filter in (("RESCHEDULE", "RESCHEDULE"),
+                                   ("PARTIAL", "PARTIAL/NEEDS IN-TRANSIT"),
+                                   ("TRANSIT-FULFILL", "TRANSIT-FULFILL")):
         by_sku = {}
         for r in results:
             if r["status"] == status_filter:

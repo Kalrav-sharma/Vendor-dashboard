@@ -1,0 +1,46 @@
+name: Sync S&OP first-mile dispatch plan to Supabase
+
+# Powers the S&OP > Daily Dispatch Planner tab. 3x daily, matching the dispatch-plan
+# sync -- the plan is a forward-looking 15-day window off sheets that are edited during
+# the working day, so more frequent runs would churn without telling anyone anything new.
+# workflow_dispatch for an immediate manual run.
+#
+# Runs the first-mile engine TWICE per invocation (with and without today's production)
+# so the tab's scenario toggle is a filter rather than a recomputation. The engine is
+# Node, hence the extra setup step; everything else matches the sibling S&OP workflows.
+#
+# The engine is READ-ONLY here: unlike the /first-mile-dispatch-decision skill, the
+# vendored copy has the 'First Mile Plan' sheet write removed, so this workflow cannot
+# touch that tab no matter how it is triggered.
+on:
+  schedule:
+    - cron: '0 3,9,15 * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # The engine has no npm dependencies -- the xlsx package it used to need went away
+      # when input moved to the Sheets API -- so a bare Node runtime is enough.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - run: pip install -r requirements.txt
+
+      - run: python scripts/sync_sop_first_mile.py
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
