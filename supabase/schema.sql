@@ -1434,3 +1434,52 @@ drop policy if exists sop_first_mile_facility_util_select on public.sop_first_mi
 create policy sop_first_mile_facility_util_select on public.sop_first_mile_facility_util
   for select using (public.is_internal_staff());
 -- ---------------------------------------------------------------------
+
+-- ---------------------------------------------------------------------
+-- sop_first_mile_missed_po — the individual channel POs the dispatch plan
+-- leaves short, replacing the per-SKU fill-rate table on the tab. An
+-- aggregate tells you M3 Pro is 1,752 short; this tells you which order to
+-- ring someone about.
+--
+-- status is derived from this plan's own simulation, NOT mirrored from
+-- sop_po_fulfillment_daily: 'PARTIAL' when the trucks cover some of the
+-- order, 'RESCHEDULE' when they cover none of it. The two tabs can disagree,
+-- and that's correct -- PO Fulfillment simulates warehouse-side stock over a
+-- 10-day window; this simulates plant->warehouse trucks over 15 days and
+-- answers "given this plan, what still breaks".
+--
+-- ATTRIBUTION CAVEAT: the engine serves demand per (date, warehouse, SKU),
+-- and several POs routinely share one bucket. Splitting a bucket shortfall
+-- across them is an interpretation, done first-come-first-served in sheet
+-- order -- the same order parse_po_fulfillment.js walks. The per-PO short
+-- figures sum exactly to the headline short in sop_first_mile_fill_rate,
+-- which is the invariant worth checking if this is ever changed.
+--
+-- po_number comes from Raw Data Sheet col 38 and so_number from col 37 --
+-- note those columns' HEADERS are swapped relative to their data, so trust
+-- the indices, not the labels.
+-- ---------------------------------------------------------------------
+create table if not exists public.sop_first_mile_missed_po (
+  id bigserial primary key,
+  run_date date not null,
+  scenario text not null,          -- EXCLUDE_TODAY | INCLUDE_TODAY
+  po_date date not null,
+  po_number text,                  -- blank on ~19% of rows (no PO raised yet); renders as "–"
+  so_number text,
+  warehouse text not null,
+  channel text not null,
+  sku text not null,
+  ordered numeric not null,
+  served numeric not null,
+  short numeric not null,
+  status text not null,            -- PARTIAL | RESCHEDULE
+  synced_at timestamptz not null default now()
+);
+create index if not exists idx_sop_first_mile_missed_po_run
+  on public.sop_first_mile_missed_po (run_date, scenario);
+
+alter table public.sop_first_mile_missed_po enable row level security;
+drop policy if exists sop_first_mile_missed_po_select on public.sop_first_mile_missed_po;
+create policy sop_first_mile_missed_po_select on public.sop_first_mile_missed_po
+  for select using (public.is_internal_staff());
+-- ---------------------------------------------------------------------

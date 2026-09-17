@@ -17,6 +17,9 @@
 //      connector the skill uses doesn't exist on a CI runner.
 //   3. Emits --json for the sync script. The terminal report still prints; JSON goes to a file.
 //   4. PO_CUTOFF derives from the window instead of being a hardcoded date a cron would sail past.
+//   5. Captures per-PO identity (number, SO number, channel) so the portal can list the individual
+//      orders a plan leaves PARTIAL or needing a RESCHEDULE. The skill only reports shortfalls per
+//      (date, warehouse, SKU); this adds a parallel structure and changes no arithmetic.
 //
 // Usage: node first_mile_dispatch.js --rows <payload.json> --json <out.json> [--no-today-production]
 // ─────────────────────────────────────────────────────────────────────────────────────────
@@ -270,6 +273,12 @@ const PRODUCTION_ORIGINS = new Set(['AMBER', 'RONCH']);
 // the off-by-one this comment exists to prevent.
 const RDH_DATE_COL = 1, RDH_ORIGIN_COL = 4, RDH_DEST_COL = 5, RDH_MOVTYPE_COL = 8, RDH_CHANNEL_COL = 12;
 const RDH_SKU_COLS = { 'M0': 18, 'M1-2nd Gen': 19, 'M2 Pro': 21, 'M1 Pro': 22, 'M3 Pro': 23, 'M3': 24 };
+// PO identity, for the portal's at-risk list. Same indices parse_po_fulfillment.js uses, and the
+// same caveat: these two columns' HEADERS are swapped relative to their data. The header over 37
+// reads "PO/ Gate Pass Number" but the cells hold SO numbers (SO132370); the header over 38 reads
+// "PO Expiry and Appointment Date" but the cells hold PO identifiers (PO/HP/26/08/692,
+// FLSDDR2FR8JC). Verified live 2026-09-17 -- trust the data, not the labels.
+const RDH_SO_NUM_COL = 37, RDH_PO_NUM_COL = 38;
 
 function toNum(val) {
   if (val === null || val === undefined || val === '') return 0;
@@ -504,6 +513,11 @@ function parseRawDataSheet(wbDI) {
 
   const dispatchRecords = []; // { dateSerial, facility, wh, sku, qty }
   const poDemandByDay = {}; // ymd -> wh -> sku -> qty
+  // Deliberately a SEPARATE structure rather than turning the leaf above into an array: five
+  // consumers (getPoDemand, demandOf, poAfter, mixRows, poOrdered) read that leaf as a number and
+  // would break silently. This carries the per-row identity the aggregate throws away, in sheet
+  // order, so a bucket shortfall can be attributed back to the actual orders that make it up.
+  const poRowsByDay = {}; // ymd -> wh -> sku -> [{ qty, poNumber, soNumber, channel }]
 
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i];
@@ -535,10 +549,19 @@ function parseRawDataSheet(wbDI) {
     if (ymd < WINDOW_START || ymd > PO_CUTOFF) continue;
     poDemandByDay[ymd] = poDemandByDay[ymd] || {};
     poDemandByDay[ymd][wh] = poDemandByDay[ymd][wh] || {};
+    poRowsByDay[ymd] = poRowsByDay[ymd] || {};
+    poRowsByDay[ymd][wh] = poRowsByDay[ymd][wh] || {};
+    const poNumber = String(row[RDH_PO_NUM_COL] || '').trim();
+    const soNumber = String(row[RDH_SO_NUM_COL] || '').trim();
     for (const sku of SKUS) {
       const col = RDH_SKU_COLS[sku];
       const qty = col !== undefined ? toNum(row[col]) : 0;
-      if (qty > 0) poDemandByDay[ymd][wh][sku] = (poDemandByDay[ymd][wh][sku] || 0) + qty;
+      if (qty > 0) {
+        poDemandByDay[ymd][wh][sku] = (poDemandByDay[ymd][wh][sku] || 0) + qty;
+        // One sheet row can carry several SKUs, so one PO legitimately appears in several buckets.
+        // Per-PO-per-SKU is the right grain -- same as parse_po_fulfillment.js.
+        (poRowsByDay[ymd][wh][sku] = poRowsByDay[ymd][wh][sku] || []).push({ qty, poNumber, soNumber, channel });
+      }
     }
   }
 
@@ -554,7 +577,7 @@ function parseRawDataSheet(wbDI) {
     console.log(`      live sheet before trusting this run -- col ${RDH_MOVTYPE_COL} should hold 'MM'.\n`);
   }
 
-  return { dispatchRecords, poDemandByDay };
+  return { dispatchRecords, poDemandByDay, poRowsByDay };
 }
 
 // Backtrack already-in-transit stock to an arrival day (most-recent-dispatch-first, matched
@@ -716,7 +739,7 @@ const wbDI = mkWb('copy_daily_input_anish');
 const wbWH = mkWb('wh_channel_sku');
 
 const dispatchSheet = parseDispatchSheetWs(wbDI.Sheets['Dispatch Planning']);
-const { dispatchRecords, poDemandByDay } = parseRawDataSheet(wbDI);
+const { dispatchRecords, poDemandByDay, poRowsByDay } = parseRawDataSheet(wbDI);
 const { whDrr, dsDrr } = parseDrr(wbWH);
 const effDrr = effectiveDrr(whDrr, dsDrr);
 const dailyProduction = parseDailyProduction(wbWH);
@@ -942,6 +965,11 @@ for (const wh of WH_ORDER) {
   for (const sku of SKUS) { unmetPO[wh][sku] = 0; unmetDrr[wh][sku] = 0; daysAtZero[wh][sku] = 0; servedPO[wh][sku] = 0; }
 }
 const missedPOEvents = []; // { day, wh, sku, ordered, served, short }
+// Per-PO view of the same shortfalls, for the portal's "POs at risk" table. Kept SEPARATE from
+// missedPOEvents rather than replacing it: that array's length is printed as a headline and parsed
+// back out of the child process's stdout by the production-suggestion engine, so changing one
+// bucket into several PO rows would silently change what that number means.
+const missedPORows = []; // { day, wh, sku, poNumber, soNumber, channel, ordered, served, short, status }
 
 // The single forward-step used everywhere: arrivals in, then PO demand, then ambient DRR, with a
 // hard floor at zero. Previously the timeline was walked in three places with subtly different
@@ -967,6 +995,28 @@ function stepDay(bal, wh, sku, ymd, record) {
       // missed order and must not be LISTED as one. Reporting only — never the arithmetic.
       if (poShort > 0.5) {
         missedPOEvents.push({ day: ymd, wh, sku, ordered: po, served, short: poShort });
+        // Attribute the bucket's shortfall back to the individual orders inside it. The simulation
+        // serves (day, warehouse, SKU) as one number, so which PO "missed" is an interpretation,
+        // not a fact the engine computes: we fill in sheet order, first-come-first-served, which
+        // is how parse_po_fulfillment.js walks its rows and how orders are actually worked through.
+        //
+        // Gating stays at BUCKET level (the `poShort > 0.5` above). Re-gating each apportioned row
+        // would push more units under the threshold and quietly shrink the reconciliation total.
+        // Nothing here mutates poRowsByDay -- stepDay is called speculatively with record=false far
+        // more often than it records, and a mutated list would corrupt every later scoring pass.
+        let remaining = served;
+        for (const entry of (((poRowsByDay[ymd] || {})[wh] || {})[sku] || [])) {
+          const rowServed = Math.min(entry.qty, Math.max(0, remaining));
+          remaining -= rowServed;
+          const rowShort = entry.qty - rowServed;
+          if (rowShort <= 0) continue;
+          missedPORows.push({
+            day: ymd, wh, sku,
+            poNumber: entry.poNumber, soNumber: entry.soNumber, channel: entry.channel,
+            ordered: entry.qty, served: rowServed, short: rowShort,
+            status: rowServed > 0 ? 'PARTIAL' : 'RESCHEDULE',
+          });
+        }
       }
     }
   }
@@ -2216,6 +2266,7 @@ console.log('');
     productionYield: PRODUCTION_YIELD,
     tabs: wbOut.Sheets,
     dispatchPlan,
+    missedPORows,
     plant: {
       fg: currentFG,
       hold: currentHold,

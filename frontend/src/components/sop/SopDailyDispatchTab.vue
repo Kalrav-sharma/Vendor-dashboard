@@ -21,7 +21,7 @@ const SCENARIOS = [
   { key: "INCLUDE_TODAY", label: "Incl. today's production", sub: "assumes today's run lands" },
 ];
 
-const { planRows, plantRows, fillRows, utilRows, runDate, loadError } = useSopFirstMileData();
+const { planRows, plantRows, fillRows, utilRows, missedRows, runDate, loadError } = useSopFirstMileData();
 const activeScenario = ref(SCENARIOS[0].key);
 
 function fmt(n) {
@@ -59,6 +59,13 @@ function trucksFor(key) {
 const trucks = computed(() => trucksFor(activeScenario.value));
 const plant = computed(() => forScenario(plantRows, activeScenario.value));
 const fill = computed(() => forScenario(fillRows, activeScenario.value));
+const missed = computed(() => forScenario(missedRows, activeScenario.value));
+
+const missedTotals = computed(() => ({
+  pos: missed.value.length,
+  reschedule: missed.value.filter(r => r.status === "RESCHEDULE").length,
+  short: missed.value.reduce((s, r) => s + Number(r.short || 0), 0),
+}));
 
 const fillTotals = computed(() => {
   const rows = fill.value;
@@ -114,11 +121,6 @@ function truckClass(t) {
   if (t.tier === 0) return "cell-critical";
   if (t.reason === "EMERGENCY") return "cell-open";
   return "";
-}
-function fillClass(r) {
-  const pct = Number(r.fill_pct || 0);
-  if (pct >= 99.5) return "cell-good";
-  return pct < 90 ? "cell-critical" : "cell-open";
 }
 </script>
 
@@ -224,41 +226,52 @@ function fillClass(r) {
       </table>
     </div></div>
 
-    <h3 class="section-title">PO fill rate</h3>
+    <h3 class="section-title">POs at risk</h3>
     <p class="muted-text" style="margin: -8px 0 12px;">
-      Committed channel orders across the planning window. <b>Hard deficit</b> is short because the
-      units were never produced &mdash; no routing fixes that. <b>Dispatch-fixable</b> is short that
-      better routing could still recover.
+      Committed channel orders this plan does not fully cover.
+      <b>PARTIAL</b> means the trucks bring some of it; <b>RESCHEDULE</b> means they bring none.
+      Judged against <i>this</i> dispatch plan, so a PO the trucks rescue drops off the list &mdash;
+      which is why this can differ from the PO Fulfillment tab, where the question is what the
+      warehouse can serve from its own stock.
     </p>
     <div class="table-card"><div class="table-scroll">
       <table>
         <thead>
           <tr>
-            <th>SKU</th><th class="num">Ordered</th><th class="num">Served</th><th class="num">Short</th>
-            <th class="num">Fill %</th><th class="num">Hard deficit</th><th class="num">Dispatch-fixable</th>
+            <th>Date</th><th>PO Number</th><th>Warehouse</th><th>Channel</th><th>SKU</th>
+            <th class="num">Ordered</th><th class="num">Served</th><th class="num">Short</th><th>Status</th>
           </tr>
         </thead>
         <tbody>
-          <tr v-for="r in fill" :key="r.sku">
+          <tr v-for="r in missed" :key="r.id">
+            <td>{{ fmtDate(r.po_date) }}</td>
+            <td class="mono" style="font-size: 0.8rem;">{{ r.po_number || "–" }}</td>
+            <td>{{ r.warehouse }}</td>
+            <td>{{ r.channel }}</td>
             <td>{{ r.sku }}</td>
             <td class="num mono">{{ fmt(r.ordered) }}</td>
             <td class="num mono">{{ fmt(r.served) }}</td>
-            <td class="num mono">{{ fmt(r.short) }}</td>
-            <td class="num mono" :class="fillClass(r)">{{ Number(r.fill_pct || 0).toFixed(1) }}</td>
-            <td class="num mono">{{ fmt(r.hard_deficit) }}</td>
-            <td class="num mono">{{ fmt(r.dispatch_fixable) }}</td>
+            <td class="num mono"><b>{{ fmt(r.short) }}</b></td>
+            <td>
+              <span class="chip" :class="r.status === 'RESCHEDULE' ? 'chip-critical' : 'chip-open'">
+                {{ r.status }}
+              </span>
+            </td>
           </tr>
-          <tr class="row-total">
-            <td>TOTAL</td>
-            <td class="num mono">{{ fmt(fillTotals.ordered) }}</td>
-            <td class="num mono">{{ fmt(fillTotals.served) }}</td>
-            <td class="num mono">{{ fmt(fillTotals.short) }}</td>
-            <td class="num mono">{{ fillTotals.pct == null ? "–" : fillTotals.pct.toFixed(1) }}</td>
-            <td class="num mono">&nbsp;</td>
-            <td class="num mono">{{ fmt(fillTotals.fixable) }}</td>
+          <tr v-if="!missed.length">
+            <td colspan="9" class="muted-text">
+              Every committed order is served in full and on time.
+            </td>
           </tr>
         </tbody>
       </table>
     </div></div>
+    <p v-if="missed.length" class="muted-text" style="margin: 10px 0 0;">
+      <b>{{ missedTotals.pos }}</b> PO(s) at risk &mdash; {{ missedTotals.reschedule }} needing a
+      reschedule &mdash; <b>{{ fmt(missedTotals.short) }}</b> units short of
+      {{ fmt(fillTotals.ordered) }} ordered.
+      Where a PO shares a day, warehouse and SKU with others, the shortfall is attributed in sheet
+      order: earlier orders are filled first.
+    </p>
   </template>
 </template>

@@ -178,7 +178,19 @@ def build_rows(result, scenario, run_date):
         if str(r.get("Facility", "")).strip() in ("RONCH", "AMBER")
     ]
 
-    return plan, plant, fill, util
+    # The POs this plan leaves short. `short` here sums exactly to the headline short in the fill
+    # rate rows above -- if that ever stops being true, the sheet-order apportionment in the engine
+    # has drifted and the detail is no longer trustworthy.
+    missed = [
+        {**base,
+         "po_date": r["day"], "po_number": r["poNumber"] or None, "so_number": r["soNumber"] or None,
+         "warehouse": r["wh"], "channel": r["channel"], "sku": r["sku"],
+         "ordered": to_num(r["ordered"]), "served": to_num(r["served"]),
+         "short": to_num(r["short"]), "status": r["status"]}
+        for r in result.get("missedPORows", [])
+    ]
+
+    return plan, plant, fill, util, missed
 
 
 def main():
@@ -189,7 +201,7 @@ def main():
     payload = build_payload(token)
 
     run_date = datetime.datetime.now(zoneinfo.ZoneInfo("Asia/Kolkata")).date().isoformat()
-    all_plan, all_plant, all_fill, all_util = [], [], [], []
+    all_plan, all_plant, all_fill, all_util, all_missed = [], [], [], [], []
 
     with tempfile.TemporaryDirectory() as tmp:
         rows_path = os.path.join(tmp, "rows.json")
@@ -200,22 +212,42 @@ def main():
             print(f"\nRunning engine: {scenario} ...", flush=True)
             result = run_engine(rows_path, scenario, tmp)
             guard(result, scenario)
-            plan, plant, fill, util = build_rows(result, scenario, run_date)
+            plan, plant, fill, util, missed = build_rows(result, scenario, run_date)
             print(f"  {len(plan)} plan row(s), {len(result['dispatchPlan'])} truck(s), "
-                  f"PO ordered {result['poOrderedTotal']:.0f}")
+                  f"PO ordered {result['poOrderedTotal']:.0f}, {len(missed)} PO(s) at risk")
+            # The detail must tie to the headline, or the tab would show per-PO numbers that don't
+            # add up to the fill rate sitting right above them.
+            #
+            # Tolerance, not equality, and deliberately so: the fill-rate row computes
+            # short = ordered - round(served) once per SKU, while the per-PO shorts stay fractional
+            # (ambient DRR depletes balances by fractions of a unit). Measured 2026-09-17, every SKU
+            # lands within 0.34 units of its headline, so a whole-run gap of a few units is rounding.
+            # Anything larger means the sheet-order apportionment has genuinely drifted.
+            detail_short = sum(r["short"] for r in missed)
+            headline_short = sum(r["short"] for r in fill)
+            tolerance = len(SKUS)  # at most ~1 unit of rounding per SKU
+            if abs(detail_short - headline_short) > tolerance:
+                sys.exit(f"{scenario}: per-PO shortfalls sum to {detail_short:.1f} but the fill-rate "
+                         f"total is {headline_short:.1f} (tolerance {tolerance}) -- the apportionment "
+                         f"no longer reconciles; refusing to publish inconsistent numbers.")
             all_plan += plan
             all_plant += plant
             all_fill += fill
             all_util += util
+            all_missed += missed
 
     where = {"run_date": f"eq.{run_date}"}
     replace_by_filter(supabase_url, supabase_key, "sop_first_mile_plan", all_plan, where)
     replace_by_filter(supabase_url, supabase_key, "sop_first_mile_plant", all_plant, where)
     replace_by_filter(supabase_url, supabase_key, "sop_first_mile_fill_rate", all_fill, where)
     replace_by_filter(supabase_url, supabase_key, "sop_first_mile_facility_util", all_util, where)
+    # allow_empty: a plan that serves every committed order is the good outcome, not a parse failure.
+    replace_by_filter(supabase_url, supabase_key, "sop_first_mile_missed_po", all_missed, where,
+                       allow_empty=True)
 
-    print(f"\nSynced {len(all_plan)} plan, {len(all_plant)} plant, {len(all_fill)} fill-rate and "
-          f"{len(all_util)} utilization row(s) across {len(SCENARIOS)} scenarios for {run_date}.")
+    print(f"\nSynced {len(all_plan)} plan, {len(all_plant)} plant, {len(all_fill)} fill-rate, "
+          f"{len(all_util)} utilization and {len(all_missed)} at-risk-PO row(s) across "
+          f"{len(SCENARIOS)} scenarios for {run_date}.")
 
 
 if __name__ == "__main__":

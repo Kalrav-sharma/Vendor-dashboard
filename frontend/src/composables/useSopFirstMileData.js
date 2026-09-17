@@ -2,8 +2,9 @@
 // (scripts/vendor/first_mile_dispatch.js, the same engine the
 // /first-mile-dispatch-decision skill runs), synced by scripts/sync_sop_first_mile.py.
 //
-// Four tables, all keyed (run_date, scenario): the truck plan, the plant-side FG/Hold/
-// production picture, the PO fill rate, and per-facility utilization. Both scenarios
+// Five tables, all keyed (run_date, scenario): the truck plan, the plant-side FG/Hold/
+// production picture, the PO fill rate, per-facility utilization, and the individual
+// POs the plan leaves short. Both scenarios
 // (with and without today's production) are computed server-side and stored together,
 // so the tab's toggle is a pure filter -- no recomputation, and the two are always from
 // the same run and therefore genuinely comparable.
@@ -19,6 +20,7 @@ export function useSopFirstMileData() {
   const plantRows = ref([]);
   const fillRows = ref([]);
   const utilRows = ref([]);
+  const missedRows = ref([]);
   const runDate = ref("");
   const loadError = ref("");
 
@@ -36,18 +38,21 @@ export function useSopFirstMileData() {
     if (!rd) { runDate.value = ""; return; }
     runDate.value = rd;
 
-    const [{ data: p, error: e1 }, { data: pl, error: e2 },
-           { data: f, error: e3 }, { data: u, error: e4 }] = await Promise.all([
+    const [{ data: p, error: e1 }, { data: pl, error: e2 }, { data: f, error: e3 },
+           { data: u, error: e4 }, { data: mi, error: e5 }] = await Promise.all([
       supabase.from("sop_first_mile_plan").select("*").eq("run_date", rd),
       supabase.from("sop_first_mile_plant").select("*").eq("run_date", rd),
       supabase.from("sop_first_mile_fill_rate").select("*").eq("run_date", rd),
       supabase.from("sop_first_mile_facility_util").select("*").eq("run_date", rd),
+      supabase.from("sop_first_mile_missed_po").select("*").eq("run_date", rd)
+        .order("po_date").order("warehouse"),
     ]);
     if (!e1) planRows.value = p;
     if (!e2) plantRows.value = pl;
     if (!e3) fillRows.value = f;
     if (!e4) utilRows.value = u;
-    loadError.value = e1?.message || e2?.message || e3?.message || e4?.message || "";
+    if (!e5) missedRows.value = mi;
+    loadError.value = e1?.message || e2?.message || e3?.message || e4?.message || e5?.message || "";
   }
 
   let intervalId = null;
@@ -59,5 +64,5 @@ export function useSopFirstMileData() {
     if (intervalId) clearInterval(intervalId);
   });
 
-  return { planRows, plantRows, fillRows, utilRows, runDate, loadError, refresh };
+  return { planRows, plantRows, fillRows, utilRows, missedRows, runDate, loadError, refresh };
 }
