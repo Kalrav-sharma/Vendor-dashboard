@@ -24,6 +24,7 @@ import SopSection from "./components/sop/SopSection.vue";
 import AppModal from "./components/AppModal.vue";
 import PoDetailModal from "./components/PoDetailModal.vue";
 import SkuDetailModal from "./components/SkuDetailModal.vue";
+import ManualDispatchModal from "./components/ManualDispatchModal.vue";
 import SetNewPasswordForm from "./components/SetNewPasswordForm.vue";
 import BrandLogo from "./components/BrandLogo.vue";
 import ProfileMenu from "./components/ProfileMenu.vue";
@@ -164,6 +165,17 @@ function openSkuDetailModal(key) {
   }, `(${found.item_sku})`);
 }
 
+function openManualDispatchModal() {
+  // poItemsByPo is a snapshot at open time, not a live binding -- fine in
+  // practice since manual_confirm_dispatch() validates the real pending
+  // quantity server-side regardless of what the client last saw; a stale
+  // client-side number can only make the form show an over-cautious
+  // "pending" figure for a few seconds, never let an over-dispatch through.
+  openModal("Manual Dispatch", ManualDispatchModal, {
+    poItemsByPo: poItemsByPo.value, vendorLabel, onDispatched: refreshPos,
+  });
+}
+
 onMounted(async () => {
   const ctx = await requireSession();
   if (!ctx) return;
@@ -269,7 +281,7 @@ async function signOut() {
             :rows="dispatchFilteredSorted" :filters="dispatchFilters"
             :vendor-options="vendorOptions" :vendor-label="vendorLabel"
             :on-open-po="openPoDetailModal"
-            :allow-confirm-dispatch="true" :on-dispatched="refreshPos"
+            :allow-confirm-dispatch="true" :on-dispatched="refreshPos" :on-manual-dispatch="openManualDispatchModal"
           />
         </div>
 

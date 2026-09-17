@@ -8,6 +8,16 @@
 // browser calls this function, this function calls Uniware, and only the
 // resulting PDF bytes go back to the browser.
 //
+// The token alone is NOT enough to get the right PO though: Uniware has no
+// per-request facility concept on this endpoint by default, so it falls
+// back to whatever facility is currently active for this login in the
+// Uniware UI. An explicit Facility header (the PO's own facility, read
+// back from purchase_orders) is required on every call, exactly like
+// sync_to_supabase.py's uniware_headers() already does for every OTHER
+// Uniware call this app makes. Confirmed live: without it, this only
+// worked for POs at whatever facility happened to be selected in the
+// browser at the time — a real bug, not a hypothetical, found 2026-09-17.
+//
 // Authorization works by piggybacking on the same Row Level Security this
 // whole app already relies on: this function queries purchase_orders using
 // a client scoped to the CALLER's own JWT (not service_role), so RLS
@@ -67,6 +77,11 @@ async function getUniwareToken(): Promise<string> {
           password: UNIWARE_PASSWORD,
         }),
       );
+      // TEMP DIAGNOSTIC (2026-09-17): does the OAuth token response also
+      // hand back a session cookie we could reuse for /data/user/
+      // switchfacility + /po/show, the way a real browser login does?
+      // Remove once answered either way.
+      console.log(`DIAG oauth/token response headers: ${JSON.stringify([...tokenResp.headers.entries()])}`);
       const rawBody = await tokenResp.text();
       if (!tokenResp.ok) {
         console.error(`Uniware oauth/token HTTP ${tokenResp.status}: ${rawBody.slice(0, 500)}`);
@@ -121,11 +136,11 @@ Deno.serve(async (req) => {
 
     const { data: po, error: poErr } = await callerClient
       .from("purchase_orders")
-      .select("po_code")
+      .select("po_code, facility")
       .eq("po_code", poCode)
       .maybeSingle();
 
-    if (poErr || !po) {
+    if (poErr || !po || !po.facility) {
       return json({ error: "Not found or not authorized for this PO" }, 404);
     }
 
@@ -140,9 +155,36 @@ Deno.serve(async (req) => {
       return json({ error: "Failed to authenticate with Uniware" }, 502);
     }
 
+    // TEMP DIAGNOSTIC (2026-09-17): does /data/user/switchfacility (the
+    // exact call the browser UI's facility dropdown makes -- confirmed
+    // body shape: {"facilityCode": "...", "currentUrl": "..."}) do
+    // anything useful when called with just the bearer token, no cookie
+    // jar? Logging status + body either way. Remove once answered.
+    try {
+      const switchResp = await fetch(`${UNIWARE_BASE_URL}/data/user/switchfacility`, {
+        method: "POST",
+        headers: { Authorization: `bearer ${uniwareToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ facilityCode: po.facility, currentUrl: "/purchaseOrders" }),
+      });
+      const switchBody = await switchResp.text();
+      console.log(
+        `DIAG switchfacility HTTP ${switchResp.status} set-cookie=${switchResp.headers.get("set-cookie")} body=${switchBody.slice(0, 300)}`,
+      );
+    } catch (e) {
+      console.log(`DIAG switchfacility threw: ${e instanceof Error ? e.message : String(e)}`);
+    }
+
+    // Uniware's OAuth token itself carries no facility context -- without
+    // an explicit Facility header, /po/show falls back to whatever
+    // facility happens to be active for this login in the browser UI at
+    // that moment, which is exactly what made this only work for POs at
+    // the currently-selected facility. sync_to_supabase.py already solved
+    // this the same way (see its uniware_headers()) -- every one of its
+    // calls passes the target PO's own facility explicitly, never relying
+    // on account-wide UI state.
     const pdfResp = await fetch(
       `${UNIWARE_BASE_URL}/po/show?` + new URLSearchParams({ legacy: "1", code: poCode }),
-      { headers: { Authorization: `bearer ${uniwareToken}` } },
+      { headers: { Authorization: `bearer ${uniwareToken}`, Facility: po.facility } },
     );
 
     const pdfContentType = pdfResp.headers.get("Content-Type") || "";

@@ -15,6 +15,7 @@ const props = defineProps({
   onOpenPo: { type: Function, required: true },  // (poCode) => void
   allowConfirmDispatch: { type: Boolean, default: false }, // true from admin.html (Operations/Management/Admin) only
   onDispatched: { type: Function, default: null }, // () => void -- called after a successful confirm, for an instant refresh
+  onManualDispatch: { type: Function, default: null }, // () => void -- opens ManualDispatchModal.vue; omit to hide the button entirely
 });
 
 // "Dispatched" -- confirm_dispatched() logs the shipment (with its AWB and
@@ -123,9 +124,16 @@ async function handleConfirmDispatch(row) {
 <template>
   <SummaryKpis :tiles="kpiTiles" />
 
-  <div class="field" style="max-width: 340px; margin-bottom: 14px;">
-    <label for="dispatch-top-search">Search{{ vendorOptions ? " vendor," : "" }} PO code, SKU, AWB…</label>
-    <input id="dispatch-top-search" v-model="filters.search" type="text" placeholder="Type to search…">
+  <div style="display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; margin-bottom: 14px;">
+    <div class="field" style="max-width: 340px; margin-bottom: 0;">
+      <label for="dispatch-top-search">Search{{ vendorOptions ? " vendor," : "" }} PO code, SKU, AWB…</label>
+      <input id="dispatch-top-search" v-model="filters.search" type="text" placeholder="Type to search…">
+    </div>
+    <button
+      v-if="onManualDispatch" class="link-btn-inline" style="white-space: nowrap;"
+      title="Record a dispatch the vendor didn't pre-inform us about, that already went out"
+      @click="onManualDispatch"
+    >+ Manual Dispatch</button>
   </div>
 
   <div class="table-card"><div class="table-scroll">

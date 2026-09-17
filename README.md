@@ -67,7 +67,11 @@ matching file's contents, Deploy.
 - `get-po-pdf` ← `supabase/functions/get-po-pdf/index.ts` — fetches the
   real, official Uniware PO PDF on demand (confirmed working: Uniware's own
   `/po/show?legacy=1&code=...` endpoint accepts the same OAuth token our
-  read-only sync account already uses, no browser/cookie session needed).
+  read-only sync account already uses, no browser/cookie session needed —
+  but it does need an explicit `Facility` header per request, same as every
+  other Uniware call this app makes; the token carries no facility context
+  of its own, so without that header it silently falls back to whatever
+  facility is active in the Uniware UI at that moment — fixed 2026-09-17).
   Authorization for this one piggybacks on the same RLS as everything
   else — it queries `purchase_orders` as the calling user, so a vendor
   requesting a PO they don't own just gets "not found."

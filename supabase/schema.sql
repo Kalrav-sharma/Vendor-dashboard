@@ -586,6 +586,94 @@ $$;
 grant execute on function public.confirm_dispatched(text, text, text, text) to authenticated;
 
 -- ---------------------------------------------------------------------
+-- manual_confirm_dispatch(po_code, item_sku, awb_number, courier,
+-- dispatched_qty, dispatched_date): the OTHER way a shipment gets logged
+-- -- for when a vendor never gave an estimate at all (no "Awaiting
+-- dispatch" row ever appeared for this SKU) but the dispatch actually
+-- happened anyway and Ops needs to record it after the fact. Called from
+-- Dispatch Planning's "+ Manual Dispatch" button (internal staff only,
+-- ManualDispatchModal.vue): Ops types a PO code, sees every SKU on it
+-- that's still pending, and enters the real quantity + AWB/courier
+-- actually dispatched for whichever of those they're recording now.
+--
+-- Unlike confirm_dispatched(), the quantity and date are supplied
+-- directly rather than read off po_items' vendor-entered estimate
+-- (there may never have been one) -- validated against the SKU's real
+-- pending_quantity server-side so this can't silently over-log a
+-- shipment. Same downstream behavior otherwise: if a balance remains
+-- pending after this entry, clears any stale estimate and queues a
+-- 'next_dispatch' email so the vendor is asked for one on the
+-- remainder, exactly like the normal flow.
+--
+-- SECURITY DEFINER for the same reason as confirm_dispatched() --
+-- is_internal_staff() inside is what actually gates this, since RLS
+-- can't gate an RPC call.
+-- ---------------------------------------------------------------------
+create or replace function public.manual_confirm_dispatch(
+  p_po_code text, p_item_sku text, p_awb_number text, p_courier text,
+  p_dispatched_qty numeric, p_dispatched_date date
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_vendor_code text;
+  v_pending numeric;
+  v_by text;
+begin
+  if not public.is_internal_staff() then
+    raise exception 'Internal staff access required';
+  end if;
+
+  if p_awb_number is null or length(trim(p_awb_number)) = 0 then
+    raise exception 'AWB/Tracking ID is required';
+  end if;
+
+  if p_courier not in ('bluedart', 'dtdc') then
+    raise exception 'courier must be one of: bluedart, dtdc';
+  end if;
+
+  if p_dispatched_qty is null or p_dispatched_qty <= 0 then
+    raise exception 'Dispatched quantity must be greater than zero';
+  end if;
+
+  if p_dispatched_date is null then
+    raise exception 'Dispatched date is required';
+  end if;
+
+  select vendor_code, pending_quantity into v_vendor_code, v_pending
+  from public.po_items
+  where po_code = p_po_code and item_sku = p_item_sku;
+
+  if v_vendor_code is null then
+    raise exception 'PO item not found: % / %', p_po_code, p_item_sku;
+  end if;
+
+  if p_dispatched_qty > coalesce(v_pending, 0) then
+    raise exception 'Dispatched quantity (%) exceeds pending quantity (%)', p_dispatched_qty, coalesce(v_pending, 0);
+  end if;
+
+  select coalesce(vendor_name, email) into v_by from public.profiles where id = auth.uid();
+
+  insert into public.po_item_shipments (po_code, item_sku, vendor_code, awb_number, courier, dispatched_qty, dispatched_date, confirmed_by)
+  values (p_po_code, p_item_sku, v_vendor_code, trim(p_awb_number), p_courier, p_dispatched_qty, p_dispatched_date, v_by);
+
+  if p_dispatched_qty < coalesce(v_pending, 0) then
+    update public.po_items
+    set estimated_dispatch_date = null, estimated_dispatch_qty = null
+    where po_code = p_po_code and item_sku = p_item_sku;
+
+    insert into public.po_email_events (po_code, vendor_code, event_type, item_sku)
+    values (p_po_code, v_vendor_code, 'next_dispatch', p_item_sku);
+  end if;
+end;
+$$;
+
+grant execute on function public.manual_confirm_dispatch(text, text, text, text, numeric, date) to authenticated;
+
+-- ---------------------------------------------------------------------
 -- grn_items — one row per SKU line item on a GRN. Same purpose as
 -- po_items, for the receipt side of the SKU-level breakdown.
 -- ---------------------------------------------------------------------
