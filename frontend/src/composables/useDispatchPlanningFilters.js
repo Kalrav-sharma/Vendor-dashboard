@@ -27,10 +27,15 @@ export function useDispatchPlanningFilters(rows, resolveVendorLabel) {
       qty: fmtNum(row.kind === "shipped" ? row.dispatched_qty : row.estimated_dispatch_qty),
       dispatchDate: fmtDateOnly(row.kind === "shipped" ? row.dispatched_date : row.estimated_dispatch_date),
       awb: row.kind === "shipped" ? (row.awb_number || "") : "",
-      // Bluedart-specific label today (DTDC's own status vocabulary isn't
-      // wired up yet) -- fine as a search/filter aid either way, since a
-      // DTDC row's raw status_type still shows through the filter value.
-      status: row.kind === "shipped" && row.courier === "bluedart" ? bluedartStatusLabel(row.tracking?.status_type) : "",
+      // Bluedart gets its friendly label; DTDC's status_text is already
+      // human-readable ("Delivered") so it's used as-is. Either way this
+      // only feeds the free-text search box -- the Status column FILTER
+      // dropdown (DispatchPlanningTable.vue) still only lists Bluedart's
+      // short codes, so picking a value there won't match a DTDC row yet
+      // (worth widening once DTDC's status vocabulary is fully known).
+      status: row.kind !== "shipped" ? "" : row.courier === "bluedart"
+        ? bluedartStatusLabel(row.tracking?.status_type)
+        : (row.tracking?.status_text || ""),
     };
   }
 
