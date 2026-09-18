@@ -1831,6 +1831,32 @@ create policy last_mile_lsp_perf_select on public.last_mile_lsp_perf
 -- date that have actually resolved on-time or late. It is NOT the raw
 -- shipment count -- anything still in flight, or carrying only an ASSUMED
 -- promise, cannot be graded and is excluded (see excluded_assumed_promise).
+--
+-- ONE-TIME MIGRATION, conditional, not a plain drop: an earlier version of
+-- this table shipped with a pincode/facility_code/volume/delivered/
+-- avg_days_late shape that turned out not to match what
+-- performance.worst_lanes() actually returns (see sync_last_mile_hourly.py's
+-- fix, 2026-09-18). "create table if not exists" is a no-op against an
+-- already-deployed table, so changing the column list below would silently
+-- never apply to a live database without this.
+--
+-- The drop only fires if the OLD `pincode` column is still present, which
+-- was true only while this table had zero rows on file (no hourly sync had
+-- run yet). Once migrated, `pincode` is gone, this check is false forever
+-- after, and re-running schema.sql stays a safe no-op for this table --
+-- same "safe to re-run anytime" contract as the rest of this file. Do NOT
+-- widen this to an unconditional drop; a future re-apply must never wipe
+-- real alert/lane data.
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'last_mile_worst_lanes' and column_name = 'pincode'
+  ) then
+    drop table public.last_mile_worst_lanes;
+  end if;
+end $$;
+
 create table if not exists public.last_mile_worst_lanes (
   id bigserial primary key,
   run_id text not null references public.last_mile_run(run_id) on delete cascade,
@@ -1901,6 +1927,16 @@ create table if not exists public.last_mile_alerts (
 );
 create index if not exists idx_last_mile_alerts_run on public.last_mile_alerts (run_id);
 create index if not exists idx_last_mile_alerts_bucket on public.last_mile_alerts (run_id, bucket);
+
+-- severity was originally `text`; alerts.Alert.severity is an int (e.g. 80),
+-- so a live database created before this line existed still has the wrong
+-- type -- same "create table if not exists is a no-op on an existing table"
+-- trap as last_mile_worst_lanes above. Unlike that table, this is a single
+-- column, so a direct alter is enough rather than a conditional drop -- and
+-- it is safe to run unconditionally on every re-apply: converting an
+-- already-int column to int via `using severity::int` is a harmless no-op,
+-- so this line never needs to be removed once it has taken effect.
+alter table public.last_mile_alerts alter column severity type int using severity::int;
 
 alter table public.last_mile_alerts enable row level security;
 drop policy if exists last_mile_alerts_select on public.last_mile_alerts;
