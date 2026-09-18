@@ -1,0 +1,77 @@
+name: Sync Jarvis invoice status to Supabase
+
+# The ONLY workflow in this repo that does not run on a GitHub-hosted
+# runner. Jarvis (jarvis.urbanclap.com) is VPN / IP-allowlist gated, and
+# GitHub's hosted runners sit on the public cloud, so this job has to run
+# from inside UC's network -- see .github/runner-setup.md for how the
+# self-hosted runner on Kalrav's laptop is installed.
+#
+# Everything else here (Uniware, Bluedart, DTDC, Google Sheets) is
+# reachable from the open internet and deliberately STAYS on
+# ubuntu-latest. Moving those onto the laptop too would mean the portal
+# stops syncing every time it is shut or asleep -- the laptop is used
+# where the VPN forces it, nowhere else.
+#
+# Behaviour when the laptop is off, asleep, or off VPN:
+#   - Laptop off/asleep  -- the scheduled run queues. `concurrency` below
+#     cancels superseded pending runs, so coming back online replays ONE
+#     sync, not the whole backlog. That is correct here because the script
+#     reconciles full current state rather than applying a delta, so only
+#     the newest run matters.
+#   - On, but VPN down    -- the preflight step below detects it and exits
+#     the job cleanly with a notice instead of failing, so the Actions tab
+#     doesn't fill with red for something that isn't broken.
+on:
+  # Every 15 min, not every 5. The Jarvis query refreshes itself every
+  # 300s regardless, and an invoice's Oracle submission status moves on
+  # the order of hours -- so a faster cron would mostly re-read unchanged
+  # data and pile up queued runs while the laptop is closed. Change to
+  # '*/5 * * * *' if that turns out to be too slow in practice.
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-jarvis-invoice-status
+  cancel-in-progress: true
+
+jobs:
+  sync:
+    runs-on: [self-hosted, vpn]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      # Cheap reachability probe before doing any real work. A 404/401 from
+      # Jarvis still proves the network path is up -- we only care that
+      # something answered, not that we're authorised yet.
+      - name: Check Jarvis is reachable (is the VPN up?)
+        id: preflight
+        shell: bash
+        run: |
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 https://jarvis.urbanclap.com/ || echo 000)
+          if [ "$code" = "000" ]; then
+            echo "reachable=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Jarvis unreachable (VPN likely down) -- skipping this run, nothing synced."
+          else
+            echo "reachable=true" >> "$GITHUB_OUTPUT"
+            echo "Jarvis answered HTTP $code -- network path is up."
+          fi
+
+      - uses: actions/setup-python@v5
+        if: steps.preflight.outputs.reachable == 'true'
+        with:
+          python-version: '3.11'
+
+      - run: pip install -r requirements.txt
+        if: steps.preflight.outputs.reachable == 'true'
+
+      - run: python scripts/sync_jarvis_invoice_status.py
+        if: steps.preflight.outputs.reachable == 'true'
+        env:
+          JARVIS_API_KEY: ${{ secrets.JARVIS_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

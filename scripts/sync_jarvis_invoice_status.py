@@ -47,11 +47,12 @@ CREDENTIALS
 
 NETWORK
 -------
-Jarvis is VPN / IP-allowlist gated. GitHub's hosted runners are NOT on
-UC's network, so this will almost certainly fail there -- it needs a
-self-hosted runner inside the network, or to be run from a machine that
-already has access. See .github/workflows/ for why no workflow ships with
-this script yet.
+Jarvis is VPN / IP-allowlist gated, and GitHub's hosted runners are not on
+UC's network -- so unlike every other sync here, this one runs on a
+self-hosted runner inside the network (a laptop already on the VPN). See
+.github/workflows/sync-jarvis-invoice-status.yml and
+.github/runner-setup.md. Running it by hand from any VPN-connected machine
+works identically; the workflow is only there to do it on a schedule.
 
 Usage:
     python scripts/sync_jarvis_invoice_status.py [--dry-run] [--probe]
