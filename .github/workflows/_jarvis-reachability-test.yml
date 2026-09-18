@@ -1,12 +1,10 @@
 name: TEMP - Jarvis reachability test
 
-# One-shot, throwaway: does a GitHub-hosted runner even reach
-# jarvis.urbanclap.com over the network? No credential needed for this --
-# a real HTTP response (even 401/403) proves the network path is open;
-# only a timeout/connection error proves it's actually blocked. Delete
-# this file once the SLA-rules pull's real home (GitHub-hosted vs a
-# VPN-reachable runner) is decided -- it exists only to answer that
-# question with a real GitHub Actions run instead of an assumption.
+# One-shot, throwaway: does a GitHub-hosted runner reach Jarvis's actual
+# REDASH API (not just the bare homepage, which a WAF can serve a generic
+# block page for regardless of the real app's own state) and get back
+# real query data? Delete this file once the SLA-rules pull's real home
+# (GitHub-hosted vs a VPN-reachable runner) is decided.
 on:
   workflow_dispatch: {}
 
@@ -18,18 +16,31 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
-      - name: curl jarvis.urbanclap.com
+      - name: hit the real Jarvis query-results API
+        env:
+          JARVIS_API_KEY: ${{ secrets.JARVIS_API_KEY }}
         run: |
-          echo "Resolving DNS..."
-          nslookup jarvis.urbanclap.com || echo "DNS resolution FAILED"
-          echo
-          echo "Attempting HTTP GET (10s connect timeout)..."
-          code=$(curl -s -o /tmp/body.txt -w '%{http_code}' --connect-timeout 10 --max-time 20 https://jarvis.urbanclap.com/ || echo "000")
+          code=$(curl -s -o /tmp/body.json -w '%{http_code}' --connect-timeout 10 --max-time 30 \
+            -H "Authorization: Key $JARVIS_API_KEY" \
+            "https://jarvis.urbanclap.com/api/queries/562880/results.json" || echo "000")
           echo "HTTP status: $code"
-          if [ "$code" = "000" ]; then
-            echo "RESULT: UNREACHABLE (connection failed/timed out) -- likely IP-allowlisted, needs a VPN-reachable runner."
-            exit 1
+          echo
+          if [ "$code" = "200" ] && grep -q '"query_result"' /tmp/body.json; then
+            echo "RESULT: REAL DATA -- a GitHub-hosted runner CAN pull this query directly."
+            python3 -c "
+import json
+d = json.load(open('/tmp/body.json'))
+qr = d['query_result']
+cols = [c['name'] for c in qr['data']['columns']]
+rows = qr['data']['rows']
+print('columns:', cols)
+print('row count:', len(rows))
+if rows:
+    print('sample row:', {k: rows[0].get(k) for k in cols[:6]})
+"
           else
-            echo "RESULT: REACHABLE (got a real HTTP response) -- a GitHub-hosted runner can talk to Jarvis."
-            head -c 300 /tmp/body.txt
+            echo "RESULT: BLOCKED or FAILED -- likely IP-allowlisted, needs a VPN-reachable runner."
+            echo "--- response body (first 500 chars) ---"
+            head -c 500 /tmp/body.json
+            exit 1
           fi
