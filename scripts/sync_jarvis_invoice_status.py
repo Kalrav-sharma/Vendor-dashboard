@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
 """
 Syncs each uploaded invoice's Oracle SUBMISSION status from Jarvis query
-594877 into po_invoice_uploads.oracle_status.
+597609 into po_invoice_uploads.oracle_status.
+
+(597609 is Kalrav's own fork of the original query 594877 -- forked so he
+has regenerate rights on its API key. Same SQL, same columns; scheduled to
+refresh every 5 minutes same as the original.)
 
 WHAT THIS IS NOT
 ----------------
-This is NOT a payment sync. Query 594877 has no "paid" column -- the
+This is NOT a payment sync. Query 597609 has no "paid" column -- the
 closest thing, ORACLE_STATUS, records whether the invoice RECORD was
 pushed into Oracle (UC's payables system), which happens within hours of
 receipting and long before any money moves. ~95% of all rows read PUSHED.
@@ -68,7 +72,7 @@ from datetime import datetime, timezone
 import requests
 
 JARVIS_BASE = "https://jarvis.urbanclap.com"
-JARVIS_QUERY_ID = 594877
+JARVIS_QUERY_ID = 597609
 REQUEST_TIMEOUT = 120
 # Jarvis runs this query on its own 300s schedule, so the cached result is
 # never more than ~5 minutes stale. We read that cache rather than forcing
