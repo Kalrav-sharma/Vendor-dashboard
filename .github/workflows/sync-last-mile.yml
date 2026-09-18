@@ -1,0 +1,81 @@
+name: Sync Last Mile tracking
+
+# Two legs, one file:
+#   daily  (04:10 UTC = 09:40 IST) -- pull Sale Orders from Uniware and
+#          rebuild last_mile_watchlist. Intake only.
+#   hourly (every hour, business hours IST) -- poll the couriers, rebuild
+#          every rollup the Last Mile page reads.
+#
+# Runs on GitHub-hosted runners, NOT the self-hosted VPN one. Everything
+# this touches -- Uniware, Blue Dart, Delhivery, DTDC -- is reachable from
+# the public internet, and the portal already calls api.bluedart.com and
+# blktracksvc.dtdc.com from Actions today. Only the Jarvis invoice sync
+# needs the VPN runner.
+#
+# The daily leg must land before the hourly one has anything to poll, so a
+# fresh setup should run the daily job manually first.
+on:
+  schedule:
+    - cron: '10 4 * * *'        # daily intake, 09:40 IST
+    - cron: '0 5-18 * * *'      # hourly tracking, 10:30 IST - 23:30 IST
+  workflow_dispatch:
+    inputs:
+      leg:
+        description: 'Which leg to run'
+        required: true
+        default: hourly
+        type: choice
+        options: [hourly, daily, both]
+
+permissions:
+  contents: read
+
+concurrency:
+  # The two legs write different tables and the source project notes they
+  # never need a lock against each other -- but two HOURLY runs overlapping
+  # would double-poll the carriers, so serialise on the leg.
+  group: sync-last-mile-${{ github.event.inputs.leg || 'scheduled' }}
+  cancel-in-progress: false
+
+jobs:
+  daily:
+    if: github.event.schedule == '10 4 * * *' || contains(fromJSON('["daily","both"]'), github.event.inputs.leg)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -r requirements.txt
+      - run: python scripts/sync_last_mile_daily.py
+        env:
+          UNIWARE_USERNAME: ${{ secrets.UNIWARE_USERNAME }}
+          UNIWARE_PASSWORD: ${{ secrets.UNIWARE_PASSWORD }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+  hourly:
+    if: github.event.schedule == '0 5-18 * * *' || contains(fromJSON('["hourly","both"]'), github.event.inputs.leg)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -r requirements.txt
+      - run: python scripts/sync_last_mile_hourly.py --budget-minutes 20
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          # Blue Dart: the adapter reads BLUEDART_LICENSE_KEY (American
+          # spelling); this repo's existing secret is BLUEDART_LICENCE_KEY
+          # (British), set for sync_bluedart_tracking.py. Mapping it here
+          # rather than renaming the secret keeps that older workflow
+          # working. Get this wrong and Blue Dart silently falls back to
+          # HTML scraping with no error -- just worse data.
+          BLUEDART_LOGIN_ID: ${{ secrets.BLUEDART_LOGIN_ID }}
+          BLUEDART_LICENSE_KEY: ${{ secrets.BLUEDART_LICENCE_KEY }}
+          DELHIVERY_API_TOKEN: ${{ secrets.DELHIVERY_API_TOKEN }}
+          DTDC_ACCESS_TOKEN: ${{ secrets.DTDC_ACCESS_TOKEN }}

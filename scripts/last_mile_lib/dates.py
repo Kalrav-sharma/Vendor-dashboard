@@ -6,13 +6,8 @@ here. Each LSP adds its own: Blue Dart `09 Aug 2026` + `16:37`, Holisol
 `7/13/2026 5:32:48 PM`, Delhivery ISO with microseconds, Shadowfax
 `13 July 2026, Monday`.
 
-Ported verbatim from the awb-delivery-tracker project's
-awb_tracker/dates.py, which was itself ported from
-sla-remap-skill/scripts/pipeline_io.py::parse_dt (2026-09-07) and extended
-with the LSP formats verified live on 2026-09-07. Do not re-derive this --
-it encodes real formats measured against real data, and re-deriving from
-scratch is exactly the mistake that broke sync_last_mile_daily.py's first
-draft (see that script's history / commit message for what went wrong).
+Ported from sla-remap-skill/scripts/pipeline_io.py::parse_dt (2026-09-07),
+extended with the LSP formats verified live on 2026-09-07.
 """
 from __future__ import annotations
 
@@ -39,7 +34,7 @@ FORMATS: tuple[str, ...] = (
 )
 
 
-def parse_dt(value, assume_ist: bool = True):
+def parse_dt(value: str | None, assume_ist: bool = True) -> datetime | None:
     """Best-effort parse. Returns None rather than raising -- an unparseable
     date is a data-quality observation, not a crash."""
     if not value:
@@ -47,6 +42,7 @@ def parse_dt(value, assume_ist: bool = True):
     s = str(value).strip()
     if not s or s in {"-", "NA", "N/A", "null", "None"}:
         return None
+    # Trailing timezone marker: normalise to something strptime accepts.
     if s.endswith("Z"):
         s = s[:-1]
     # "13 July 2026, Monday" -> "13 July 2026"
@@ -68,5 +64,13 @@ def parse_dt(value, assume_ist: bool = True):
     return None
 
 
-def now_ist():
+def parse_date_time_pair(date_s: str | None, time_s: str | None) -> datetime | None:
+    """Blue Dart splits its scans into separate Date and Time cells."""
+    if not date_s:
+        return None
+    combined = f"{date_s.strip()} {(time_s or '').strip()}".strip()
+    return parse_dt(combined) or parse_dt(date_s)
+
+
+def now_ist() -> datetime:
     return datetime.now(IST)

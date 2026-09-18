@@ -1817,21 +1817,34 @@ drop policy if exists last_mile_lsp_perf_select on public.last_mile_lsp_perf;
 create policy last_mile_lsp_perf_select on public.last_mile_lsp_perf
   for select using (public.is_internal_staff());
 
--- Worst lanes: one row per (pincode, lsp, facility) combination whose
--- volume clears min_volume, worst on-time% first -- where Operations
--- should look first, not every lane in the network.
+-- Worst lanes: one row per (LSP x city) lane whose GRADED volume clears
+-- the sync's minimum, worst on-time% first -- where Operations should
+-- look first, not every lane in the network.
+--
+-- Grain is LSP x CITY, not pincode: performance.worst_lanes() aggregates
+-- at 'lsp_city' because a single pincode rarely carries enough graded
+-- volume to say anything defensible about a carrier. There is deliberately
+-- no pincode or facility column here -- they do not exist at this grain,
+-- and columns that are always null invite false confidence.
+--
+-- "graded" is the denominator that matters: shipments with a real promise
+-- date that have actually resolved on-time or late. It is NOT the raw
+-- shipment count -- anything still in flight, or carrying only an ASSUMED
+-- promise, cannot be graded and is excluded (see excluded_assumed_promise).
 create table if not exists public.last_mile_worst_lanes (
   id bigserial primary key,
   run_id text not null references public.last_mile_run(run_id) on delete cascade,
-  pincode text,
-  city text,
-  facility_code text,
   lsp text not null,
-  volume int not null default 0,
-  delivered int not null default 0,
-  on_time int not null default 0,
+  city text,
+  graded int not null default 0,        -- on_time + late, the gradeable population
+  late int not null default 0,
   on_time_pct numeric,
-  avg_days_late numeric,
+  avg_transit_days numeric,
+  p85_transit_days numeric,             -- the tail, which an average hides
+  active int not null default 0,        -- still in flight on this lane
+  breached int not null default 0,
+  rto_in_flight int not null default 0,
+  excluded_assumed_promise int not null default 0,
   synced_at timestamptz not null default now()
 );
 create index if not exists idx_last_mile_worst_lanes_run on public.last_mile_worst_lanes (run_id);
@@ -1860,7 +1873,7 @@ create table if not exists public.last_mile_alerts (
   flags text[] not null default '{}',
   primary_flag text not null,
   bucket text not null check (bucket in ('rescue', 'closed_failure', 'data_quality')),
-  severity text,
+  severity int,
   lsp text,
   courier_code text,
   facility_code text,

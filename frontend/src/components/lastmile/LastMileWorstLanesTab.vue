@@ -11,6 +11,9 @@ const { run, worstLanes, loadError } = useLastMileData();
 function fmtPct(n) {
   return n == null ? "–" : `${(Math.round(n * 10) / 10).toLocaleString("en-IN")}%`;
 }
+function fmtDays(n) {
+  return n == null ? "–" : `${Math.round(n * 10) / 10}d`;
+}
 function pctClass(n) {
   if (n == null) return "";
   if (n < 70) return "cell-critical";
@@ -42,31 +45,34 @@ const kpiTiles = computed(() => {
 
   <template v-else>
     <p class="field-hint" style="margin: 0 0 12px;">
-      Run {{ run.run_id }} · trailing {{ run.window_days }} days · lanes below the sync's minimum volume threshold are not shown
+      Run {{ run.run_id }} · trailing {{ run.window_days }} days · lanes below the sync's minimum graded volume are not shown. "Graded" counts only shipments with a real promise date that have actually resolved on-time or late -- in-flight and assumed-promise shipments cannot be graded.
     </p>
 
     <div class="table-card"><div class="table-scroll">
       <table>
         <thead>
           <tr>
-            <th>Pincode</th><th>City</th><th>Facility</th><th>LSP</th>
-            <th class="num">Volume</th><th class="num">Delivered</th>
-            <th class="num">On-time %</th><th class="num">Avg days late</th>
+            <th>LSP</th><th>City</th>
+            <th class="num">Graded</th><th class="num">Late</th>
+            <th class="num">On-time %</th>
+            <th class="num">Avg transit</th><th class="num">P85 transit</th>
+            <th class="num">Active</th><th class="num">Breached</th>
           </tr>
         </thead>
         <tbody>
           <tr v-if="!worstLanes.length">
-            <td colspan="8" class="empty-state">No lanes cleared the minimum volume threshold for this run.</td>
+            <td colspan="9" class="empty-state">No lanes cleared the minimum graded volume for this run.</td>
           </tr>
           <tr v-for="l in worstLanes" :key="l.id">
-            <td class="mono">{{ l.pincode || "–" }}</td>
-            <td>{{ l.city || "–" }}</td>
-            <td class="mono">{{ l.facility_code || "–" }}</td>
             <td><b>{{ l.lsp }}</b></td>
-            <td class="num mono">{{ l.volume }}</td>
-            <td class="num mono">{{ l.delivered }}</td>
+            <td>{{ l.city || "–" }}</td>
+            <td class="num mono">{{ l.graded }}</td>
+            <td class="num mono">{{ l.late }}</td>
             <td class="num mono" :class="pctClass(l.on_time_pct)">{{ fmtPct(l.on_time_pct) }}</td>
-            <td class="num mono">{{ l.avg_days_late != null ? (Math.round(l.avg_days_late * 10) / 10) : "–" }}</td>
+            <td class="num mono">{{ fmtDays(l.avg_transit_days) }}</td>
+            <td class="num mono">{{ fmtDays(l.p85_transit_days) }}</td>
+            <td class="num mono">{{ l.active }}</td>
+            <td class="num mono" :class="l.breached > 0 ? 'cell-critical' : ''">{{ l.breached }}</td>
           </tr>
         </tbody>
       </table>

@@ -1,2 +1,6 @@
 requests
 google-auth
+# Shadowfax (and some Blue Dart responses) serve Content-Encoding: br.
+# Without this, requests returns binary that looks like an empty page
+# rather than raising -- a silent wrong answer. See last_mile_lib/lsp/.
+brotli
