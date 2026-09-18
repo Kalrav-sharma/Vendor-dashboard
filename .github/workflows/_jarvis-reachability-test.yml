@@ -1,0 +1,35 @@
+name: TEMP - Jarvis reachability test
+
+# One-shot, throwaway: does a GitHub-hosted runner even reach
+# jarvis.urbanclap.com over the network? No credential needed for this --
+# a real HTTP response (even 401/403) proves the network path is open;
+# only a timeout/connection error proves it's actually blocked. Delete
+# this file once the SLA-rules pull's real home (GitHub-hosted vs a
+# VPN-reachable runner) is decided -- it exists only to answer that
+# question with a real GitHub Actions run instead of an assumption.
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: curl jarvis.urbanclap.com
+        run: |
+          echo "Resolving DNS..."
+          nslookup jarvis.urbanclap.com || echo "DNS resolution FAILED"
+          echo
+          echo "Attempting HTTP GET (10s connect timeout)..."
+          code=$(curl -s -o /tmp/body.txt -w '%{http_code}' --connect-timeout 10 --max-time 20 https://jarvis.urbanclap.com/ || echo "000")
+          echo "HTTP status: $code"
+          if [ "$code" = "000" ]; then
+            echo "RESULT: UNREACHABLE (connection failed/timed out) -- likely IP-allowlisted, needs a VPN-reachable runner."
+            exit 1
+          else
+            echo "RESULT: REACHABLE (got a real HTTP response) -- a GitHub-hosted runner can talk to Jarvis."
+            head -c 300 /tmp/body.txt
+          fi
