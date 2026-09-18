@@ -2,3 +2,6 @@ __pycache__/
 *.pyc
 .DS_Store
 supabase/.temp/
+
+# Claude Code: per-turn commit subject, consumed and deleted by the Stop hook
+.claude/.commit-msg

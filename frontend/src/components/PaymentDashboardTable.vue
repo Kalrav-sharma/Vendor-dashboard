@@ -2,6 +2,7 @@
 import { computed } from "vue";
 import { fmtMoney, fmtDateOnly } from "../format.js";
 import ReconciliationChip from "./ReconciliationChip.vue";
+import PaymentStatusChip from "./PaymentStatusChip.vue";
 import ViewInvoiceButton from "./ViewInvoiceButton.vue";
 import SummaryKpis from "./SummaryKpis.vue";
 
@@ -9,6 +10,7 @@ const props = defineProps({
   rows: { type: Array, required: true },        // already filtered
   filters: { type: Object, required: true },     // reactive filter state, mutated directly (v-model)
   reconciliationOptions: { type: Array, required: true }, // distinct reconciliation labels present in the data
+  paymentStatusOptions: { type: Array, default: () => [] }, // distinct payment status labels present in the data
   vendorOptions: { type: Array, default: null }, // [{code, label}] -- null hides the Vendor column entirely
   vendorLabel: { type: Function, default: null }, // (code) => string -- required when vendorOptions is set
   onOpenPo: { type: Function, required: true }, // (poCode) => void
@@ -20,22 +22,30 @@ function grnValue(row) { return row.match_details?.grn_value ?? null; }
 function dueDate(row) { return row.match_details?.invoice_due_date || null; }
 function dueDateEstimated(row) { return !!row.match_details?.invoice_due_date_estimated; }
 
-// Date-only comparison -- an invoice due today isn't overdue yet.
+// Date-only comparison -- an invoice due today isn't overdue yet. An
+// already-paid invoice is never overdue no matter what its due date says.
 const todayStart = new Date(new Date().toDateString());
 function isOverdue(row) {
   const due = dueDate(row);
+  if (row.payment_status === "paid") return false;
   return !!due && new Date(due) < todayStart && row.match_status !== "matched";
 }
 
-// "Payment" here means "not yet marked paid" -- there's no real payment
-// status tracked yet (Oracle integration not built, every row shows
-// "Pending integration"), so every invoice on file counts as pending.
+// "Pending" here means "not yet settled": every row whose payment_status
+// isn't 'paid'. That deliberately counts rows with no payment record synced
+// yet (payment_status null) as pending too -- an invoice nobody has
+// confirmed paid is still outstanding from the vendor's point of view.
+// Before the payment sync exists, every row is null and this tile reads
+// exactly as it did when it was a plain row count.
+function isPaid(row) { return row.payment_status === "paid"; }
+
 const kpiTiles = computed(() => {
+  const pending = props.rows.filter(r => !isPaid(r)).length;
   const onTrack = props.rows.filter(r => r.match_status === "matched" && !isOverdue(r)).length;
   const hasIssues = props.rows.filter(r => r.match_status === "mismatch" || r.match_status === "error").length;
   const overdue = props.rows.filter(isOverdue).length;
   return [
-    { label: "Total invoices pending", value: props.rows.length },
+    { label: "Total invoices pending", value: pending },
     { label: "No issues -- on track", value: onTrack, cls: "good" },
     { label: "Has issues", value: hasIssues, cls: hasIssues > 0 ? "critical" : "" },
     { label: "Overdue", value: overdue, cls: overdue > 0 ? "critical" : "" },
@@ -79,7 +89,12 @@ const kpiTiles = computed(() => {
               <option v-for="r in reconciliationOptions" :key="r" :value="r">{{ r }}</option>
             </select>
           </td>
-          <td></td>
+          <td>
+            <select v-model="filters.paymentStatus">
+              <option value="">All</option>
+              <option v-for="p in paymentStatusOptions" :key="p" :value="p">{{ p }}</option>
+            </select>
+          </td>
         </tr>
       </thead>
       <tbody>
@@ -101,11 +116,7 @@ const kpiTiles = computed(() => {
             >*</span>
           </td>
           <td><ReconciliationChip :row="row" /></td>
-          <td>
-            <span class="chip chip-muted" title="Payment status will sync automatically once Oracle integration is built.">
-              Pending integration
-            </span>
-          </td>
+          <td><PaymentStatusChip :status="row.payment_status" /></td>
         </tr>
       </tbody>
     </table>

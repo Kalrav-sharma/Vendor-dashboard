@@ -5,13 +5,13 @@
 // Vendor column/filter; omit it (vendor.html, already scoped to one
 // vendor) and vendor filtering/fields are simply not part of the mix.
 import { reactive, computed } from "vue";
-import { fmtMoney, fmtDateOnly } from "../format.js";
+import { fmtMoney, fmtDateOnly, paymentStatusLabel } from "../format.js";
 import { reconciliationLabel } from "../reconciliation.js";
 
 export function usePaymentFilters(rows, resolveVendorLabel) {
   const filters = reactive({
     search: "", vendor: "", poCode: "", invoiceNumber: "",
-    invoiceValue: "", grnValue: "", dueDate: "", reconciliation: "",
+    invoiceValue: "", grnValue: "", dueDate: "", reconciliation: "", paymentStatus: "",
   });
 
   function rowFields(row) {
@@ -23,6 +23,7 @@ export function usePaymentFilters(rows, resolveVendorLabel) {
       grnValue: fmtMoney(row.match_details?.grn_value ?? null),
       dueDate: fmtDateOnly(row.match_details?.invoice_due_date || null),
       reconciliation: reconciliationLabel(row).text,
+      paymentStatus: paymentStatusLabel(row.payment_status),
     };
   }
 
@@ -31,6 +32,7 @@ export function usePaymentFilters(rows, resolveVendorLabel) {
     const f = filters;
     if (resolveVendorLabel && f.vendor && row.vendor_code !== f.vendor) return false;
     if (f.reconciliation && fields.reconciliation !== f.reconciliation) return false;
+    if (f.paymentStatus && fields.paymentStatus !== f.paymentStatus) return false;
     for (const key of ["poCode", "invoiceNumber", "invoiceValue", "grnValue", "dueDate"]) {
       if (f[key] && !fields[key].toLowerCase().includes(f[key].toLowerCase())) return false;
     }
@@ -46,5 +48,8 @@ export function usePaymentFilters(rows, resolveVendorLabel) {
   const reconciliationOptions = computed(() =>
     [...new Set(rows.value.map((r) => reconciliationLabel(r).text))].sort());
 
-  return { filters, filteredSorted, reconciliationOptions };
+  const paymentStatusOptions = computed(() =>
+    [...new Set(rows.value.map((r) => paymentStatusLabel(r.payment_status)))].sort());
+
+  return { filters, filteredSorted, reconciliationOptions, paymentStatusOptions };
 }

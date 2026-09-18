@@ -109,6 +109,32 @@ export function dtdcStatusClass(statusType) {
   return (DTDC_STATUS_META[(statusType || "").toLowerCase()] || [null, "muted"])[1];
 }
 
+// Payment status on a po_invoice_uploads row -- same [label, chip color]
+// pattern as STATUS_META above. Deliberately only two real states: an
+// invoice has either been settled or it hasn't, and nothing in between is
+// worth showing a vendor.
+//
+// null/undefined is NOT the same as "pending" and must keep its own label:
+// it means no payment record has synced for this invoice yet, whereas
+// "pending" is a positive statement that the source says it's unpaid.
+// Until the sync that populates this column exists, every row is null and
+// the dashboard reads exactly as it did before -- no column is quietly
+// asserting an unpaid status nobody actually confirmed.
+export const PAYMENT_STATUS_META = {
+  pending: ["Pending", "open"],
+  paid: ["Paid", "good"],
+};
+
+export function paymentStatusLabel(status) {
+  if (!status) return "Pending integration";
+  return (PAYMENT_STATUS_META[status] || [status, "muted"])[0];
+}
+
+export function paymentStatusClass(status) {
+  if (!status) return "muted";
+  return (PAYMENT_STATUS_META[status] || [null, "muted"])[1];
+}
+
 export function visiblePos(pos) {
   return pos.filter(p => !HIDDEN_STATUSES.has(p.status));
 }
