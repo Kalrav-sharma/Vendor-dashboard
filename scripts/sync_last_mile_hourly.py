@@ -190,6 +190,19 @@ def main():
     budget_minutes = 20
     if "--budget-minutes" in sys.argv:
         budget_minutes = int(sys.argv[sys.argv.index("--budget-minutes") + 1])
+    # Restrict THIS run's carrier calls to a subset, e.g. --adapters dtdc for
+    # a cheap isolated test after rotating one carrier's credential. The run
+    # still recomputes and writes all six rollup tables as usual -- an
+    # untouched adapter's shipments just keep whatever status they already
+    # had (Uniware's own, or a prior poll), same as any hourly run where a
+    # given AWB simply wasn't due yet.
+    only_adapters = None
+    if "--adapters" in sys.argv:
+        only_adapters = {x.strip().lower() for x in
+                         sys.argv[sys.argv.index("--adapters") + 1].split(",") if x.strip()}
+        unknown = only_adapters - POLLED_ADAPTERS
+        if unknown:
+            sys.exit(f"--adapters: not pollable: {sorted(unknown)}; choose from {sorted(POLLED_ADAPTERS)}")
 
     url, key = env("SUPABASE_URL").rstrip("/"), env("SUPABASE_SERVICE_ROLE_KEY")
     now = now_ist()
@@ -221,6 +234,10 @@ def main():
     candidates = [s for s in ships
                   if s.needs_lsp_poll and s.awb not in settled
                   and s.adapter_id in POLLED_ADAPTERS]
+    if only_adapters:
+        before = len(candidates)
+        candidates = [s for s in candidates if s.adapter_id in only_adapters]
+        print(f"--adapters {sorted(only_adapters)}: {len(candidates)} of {before} candidates in scope")
 
     statuses = {s.awb: to_canonical(s.uniware_tracking_status)[0] for s in candidates}
     due, tally = state.due(candidates, statuses, now=now, limit=limit)

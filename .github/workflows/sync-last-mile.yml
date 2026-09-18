@@ -26,6 +26,10 @@ on:
         default: hourly
         type: choice
         options: [hourly, daily, both]
+      adapters:
+        description: 'Hourly only: comma-separated adapter(s) to poll (e.g. "dtdc"), blank = all. For a cheap isolated test after rotating one carrier credential.'
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -65,7 +69,12 @@ jobs:
         with:
           python-version: '3.11'
       - run: pip install -r requirements.txt
-      - run: python scripts/sync_last_mile_hourly.py --budget-minutes 20
+      - run: |
+          ARGS="--budget-minutes 20"
+          if [ -n "${{ github.event.inputs.adapters }}" ]; then
+            ARGS="$ARGS --adapters ${{ github.event.inputs.adapters }}"
+          fi
+          python scripts/sync_last_mile_hourly.py $ARGS
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
