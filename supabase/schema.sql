@@ -1607,3 +1607,199 @@ drop policy if exists sop_first_mile_missed_po_select on public.sop_first_mile_m
 create policy sop_first_mile_missed_po_select on public.sop_first_mile_missed_po
   for select using (public.is_internal_staff());
 -- ---------------------------------------------------------------------
+
+-- =======================================================================
+-- Last Mile Tracking -- warehouse-to-customer delivery visibility, the
+-- outbound counterpart to Dispatch Planning's inbound (vendor-to-UC)
+-- shipment tracking. Modelled on a working operational report
+-- ("Shipment Watch") that already covers 5 LSPs (Blue Dart, Delhivery,
+-- DTDC, Holisol, Shadowfax) across Native's D2C/UC-App channels.
+--
+-- Written by scripts/sync_last_mile.py (daily Uniware pull + hourly
+-- courier re-poll -- see that script for the full pipeline). All six
+-- tables below are one sync run's output, replaced/upserted wholesale
+-- each run -- there is no user-facing write path, same discipline as
+-- every other sop_* table.
+--
+-- Internal-staff only (admin/management/operations, same gate as S&OP):
+-- this is UC's own delivery operations data, not something a vendor
+-- (who only supplies TO Uniware, not to the end customer) has any
+-- reason to see.
+-- =======================================================================
+
+-- One row per sync run -- run metadata, scope, and the headline counts
+-- the page's KPI tiles read. The frontend always wants the latest, so it
+-- queries "order by generated_at desc limit 1" rather than this table
+-- needing a separate "is this the current run" flag.
+create table if not exists public.last_mile_run (
+  run_id text primary key,
+  generated_at timestamptz not null,
+  window_days int not null,
+  health text not null,             -- ok | degraded | error -- see sync_last_mile.py
+  last_daily_run_at timestamptz,
+  last_hourly_run_at timestamptz,
+  alerts_total int not null default 0,
+  queue_rescue int not null default 0,
+  queue_closed_failure int not null default 0,
+  queue_data_quality int not null default 0,
+  open_shipments int not null default 0,
+  live_tracked int not null default 0,
+  scope_channels text[],
+  scope_note text,
+  synced_at timestamptz not null default now()
+);
+create index if not exists idx_last_mile_run_generated_at on public.last_mile_run (generated_at desc);
+
+alter table public.last_mile_run enable row level security;
+drop policy if exists last_mile_run_select on public.last_mile_run;
+create policy last_mile_run_select on public.last_mile_run
+  for select using (public.is_internal_staff());
+
+-- Coverage: how many shipments are actually being tracked vs excluded,
+-- and why. Answers "is this dashboard seeing everything it should"
+-- before anyone trusts the alerts below it.
+create table if not exists public.last_mile_coverage (
+  run_id text primary key references public.last_mile_run(run_id) on delete cascade,
+  shipments_total int not null default 0,
+  open_total int not null default 0,
+  carrier_assigned int not null default 0,
+  excluded_by_scope int not null default 0,
+  excluded_by_adapter jsonb,        -- {adapter: count}
+  excluded_reasons jsonb,           -- {reason: count}
+  not_trackable_by_design int not null default 0,
+  no_adapter_rule int not null default 0,
+  synced_at timestamptz not null default now()
+);
+
+alter table public.last_mile_coverage enable row level security;
+drop policy if exists last_mile_coverage_select on public.last_mile_coverage;
+create policy last_mile_coverage_select on public.last_mile_coverage
+  for select using (public.is_internal_staff());
+
+-- Data quality: upstream problems in the SOURCE data (unmapped statuses,
+-- unrecognised couriers, malformed or missing AWBs) -- distinct from
+-- delivery performance. A high number here means the numbers below it
+-- are not yet trustworthy, not that the couriers are doing badly.
+create table if not exists public.last_mile_dq_summary (
+  run_id text primary key references public.last_mile_run(run_id) on delete cascade,
+  unmapped_status_distinct int not null default 0,
+  unmapped_status_occurrences int not null default 0,
+  unmapped_status_top jsonb,        -- [{value, count}, ...]
+  unmapped_courier_distinct int not null default 0,
+  unmapped_courier_occurrences int not null default 0,
+  unmapped_courier_top jsonb,
+  awb_pattern_distinct int not null default 0,
+  awb_pattern_occurrences int not null default 0,
+  awb_pattern_top jsonb,
+  missing_awb_distinct int not null default 0,
+  missing_awb_occurrences int not null default 0,
+  missing_awb_top jsonb,
+  synced_at timestamptz not null default now()
+);
+
+alter table public.last_mile_dq_summary enable row level security;
+drop policy if exists last_mile_dq_summary_select on public.last_mile_dq_summary;
+create policy last_mile_dq_summary_select on public.last_mile_dq_summary
+  for select using (public.is_internal_staff());
+
+-- Carrier performance: one row per LSP per run, over the trailing
+-- window_days. courier_codes is the (sometimes many) Uniware courier
+-- codes that roll up into this one LSP -- kept for drill-down, not
+-- shown as a headline number.
+create table if not exists public.last_mile_lsp_perf (
+  id bigserial primary key,
+  run_id text not null references public.last_mile_run(run_id) on delete cascade,
+  lsp text not null,
+  courier_codes text[],
+  delivered int not null default 0,
+  on_time int not null default 0,
+  late int not null default 0,
+  on_time_pct numeric,
+  excluded int not null default 0,
+  synced_at timestamptz not null default now(),
+  unique (run_id, lsp)
+);
+create index if not exists idx_last_mile_lsp_perf_run on public.last_mile_lsp_perf (run_id);
+
+alter table public.last_mile_lsp_perf enable row level security;
+drop policy if exists last_mile_lsp_perf_select on public.last_mile_lsp_perf;
+create policy last_mile_lsp_perf_select on public.last_mile_lsp_perf
+  for select using (public.is_internal_staff());
+
+-- Worst lanes: one row per (pincode, lsp, facility) combination whose
+-- volume clears min_volume, worst on-time% first -- where Operations
+-- should look first, not every lane in the network.
+create table if not exists public.last_mile_worst_lanes (
+  id bigserial primary key,
+  run_id text not null references public.last_mile_run(run_id) on delete cascade,
+  pincode text,
+  city text,
+  facility_code text,
+  lsp text not null,
+  volume int not null default 0,
+  delivered int not null default 0,
+  on_time int not null default 0,
+  on_time_pct numeric,
+  avg_days_late numeric,
+  synced_at timestamptz not null default now()
+);
+create index if not exists idx_last_mile_worst_lanes_run on public.last_mile_worst_lanes (run_id);
+
+alter table public.last_mile_worst_lanes enable row level security;
+drop policy if exists last_mile_worst_lanes_select on public.last_mile_worst_lanes;
+create policy last_mile_worst_lanes_select on public.last_mile_worst_lanes
+  for select using (public.is_internal_staff());
+
+-- Alerts: one row per shipment currently flagged. This is the
+-- actionable queue -- everything else on the page is context for this
+-- table. bucket groups flags by what kind of action is needed:
+--   rescue         -- still fixable (stuck, no pickup, breached SLA,
+--                     failed delivery attempt) -- Operations should chase
+--   closed_failure -- resolved but badly (lost, RTO) -- for reporting,
+--                     not action
+--   data_quality   -- cannot be judged (AWB not found, no adapter rule)
+--                     -- a pipeline gap, not a delivery failure
+-- primary_flag is the single most-actionable flag when a shipment trips
+-- several (severity order lives in sync_last_mile.py); flags carries the
+-- full set for anyone who wants it.
+create table if not exists public.last_mile_alerts (
+  id bigserial primary key,
+  run_id text not null references public.last_mile_run(run_id) on delete cascade,
+  awb text not null,
+  flags text[] not null default '{}',
+  primary_flag text not null,
+  bucket text not null check (bucket in ('rescue', 'closed_failure', 'data_quality')),
+  severity text,
+  lsp text,
+  courier_code text,
+  facility_code text,
+  city text,
+  pincode text,
+  channel text,
+  payment_type text,
+  sale_order_codes text[],
+  item_count int,
+  status text,
+  raw_status text,
+  status_source text,
+  status_at timestamptz,
+  last_scan_location text,
+  promised_date date,
+  promise_source text,
+  days_overdue numeric,
+  days_since_dispatch numeric,
+  hours_since_scan numeric,
+  attempts int,
+  ndr_reason text,
+  notes text,
+  synced_at timestamptz not null default now(),
+  unique (run_id, awb)
+);
+create index if not exists idx_last_mile_alerts_run on public.last_mile_alerts (run_id);
+create index if not exists idx_last_mile_alerts_bucket on public.last_mile_alerts (run_id, bucket);
+
+alter table public.last_mile_alerts enable row level security;
+drop policy if exists last_mile_alerts_select on public.last_mile_alerts;
+create policy last_mile_alerts_select on public.last_mile_alerts
+  for select using (public.is_internal_staff());
+-- ---------------------------------------------------------------------

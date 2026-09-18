@@ -21,6 +21,7 @@ import PaymentDashboardTable from "./components/PaymentDashboardTable.vue";
 import ManageAccess from "./components/ManageAccess.vue";
 import RateFinder from "./components/RateFinder.vue";
 import SopSection from "./components/sop/SopSection.vue";
+import LastMileSection from "./components/lastmile/LastMileSection.vue";
 import AppModal from "./components/AppModal.vue";
 import PoDetailModal from "./components/PoDetailModal.vue";
 import SkuDetailModal from "./components/SkuDetailModal.vue";
@@ -49,6 +50,9 @@ const canSeePaymentDashboard = computed(() => ["admin", "management", "finance"]
 const canSeeManageAccess = computed(() => myRole.value === "admin"); // admin only -- Kalrav's explicit call
 const canSeeRateFinder = computed(() => ["admin", "management", "operations"].includes(myRole.value));
 const canSeeSop = computed(() => ["admin", "management", "operations"].includes(myRole.value));
+// Same gate as S&OP -- UC's own delivery-operations data, not something a
+// vendor (who only supplies TO Uniware, not to the end customer) sees.
+const canSeeLastMile = computed(() => ["admin", "management", "operations"].includes(myRole.value));
 
 // Admin/Management only -- Kalrav's explicit call: the OCR match summary,
 // discrepancy details, and Re-check button in a PO's invoice section are
@@ -76,6 +80,7 @@ const navItems = computed(() => {
   if (canSeeManageAccess.value) items.push({ id: "manage-access", label: "Manage Access" });
   if (RATE_FINDER_LIVE && canSeeRateFinder.value) items.push({ id: "rate-finder", label: "Rate Finder" });
   if (canSeeSop.value) items.push({ id: "sop", label: "S&OP" });
+  if (canSeeLastMile.value) items.push({ id: "last-mile", label: "Last Mile Tracking" });
   return items;
 });
 
@@ -88,6 +93,7 @@ const pageTitle = computed(() => ({
   "manage-access": "Manage Access",
   "rate-finder": "Rate Finder",
   "sop": "S&OP",
+  "last-mile": "Last Mile Tracking",
 }[activeNav.value]));
 
 const { currentPos, grnsByPo, poItemsByPo, grnItemsByPoSku, grnByCode, lastUpdated, invoicesForItem, refresh: refreshPos } = usePurchaseOrders();
@@ -258,6 +264,7 @@ async function signOut() {
               <template v-else-if="activeNav === 'manage-access'">Create and manage every login on the portal -- vendors and internal Management/Operations/Finance access alike.</template>
               <template v-else-if="activeNav === 'rate-finder'">Find the cheapest vendor for a lane, and send them the shipment intent on WhatsApp.</template>
               <template v-else-if="activeNav === 'sop'">Sales & Operations Planning -- inventory, sales, production, and dispatch across the network.</template>
+              <template v-else-if="activeNav === 'last-mile'">Warehouse-to-customer delivery visibility -- open alerts, carrier performance, and worst-performing lanes across Blue Dart, Delhivery, DTDC, Holisol and Shadowfax.</template>
             </div>
           </div>
           <div class="who">
@@ -316,6 +323,10 @@ async function signOut() {
 
         <div v-if="canSeeSop" v-show="activeNav === 'sop'">
           <SopSection />
+        </div>
+
+        <div v-if="canSeeLastMile" v-show="activeNav === 'last-mile'">
+          <LastMileSection />
         </div>
 
         <footer class="page-foot">Data refreshes automatically every ~5 minutes from Uniware. {{ lastCheckedText }}</footer>
