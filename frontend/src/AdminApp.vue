@@ -49,12 +49,6 @@ const canSeePaymentDashboard = computed(() => ["admin", "management", "finance"]
 const canSeeManageAccess = computed(() => myRole.value === "admin"); // admin only -- Kalrav's explicit call
 const canSeeRateFinder = computed(() => ["admin", "management", "operations"].includes(myRole.value));
 const canSeeSop = computed(() => ["admin", "management", "operations"].includes(myRole.value));
-// Narrower than "internal staff" -- Kalrav's explicit call: only
-// Admin/Management can re-run the invoice OCR match check (Operations/
-// Finance can still see the result, just not re-trigger it). Enforced
-// server-side too, in check-invoice-match/index.ts -- this only controls
-// whether the button shows.
-const canRecheckInvoice = computed(() => ["admin", "management"].includes(myRole.value));
 
 // Approved by Kalrav after testing -- now a normal visible tab for
 // admin/management/operations, same as everything else.
@@ -137,7 +131,7 @@ const dispatchPlanningRows = computed(() => [...pendingDispatchRows.value, ...sh
 const { filters: dispatchFilters, filteredSorted: dispatchFilteredSorted } = useDispatchPlanningFilters(dispatchPlanningRows, vendorLabel);
 
 const { allUploads, fetchAllUploads } = useInvoiceUploads();
-const { filters: paymentFilters, filteredSorted: paymentFilteredSorted, reconciliationOptions } = usePaymentFilters(allUploads, vendorLabel, true);
+const { filters: paymentFilters, filteredSorted: paymentFilteredSorted, reconciliationOptions } = usePaymentFilters(allUploads, vendorLabel);
 
 const scopeLine = computed(() => {
   const total = currentPos.value.length;
@@ -160,7 +154,6 @@ function openPoDetailModal(poCode) {
   openModal("Purchase Order", PoDetailModal, {
     po, items, invoices, vendorLabelText: vendorLabel(po.vendor_code, po.vendor_name),
     allowInvoiceUpload: true, allowDispatchPlanning: true, uploaderLabel: whoLine.value,
-    isInternalStaff: true, canRecheck: canRecheckInvoice.value,
   }, poCode);
 }
 
@@ -296,7 +289,7 @@ async function signOut() {
           <PaymentDashboardTable
             :rows="paymentFilteredSorted" :filters="paymentFilters" :reconciliation-options="reconciliationOptions"
             :vendor-options="vendorOptions" :vendor-label="vendorLabel"
-            :on-open-po="openPoDetailModal" :is-internal-staff="true"
+            :on-open-po="openPoDetailModal"
           />
         </div>
 

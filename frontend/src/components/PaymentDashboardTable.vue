@@ -12,7 +12,6 @@ const props = defineProps({
   vendorOptions: { type: Array, default: null }, // [{code, label}] -- null hides the Vendor column entirely
   vendorLabel: { type: Function, default: null }, // (code) => string -- required when vendorOptions is set
   onOpenPo: { type: Function, required: true }, // (poCode) => void
-  isInternalStaff: { type: Boolean, default: false }, // see reconciliation.js -- admin.html passes true explicitly
 });
 
 function invoiceNumber(row) { return row.match_details?.extracted?.invoice_number || "–"; }
@@ -101,7 +100,7 @@ const kpiTiles = computed(() => {
               title="Not printed on the invoice -- estimated as 45 days from the invoice date."
             >*</span>
           </td>
-          <td><ReconciliationChip :row="row" :is-internal-staff="isInternalStaff" /></td>
+          <td><ReconciliationChip :row="row" /></td>
           <td>
             <span class="chip chip-muted" title="Payment status will sync automatically once Oracle integration is built.">
               Pending integration
