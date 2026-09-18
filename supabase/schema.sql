@@ -788,6 +788,28 @@ alter table public.po_invoice_uploads add column if not exists match_details jso
 alter table public.po_invoice_uploads add column if not exists checked_at timestamptz;
 alter table public.po_invoice_uploads add column if not exists uploaded_by_name text;
 
+-- Payment status, synced from Jarvis (Native payment details). Written
+-- ONLY by the sync job via service_role -- deliberately no INSERT/UPDATE
+-- policy for authenticated below, same discipline as purchase_orders/grns:
+-- this is reported state from a system of record, never something a vendor
+-- or an internal user edits by hand in the portal.
+--
+-- payment_status is NULLABLE on purpose, and null is NOT 'pending'. Null
+-- means no payment record has synced for this invoice yet; 'pending' is a
+-- positive statement from Jarvis that it's unpaid. The UI keeps those
+-- visually distinct (see paymentStatusLabel() in frontend/src/format.js) so
+-- an invoice the sync has never seen is never shown as a confirmed unpaid
+-- one. Every row is null until the sync exists, which is exactly how the
+-- dashboard already read before this column was added.
+alter table public.po_invoice_uploads add column if not exists payment_status text
+  check (payment_status is null or payment_status in ('pending', 'paid'));
+alter table public.po_invoice_uploads add column if not exists payment_date date;
+alter table public.po_invoice_uploads add column if not exists payment_ref text;   -- UTR / payment id as Jarvis reports it
+alter table public.po_invoice_uploads add column if not exists payment_synced_at timestamptz;
+
+create index if not exists po_invoice_uploads_payment_status_idx
+  on public.po_invoice_uploads(payment_status);
+
 create index if not exists po_invoice_uploads_po_code_idx on public.po_invoice_uploads(po_code);
 create index if not exists po_invoice_uploads_vendor_code_idx on public.po_invoice_uploads(vendor_code);
 
