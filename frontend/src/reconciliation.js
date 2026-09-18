@@ -5,19 +5,30 @@
 // of a generic "Mismatch found" -- derived from the discrepancy types
 // and the invoice/GRN values check-invoice-match already recorded.
 //
+// isInternalStaff gates that specificity (Kalrav's explicit call: a
+// vendor shouldn't see exactly WHY/BY HOW MUCH their invoice didn't
+// reconcile, only whether it did) -- defaults to false, so a caller must
+// opt in explicitly rather than accidentally leaking it. false collapses
+// straight to "Matches"/"Doesn't match" for the two conclusive outcomes;
+// the in-progress/no-GRN-yet/error states already say nothing about a
+// discrepancy's specifics, so those stay the same either way.
+//
 // Shared between PaymentDashboardTable.vue (display) and
 // usePaymentFilters.js (the Reconciliation filter dropdown), so the
 // label shown and the label matched against can never drift apart.
-export function reconciliationLabel(row) {
+export function reconciliationLabel(row, isInternalStaff = false) {
   const status = row.match_status;
   if (status === "pending") return { text: "Checking…", cls: "muted" };
   if (status === "error") return { text: "Check failed", cls: "critical" };
   if (status === "needs_review") return { text: "Needs review", cls: "open" };
-  if (status === "matched") return { text: "Reconciliation passed", cls: "good" };
+  if (status === "matched") return { text: isInternalStaff ? "Reconciliation passed" : "Matches", cls: "good" };
 
-  // status === "mismatch" -- pick the single most relevant reason. Real
-  // rows very rarely trigger more than one of these at once; when they
-  // do, this priority order picks the one most useful to act on first.
+  // status === "mismatch"
+  if (!isInternalStaff) return { text: "Doesn't match", cls: "critical" };
+
+  // Internal staff: pick the single most relevant reason. Real rows very
+  // rarely trigger more than one of these at once; when they do, this
+  // priority order picks the one most useful to act on first.
   const details = row.match_details || {};
   const types = new Set((details.discrepancies || []).map((d) => d.type));
 

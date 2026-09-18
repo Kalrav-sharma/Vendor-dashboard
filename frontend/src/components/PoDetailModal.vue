@@ -14,6 +14,7 @@ const props = defineProps({
   allowInvoiceUpload: { type: Boolean, default: false }, // true from both vendor.html and admin.html
   uploaderLabel: { type: String, default: "" }, // current user's display name, recorded on an uploaded row
   allowDispatchPlanning: { type: Boolean, default: false }, // true from both vendor.html and admin.html
+  isInternalStaff: { type: Boolean, default: false }, // gates the exact discrepancy reasons -- see reconciliation.js
 });
 
 // Local per-SKU edit state for the two Dispatch Planning fields -- `items`
@@ -205,6 +206,6 @@ async function doSave(item, newDate, newQty, changeAudit) {
   <InvoiceUploads
     :po-code="po.po_code" :vendor-code="po.vendor_code"
     :allow-upload="allowInvoiceUpload" :uploader-label="uploaderLabel"
-    :expected-invoice-count="invoices.length"
+    :expected-invoice-count="invoices.length" :is-internal-staff="isInternalStaff"
   />
 </template>

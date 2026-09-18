@@ -131,7 +131,7 @@ const dispatchPlanningRows = computed(() => [...pendingDispatchRows.value, ...sh
 const { filters: dispatchFilters, filteredSorted: dispatchFilteredSorted } = useDispatchPlanningFilters(dispatchPlanningRows, vendorLabel);
 
 const { allUploads, fetchAllUploads } = useInvoiceUploads();
-const { filters: paymentFilters, filteredSorted: paymentFilteredSorted, reconciliationOptions } = usePaymentFilters(allUploads, vendorLabel);
+const { filters: paymentFilters, filteredSorted: paymentFilteredSorted, reconciliationOptions } = usePaymentFilters(allUploads, vendorLabel, true);
 
 const scopeLine = computed(() => {
   const total = currentPos.value.length;
@@ -153,7 +153,7 @@ function openPoDetailModal(poCode) {
   const invoices = dedupeInvoiceNumbers(grns.map(g => g.vendor_invoice_number));
   openModal("Purchase Order", PoDetailModal, {
     po, items, invoices, vendorLabelText: vendorLabel(po.vendor_code, po.vendor_name),
-    allowInvoiceUpload: true, allowDispatchPlanning: true, uploaderLabel: whoLine.value,
+    allowInvoiceUpload: true, allowDispatchPlanning: true, uploaderLabel: whoLine.value, isInternalStaff: true,
   }, poCode);
 }
 
@@ -289,7 +289,7 @@ async function signOut() {
           <PaymentDashboardTable
             :rows="paymentFilteredSorted" :filters="paymentFilters" :reconciliation-options="reconciliationOptions"
             :vendor-options="vendorOptions" :vendor-label="vendorLabel"
-            :on-open-po="openPoDetailModal"
+            :on-open-po="openPoDetailModal" :is-internal-staff="true"
           />
         </div>
 
