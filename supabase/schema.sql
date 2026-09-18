@@ -2021,3 +2021,40 @@ drop policy if exists last_mile_open_shipments_select on public.last_mile_open_s
 create policy last_mile_open_shipments_select on public.last_mile_open_shipments
   for select using (public.is_internal_staff());
 -- ---------------------------------------------------------------------
+
+-- Real SERVICEABILITYRULES_DP rows, synced from Jarvis query 562880 by
+-- scripts/sync_last_mile_sla_rules.py -- run MANUALLY, by hand, on a
+-- VPN-connected laptop, roughly weekly (rules change rarely, so no
+-- scheduled runner is worth the infrastructure for this one piece).
+-- Jarvis is IP-gated at Cloudflare's edge (confirmed 2026-09-18 -- a
+-- GitHub-hosted runner got Cloudflare's own "Attention Required" block
+-- page, not an auth error), so this table can only ever be refreshed
+-- from VPN-reachable compute; nothing about that changes by running it
+-- by hand instead of on a schedule.
+--
+-- Wholesale replaced each run (delete-then-insert), same convention as
+-- mm_rate_card. Read back by sync_last_mile_daily.py (GitHub-hosted, no
+-- VPN needed for THIS read -- it is a plain Supabase query, not a Jarvis
+-- call) to materialise the local CSV
+-- scripts/last_mile_lib/reference/serviceability_rules_active.csv,
+-- which scripts/last_mile_lib/sla.py's SlaRules() already reads. Until
+-- this table has real rows, that CSV stays header-only and every promise
+-- falls through to ASSUMED -- exactly today's behaviour, unchanged.
+create table if not exists public.last_mile_sla_rules (
+  id bigserial primary key,
+  pincode text,
+  city text,
+  warehouse text,
+  lsp_partner text,
+  slacode text,
+  is_active boolean not null default true,
+  synced_at timestamptz not null default now()
+);
+create index if not exists idx_last_mile_sla_rules_pincode on public.last_mile_sla_rules (pincode);
+create index if not exists idx_last_mile_sla_rules_city on public.last_mile_sla_rules (city);
+
+alter table public.last_mile_sla_rules enable row level security;
+drop policy if exists last_mile_sla_rules_select on public.last_mile_sla_rules;
+create policy last_mile_sla_rules_select on public.last_mile_sla_rules
+  for select using (public.is_internal_staff());
+-- ---------------------------------------------------------------------

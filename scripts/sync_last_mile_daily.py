@@ -307,6 +307,42 @@ def supabase_config():
     return env("SUPABASE_URL").rstrip("/"), env("SUPABASE_SERVICE_ROLE_KEY")
 
 
+def refresh_sla_rules_csv(supabase_url, key):
+    """Pull public.last_mile_sla_rules and overwrite the local CSV
+    scripts/last_mile_lib/sla.py's SlaRules() reads. This is a plain
+    Supabase read -- no VPN needed here, unlike
+    scripts/sync_last_mile_sla_rules.py (the script that actually pulls
+    Jarvis and populates that table, run manually on the VPN).
+
+    If the table is empty (SLA rules have never been synced, or it's been
+    a while since the last manual run), this writes a header-only file,
+    same as the stub it started as -- every promise falls through to
+    ASSUMED, exactly like it did before this existed. Nothing here can
+    make the daily pull fail because SLA rules aren't ready yet.
+    """
+    import csv as csv_mod
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        "last_mile_lib", "reference", "serviceability_rules_active.csv")
+    headers = {"apikey": key, "Authorization": f"Bearer {key}"}
+    rows = []
+    try:
+        r = requests.get(f"{supabase_url}/rest/v1/last_mile_sla_rules",
+                         headers=headers, params={"select": "*"}, timeout=REQUEST_TIMEOUT)
+        if r.ok:
+            rows = r.json()
+    except Exception as e:
+        print(f"WARN: could not read last_mile_sla_rules ({e}) -- using ASSUMED promises.", file=sys.stderr)
+
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        w = csv_mod.writer(f)
+        w.writerow(["PINCODE", "CITY", "WAREHOUSE", "LSPPARTNER", "SLACODE", "ISACTIVE"])
+        for r in rows:
+            w.writerow([r.get("pincode") or "", r.get("city") or "", r.get("warehouse") or "",
+                       r.get("lsp_partner") or "", r.get("slacode") or "",
+                       "true" if r.get("is_active") else "false"])
+    print(f"SLA rules CSV: {len(rows)} row(s) (real rules if >0, ASSUMED fallback if 0).")
+
+
 def upsert_watchlist(supabase_url, key, rows):
     if not rows:
         return
@@ -351,6 +387,8 @@ def main():
         sys.exit(f"{len(failures)} facility export(s) failed -- aborting without writing a partial watchlist.")
 
     print(f"{len(all_rows)} order-item row(s) across {len(facilities)} facilities.")
+    supabase_url, key = supabase_config()
+    refresh_sla_rules_csv(supabase_url, key)
     # NOT named `watchlist` -- that shadows the imported last_mile_lib.watchlist
     # module, which build_watchlist_rows() itself still needs to call.
     watchlist_rows = build_watchlist_rows(all_rows)
@@ -368,7 +406,6 @@ def main():
         print("[dry-run] nothing written.")
         return
 
-    supabase_url, key = supabase_config()
     upsert_watchlist(supabase_url, key, watchlist_rows)
     print(f"Upserted {len(watchlist_rows)} row(s) into last_mile_watchlist.")
 

@@ -1,34 +1,28 @@
 # Implementation tasks — Kalrav
 
-Pull `main` first. Both tasks below need things only you can do: your
-laptop (the one machine confirmed reachable on UC's VPN) and your GitHub
-repo settings.
+Pull `main` first.
 
 ---
 
-## Task 1 — Confirm the VPN runner (2 minutes, do this first)
+## Task 1 — SLA rules: done, but manually, not via your runner
 
-**Open: `https://github.com/Kalrav-sharma/Vendor-dashboard/settings/actions/runners`**
+**Status: built and live as of 2026-09-19.** The design below described a
+scheduled self-hosted-runner workflow (`sync-last-mile-sla.yml`) for
+pulling real `SERVICEABILITYRULES_DP` rules. That workflow was never
+built. Instead, since these rules change rarely (roughly weekly), Praneeth
+is running the pull **by hand, from his own laptop, on the VPN** — no
+runner, no schedule, no infrastructure. Everything downstream (the table,
+the script, the daily job's CSV materialisation) is real and pushed.
 
-You're checking whether the self-hosted runner from the earlier
-Jarvis invoice-status effort is still alive. That effort's *workflow*
-was deleted when you abandoned it (`cdd935b`), but the *runner
-registration* on your laptop is a separate thing — deleting a workflow
-file doesn't un-register a runner.
-
-- **A runner is listed and shows "Idle" (green)** → it's alive. Skip
-  straight to Task 2, step 2 — no install needed, just add the two
-  `runs-on` labels it already has to Task 2's new workflow.
-- **Nothing is listed, or it's greyed out/offline** → it's gone. Task 2,
-  step 1 below is the same install you did before: Settings → Actions →
-  Runners → New self-hosted runner → Windows, add the label `vpn`, run as
-  a service. Takes about 5 minutes.
-
-Either way, come back here once you know.
+**What this means for you: nothing to build here.** If you're curious how
+it works day to day, or want to move it to a schedule later, the original
+design write-up is kept below for reference — but the self-hosted-runner
+check that used to be "Task 1" is only relevant if you decide you want
+this automated instead of manual. It isn't blocking anything right now.
 
 ---
 
-## Task 2 — Wire the real SLA rules into Last Mile Tracking (build this completely and push)
+## Reference — the original automated design (not built; kept for context)
 
 ### Why this exists
 
@@ -383,40 +377,17 @@ In short: `supabase_url, key = supabase_config()` moves from just before
 `refresh_sla_rules_csv(supabase_url, key)` gets called right after the
 move, once, before the collapse.
 
-### Verify, then make it live
+### What actually happened instead (real, as of 2026-09-19)
 
-1. **Run the SLA sync by hand first**, on the VPN:
-   ```bash
-   python scripts/sync_last_mile_sla_rules.py --dry-run
-   ```
-   Check the active/inactive counts look sane before dropping `--dry-run`.
+No `sync-last-mile-sla.yml` workflow exists. `scripts/sync_last_mile_sla_rules.py`
+is run by hand, on the VPN, whenever someone remembers to (roughly
+weekly). Steps 1, 3 and 4 (the table, the script, the daily job's CSV
+step) are exactly as designed above and are live. Step 2 (the scheduled
+workflow) was skipped — the manual run replaces it.
 
-2. **Trigger it for real** via `workflow_dispatch` on
-   `sync-last-mile-sla.yml`, confirm `last_mile_sla_rules` has rows:
-   ```sql
-   select count(*), count(*) filter (where is_active) from public.last_mile_sla_rules;
-   ```
-
-3. **Trigger the daily last-mile pull** (`sync-last-mile.yml`,
-   `leg=daily`) and check its log for the new
-   `SLA rules CSV: N row(s)` line — `N` should be > 0, not the old
-   header-only 0.
-
-4. **Trigger the hourly leg** and check a few `last_mile_alerts` rows:
-   `promise_source` should now read `RULES` for lanes that have a real
-   rule, not `ASSUMED` for everything.
-
-5. **Open the Last Mile Tracking page.** Worst Lanes should start
-   populating over the next few hourly cycles as graded (delivered)
-   volume accumulates against real promises — it won't fill in
-   instantly, since it needs shipments to actually complete their
-   lifecycle first.
-
-**If all four steps check out, this is done — no separate "make it
-live" step, since both workflows are already on their schedules the
-moment they're pushed.** Just confirm the schedule is what you want
-(SLA sync at 09:00 IST, 40 minutes ahead of the 09:40 IST daily pull)
-and leave both running.
+If you ever want this on a schedule instead of manual, Task 1's original
+runner-check plus Step 2's workflow YAML above is the whole remaining
+gap — nothing else changes.
 
 ### One thing to decide, not build
 
