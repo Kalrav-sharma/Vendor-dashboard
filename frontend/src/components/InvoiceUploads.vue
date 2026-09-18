@@ -12,8 +12,7 @@ const props = defineProps({
   allowUpload: { type: Boolean, default: false }, // true from both vendor.html and admin.html
   uploaderLabel: { type: String, default: "" }, // current user's display name, recorded on the uploaded row
   expectedInvoiceCount: { type: Number, default: 0 }, // distinct invoice numbers on this PO's GRNs
-  isInternalStaff: { type: Boolean, default: false }, // gates the exact discrepancy reasons -- see reconciliation.js
-  canRecheck: { type: Boolean, default: false }, // Admin/Management only -- narrower than isInternalStaff (excludes Operations/Finance too)
+  canViewMatchDetails: { type: Boolean, default: false }, // admin/management only -- Kalrav's explicit call; vendor still sees the invoice copy itself, just not the OCR match summary/discrepancies/Re-check
 });
 
 const {
@@ -31,16 +30,6 @@ const pendingCount = computed(() => Math.max(0, props.expectedInvoiceCount - row
 
 function isChecking(id) { return workingIds.has(`check:${id}`); }
 function toggleDetails(id) { expandedId.value = expandedId.value === id ? null : id; }
-
-// The full match_summary ("3 discrepancies found.") and the itemized
-// breakdown are internal-only (Kalrav's explicit call) -- a vendor sees
-// only that it didn't match, never why or by how much. Every OTHER
-// status's summary (matched/pending/needs_review/error) already says
-// nothing about a discrepancy's specifics, so those pass through as-is.
-function summaryFor(row) {
-  if (!props.isInternalStaff && row.match_status === "mismatch") return "Doesn't match -- please check with the UC team.";
-  return row.match_summary || (isChecking(row.id) ? "Checking…" : "Not yet checked.");
-}
 
 onMounted(() => fetchInvoices(props.poCode));
 
@@ -94,22 +83,23 @@ function fmtSize(bytes) {
             {{ workingIds.has(row.id) ? "Removing…" : "Remove" }}
           </button>
         </div>
-        <div class="invoice-match-row">
-          <span>{{ summaryFor(row) }}</span>
-          <button
-            v-if="isInternalStaff && row.match_details?.discrepancies?.length"
-            class="link-btn-inline" @click="toggleDetails(row.id)"
-          >
-            {{ expandedId === row.id ? "Hide details" : "View details" }}
-          </button>
-          <button v-if="canRecheck" class="link-btn-inline" :disabled="isChecking(row.id)" @click="handleRecheck(row)">
-            {{ isChecking(row.id) ? "Checking…" : "Re-check" }}
-          </button>
-          <span v-else-if="isChecking(row.id)">Checking…</span>
-        </div>
-        <ul v-if="isInternalStaff && expandedId === row.id && row.match_details?.discrepancies?.length" class="invoice-match-discrepancies">
-          <li v-for="(d, i) in row.match_details.discrepancies" :key="i">{{ d.detail }}</li>
-        </ul>
+        <template v-if="canViewMatchDetails">
+          <div class="invoice-match-row">
+            <span>{{ row.match_summary || (isChecking(row.id) ? "Checking…" : "Not yet checked.") }}</span>
+            <button
+              v-if="row.match_details?.discrepancies?.length"
+              class="link-btn-inline" @click="toggleDetails(row.id)"
+            >
+              {{ expandedId === row.id ? "Hide details" : "View details" }}
+            </button>
+            <button class="link-btn-inline" :disabled="isChecking(row.id)" @click="handleRecheck(row)">
+              {{ isChecking(row.id) ? "Checking…" : "Re-check" }}
+            </button>
+          </div>
+          <ul v-if="expandedId === row.id && row.match_details?.discrepancies?.length" class="invoice-match-discrepancies">
+            <li v-for="(d, i) in row.match_details.discrepancies" :key="i">{{ d.detail }}</li>
+          </ul>
+        </template>
       </li>
     </ul>
 

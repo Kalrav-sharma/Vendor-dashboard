@@ -4,15 +4,11 @@
 // resolveVendorLabel is optional -- pass it (admin.html) to enable the
 // Vendor column/filter; omit it (vendor.html, already scoped to one
 // vendor) and vendor filtering/fields are simply not part of the mix.
-//
-// isInternalStaff controls how specific the reconciliation label (and
-// therefore the filter dropdown built from it) gets -- see
-// reconciliation.js. Defaults false; admin.html passes true explicitly.
 import { reactive, computed } from "vue";
 import { fmtMoney, fmtDateOnly, invoiceStatusLabel } from "../format.js";
 import { reconciliationLabel } from "../reconciliation.js";
 
-export function usePaymentFilters(rows, resolveVendorLabel, isInternalStaff = false) {
+export function usePaymentFilters(rows, resolveVendorLabel) {
   const filters = reactive({
     search: "", vendor: "", poCode: "", invoiceNumber: "",
     invoiceValue: "", grnValue: "", dueDate: "", reconciliation: "", invoiceStatus: "",
@@ -26,7 +22,7 @@ export function usePaymentFilters(rows, resolveVendorLabel, isInternalStaff = fa
       invoiceValue: fmtMoney(row.match_details?.invoice_value ?? null),
       grnValue: fmtMoney(row.match_details?.grn_value ?? null),
       dueDate: fmtDateOnly(row.match_details?.invoice_due_date || null),
-      reconciliation: reconciliationLabel(row, isInternalStaff).text,
+      reconciliation: reconciliationLabel(row).text,
       invoiceStatus: invoiceStatusLabel(row.oracle_status),
     };
   }
@@ -50,7 +46,7 @@ export function usePaymentFilters(rows, resolveVendorLabel, isInternalStaff = fa
   const filteredSorted = computed(() => rows.value.filter(matches));
 
   const reconciliationOptions = computed(() =>
-    [...new Set(rows.value.map((r) => reconciliationLabel(r, isInternalStaff).text))].sort());
+    [...new Set(rows.value.map((r) => reconciliationLabel(r).text))].sort());
 
   const invoiceStatusOptions = computed(() =>
     [...new Set(rows.value.map((r) => invoiceStatusLabel(r.oracle_status)))].sort());

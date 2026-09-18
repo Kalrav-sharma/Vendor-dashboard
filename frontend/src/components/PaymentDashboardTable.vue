@@ -14,7 +14,6 @@ const props = defineProps({
   vendorOptions: { type: Array, default: null }, // [{code, label}] -- null hides the Vendor column entirely
   vendorLabel: { type: Function, default: null }, // (code) => string -- required when vendorOptions is set
   onOpenPo: { type: Function, required: true }, // (poCode) => void
-  isInternalStaff: { type: Boolean, default: false }, // see reconciliation.js -- admin.html passes true explicitly
 });
 
 function invoiceNumber(row) { return row.match_details?.extracted?.invoice_number || "–"; }
@@ -23,7 +22,7 @@ function grnValue(row) { return row.match_details?.grn_value ?? null; }
 function dueDate(row) { return row.match_details?.invoice_due_date || null; }
 function dueDateEstimated(row) { return !!row.match_details?.invoice_due_date_estimated; }
 
-// Date-only comparison -- an invoice due today isn't overdue yet.
+// Date-only comparison -- an invoice due today isn't overdue yet. An
 const todayStart = new Date(new Date().toDateString());
 function isOverdue(row) {
   const due = dueDate(row);
@@ -112,7 +111,7 @@ const kpiTiles = computed(() => {
               title="Not printed on the invoice -- estimated as 45 days from the invoice date."
             >*</span>
           </td>
-          <td><ReconciliationChip :row="row" :is-internal-staff="isInternalStaff" /></td>
+          <td><ReconciliationChip :row="row" /></td>
           <td><InvoiceStatusChip :status="row.oracle_status" /></td>
         </tr>
       </tbody>

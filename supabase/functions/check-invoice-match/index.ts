@@ -95,22 +95,6 @@ Deno.serve(async (req) => {
       return json({ error: "Invoice upload not found or not accessible" }, 404);
     }
 
-    // A RE-check (this upload has already been checked once) is
-    // Admin/Management only -- Kalrav's explicit call, so a vendor (or
-    // Operations/Finance) can't keep re-running the AI check hoping for a
-    // different result. The very FIRST check, fired automatically right
-    // after any upload (see uploadInvoice() in useInvoiceUploads.js), is
-    // NOT gated here -- it's indistinguishable at the API level from a
-    // manual re-check except by whether checked_at is already set, which
-    // is exactly what this branches on.
-    if (upload.checked_at) {
-      const { data: callerProfile } = await callerClient
-        .from("profiles").select("role").eq("id", user.id).single();
-      if (!callerProfile || !["admin", "management"].includes(callerProfile.role)) {
-        return json({ error: "Only Admin/Management can re-run this check." }, 403);
-      }
-    }
-
     // Everything from here on needs service_role: downloading the
     // private file, and reading the PO/grns/grn_items regardless of
     // whose vendor_code they belong to (already authorized above).
