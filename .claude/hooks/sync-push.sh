@@ -71,8 +71,18 @@ if ! git merge origin/main --no-edit --quiet >/dev/null 2>&1; then
       exit 0
     fi
   else
+    # Roll back so the next session starts from a clean tree. The abort can
+    # itself fail (it did, 2026-09-18, leaving the repo mid-merge with the
+    # failure swallowed by 2>/dev/null) -- so verify it actually worked and
+    # say so loudly if it didn't, rather than reporting a tidy "not pushed"
+    # over a repo that is in fact wedged.
     git merge --abort 2>/dev/null
-    emit "Merge conflict outside docs/ -- committed locally, NOT pushed. Resolve by hand: $(printf '%s' "$CONFLICTS" | tr '\n' ' ')"
+    FILES="$(printf '%s' "$CONFLICTS" | tr '\n' ' ')"
+    if git rev-parse --verify MERGE_HEAD >/dev/null 2>&1; then
+      emit "CONFLICT outside docs/ AND the automatic abort FAILED -- repo is mid-merge and needs hands-on resolution now: $FILES"
+    else
+      emit "Merge conflict outside docs/ -- committed locally, NOT pushed, merge rolled back. Resolve by hand: $FILES"
+    fi
     exit 0
   fi
 fi
