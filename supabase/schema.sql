@@ -1703,9 +1703,19 @@ create policy last_mile_watchlist_select on public.last_mile_watchlist
 -- polled every hour forever; keep it and a shipment already confirmed
 -- delivered, or not yet due for its next check, is skipped outright.
 -- Written only by sync_last_mile_hourly.py.
+-- next_poll_at is NULLABLE ON PURPOSE: PollState.record() (tiering.py) sets
+-- it to None -- not a placeholder time -- for a return "settled on sight"
+-- or a delivery that has just received its confirmation re-poll, meaning
+-- "never poll this again," not "poll again now." A not-null default of
+-- now() would be actively wrong here: it would schedule an immediate
+-- re-poll for exactly the shipments the tiering logic just decided are
+-- done. Found live 2026-09-18: the first real hourly run failed this
+-- constraint on its very last write, after every rollup table (run,
+-- coverage, dq_summary, lsp_perf, worst_lanes, alerts) had already
+-- written successfully.
 create table if not exists public.last_mile_poll_state (
   awb text primary key references public.last_mile_watchlist(awb) on delete cascade,
-  next_poll_at timestamptz not null default now(),
+  next_poll_at timestamptz,
   terminal boolean not null default false,     -- delivered/RTO/lost -- never re-poll
   confirmed boolean not null default false,    -- an LSP call actually returned a result
   last_status text,
@@ -1714,6 +1724,13 @@ create table if not exists public.last_mile_poll_state (
   consecutive_failures int not null default 0,
   updated_at timestamptz not null default now()
 );
+-- last_mile_poll_state already existed with next_poll_at declared NOT NULL
+-- -- "create table if not exists" above won't retroactively relax that on
+-- an already-deployed database; this does, and is a no-op if already
+-- relaxed.
+alter table public.last_mile_poll_state alter column next_poll_at drop not null;
+alter table public.last_mile_poll_state alter column next_poll_at drop default;
+
 create index if not exists idx_last_mile_poll_state_due
   on public.last_mile_poll_state (next_poll_at) where not terminal;
 
