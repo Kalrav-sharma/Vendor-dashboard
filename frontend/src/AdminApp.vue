@@ -296,6 +296,7 @@ async function signOut() {
             :vendor-options="vendorOptions" :vendor-label="vendorLabel"
             :on-open-po="openPoDetailModal"
             :allow-confirm-dispatch="true" :on-dispatched="refreshPos" :on-manual-dispatch="openManualDispatchModal"
+            :changed-by-label="whoLine"
           />
         </div>
 
