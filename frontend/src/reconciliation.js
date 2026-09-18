@@ -23,6 +23,12 @@ export function reconciliationLabel(row) {
 
   if (types.has("po_number_mismatch")) return { text: "PO mismatch", cls: "critical" };
   if (types.has("invoice_number_no_grn_match")) return { text: "Invoice number mismatch", cls: "critical" };
+  // Checked BEFORE the GRN mismatch below on purpose: an invoice that
+  // exceeds what was ever ordered on the PO is the more fundamental
+  // problem -- GRN received qty can never exceed the PO's ordered qty,
+  // so this case would otherwise always also trip grn_qty_mismatch and
+  // get mislabeled "Short GRN", masking the real issue.
+  if (types.has("qty_exceeds_po") || types.has("value_exceeds_po")) return { text: "Exceeds PO", cls: "critical" };
   if (types.has("grn_value_mismatch") || types.has("grn_qty_mismatch")) {
     const invoiceValue = details.invoice_value;
     const grnValue = details.grn_value;
@@ -31,6 +37,5 @@ export function reconciliationLabel(row) {
     }
     return { text: "GRN mismatch", cls: "critical" };
   }
-  if (types.has("qty_exceeds_po") || types.has("value_exceeds_po")) return { text: "Exceeds PO", cls: "critical" };
   return { text: "Mismatch found", cls: "critical" };
 }
