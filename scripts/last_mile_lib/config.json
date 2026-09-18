@@ -1,0 +1,88 @@
+{
+ "_comment": [
+  "Non-secret configuration. Secrets live in .env only.",
+  "This tracker runs ENTIRELY on this machine. There is no cloud routine, no",
+  "git remote and no artifact board -- all three were removed 2026-09-11.",
+  "portal_url is the STABLE team link on the UC reports portal (VPN-only).",
+  "publish.cmd REPLACES that URL in place every run, so the link never changes.",
+  "Reads require UC VPN: off-VPN viewers get 403."
+ ],
+ "scope": {
+  "channels": [
+   "CUSTOM_UC_APP",
+   "CUSTOM_UC_D2C_RO",
+   "CUSTOM_UC_MANUAL",
+   "CUSTOM_UC_D2C_STORES"
+  ],
+  "pull_window_days": 45,
+  "live_dispatch_horizon_days": 15,
+  "backlog_horizon_days": 60,
+  "performance_window_days": 15
+ },
+ "sla": {
+  "assumed_days": 6,
+  "ndd_cutoff_hour": 17,
+  "sdd_cutoff_hour": 14
+ },
+ "alert_thresholds": {
+  "stuck_in_transit_hours": 24,
+  "stuck_out_for_delivery_hours": 12,
+  "no_pickup_hours": 12,
+  "at_risk_within_days": 1,
+  "awb_not_found_escalate_hours": 48
+ },
+ "polling": {
+  "global_concurrency": 12,
+  "run_wall_clock_minutes": 20,
+  "tiers": {
+   "urgent_minutes": 60,
+   "active_hours": 3,
+   "early_hours": 12,
+   "stale_hours": 24
+  }
+ },
+ "uniware": {
+  "base_url": "https://urbanclap.unicommerce.com",
+  "client_id": "my-trusted-client",
+  "facility_concurrency": 6
+ },
+ "portal_url": "https://uc-claude-reports.s3.ap-southeast-1.amazonaws.com/sudhaganikumar.int@urbancompany.com/2026-09-08_1125/shipment-watch.html",
+ "excluded_adapters": {
+  "_comment": [
+   "Adapters whose volume NEVER enters the dashboard -- user decision",
+   "2026-09-09: 'dont track Not trackable (SELF), Porter and Unknown",
+   "(Easy_GO, Ripplr), they should never enter the dashboard'.",
+   "Shipments resolving to one of these are cohorted 'excluded' at intake, so",
+   "they are absent from alerts, carrier scorecards, worst lanes and every",
+   "queue -- not merely flagged. They survive as ONE reconciling figure in the",
+   "coverage funnel, because a funnel that does not account for its own input",
+   "would let the board claim coverage of a shrunken denominator.",
+   "DTDC is deliberately NOT here: its volume is real and its performance is",
+   "still measurable from Uniware's own tracking columns."
+  ],
+  "adapters": [
+   "not_trackable",
+   "porter",
+   "unknown"
+  ]
+ },
+ "live_polled_adapters": {
+  "_comment": [
+   "Carriers we poll directly, so Uniware's own tracking columns must",
+   "NEVER supply their status -- measured 2026-09-14: of 25 Blue Dart",
+   "AWBs whose board status came from Uniware, 22 were already DELIVERED",
+   "at the carrier and none agreed. A shipment in this list with no",
+   "successful poll shows as 'not checked with carrier', not as a stale",
+   "Uniware value.",
+   "Shadowfax and Delhivery are deliberately NOT here: with no API token",
+   "they cannot be polled, so Uniware is all there is. Those rows keep",
+   "their status but are flagged UNVERIFIED on the board and in the CSV.",
+   "Add a carrier here as soon as it has working live tracking."
+  ],
+  "adapters": [
+   "dtdc",
+   "bluedart",
+   "delhivery"
+  ]
+ }
+}

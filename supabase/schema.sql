@@ -1610,17 +1610,108 @@ create policy sop_first_mile_missed_po_select on public.sop_first_mile_missed_po
 -- ("Shipment Watch") that already covers 5 LSPs (Blue Dart, Delhivery,
 -- DTDC, Holisol, Shadowfax) across Native's D2C/UC-App channels.
 --
--- Written by scripts/sync_last_mile.py (daily Uniware pull + hourly
--- courier re-poll -- see that script for the full pipeline). All six
--- tables below are one sync run's output, replaced/upserted wholesale
--- each run -- there is no user-facing write path, same discipline as
--- every other sop_* table.
+-- Written by two scripts (daily Uniware pull + hourly courier re-poll --
+-- see each script for its own pipeline):
+--   scripts/sync_last_mile_daily.py  -- pulls Sale Orders from Uniware,
+--     collapses order-items to shipments, writes last_mile_watchlist
+--   scripts/sync_last_mile_hourly.py -- re-polls each open shipment's
+--     courier, updates last_mile_poll_state, computes the six rollup
+--     tables below
+--
+-- The two tables immediately following (watchlist, poll_state) are
+-- DURABLE STATE the pipeline reads AND writes across runs -- the daily
+-- job populates watchlist, the hourly job updates poll_state on every
+-- run, and both are read back on the next run. This is a deliberate
+-- rebuild: a prior version of this pipeline (github.com's own Actions
+-- environment has no persistent disk) kept this same state in Claude's
+-- artifact database via a read-shard/run/write-shard dance purely
+-- because it had nowhere else to put it. This portal already has
+-- Postgres, so that whole workaround is gone -- these two tables ARE
+-- the durable store now, exactly like every other stateful sync here
+-- (see is_settled() in sync_to_supabase.py for the same pattern).
+--
+-- The six tables AFTER those two are one hourly run's rollup OUTPUT,
+-- replaced/upserted wholesale each run -- there is no user-facing write
+-- path on those, same discipline as every other sop_* table.
 --
 -- Internal-staff only (admin/management/operations, same gate as S&OP):
 -- this is UC's own delivery operations data, not something a vendor
 -- (who only supplies TO Uniware, not to the end customer) has any
 -- reason to see.
 -- =======================================================================
+
+-- Watchlist: one row per SHIPMENT (an AWB), not per order-item -- a single
+-- AWB carries several order items (measured 5.4x on real Native volume),
+-- so tracking at item grain would multiply every courier call by five and
+-- make "how many shipments are late" impossible to answer. Rebuilt whole
+-- by sync_last_mile_daily.py's Sale Orders pull -- upserted on (awb), so
+-- a shipment already on file keeps its poll_state history across rebuilds.
+--
+-- cohort is bookkeeping for the hourly job's own poll scheduling, not
+-- shown directly in the UI: 'live' (dispatched recently, poll normally),
+-- 'backlog' (dispatched a while ago, still open), 'no_dispatch_date'
+-- (Uniware has no dispatch date yet), 'closed' (delivered/cancelled --
+-- excluded from polling but kept on file for the run's coverage counts).
+create table if not exists public.last_mile_watchlist (
+  awb text primary key,
+  courier_code text not null,
+  adapter_id text not null,       -- bluedart | delhivery | dtdc | shadowfax | holisol | unmapped
+  sale_order_codes text[] not null default '{}',
+  sale_order_item_codes text[] not null default '{}',
+  item_count int not null default 0,
+  channel text,
+  payment_type text,              -- COD | Prepaid | '' when the export predates the column
+  facility_code text,
+  city text,
+  pincode text,
+  shipping_provider text,
+  created_at_uniware timestamptz,
+  dispatch_date date,
+  delivery_time timestamptz,
+  item_status text,               -- Sale Order Item Status, e.g. DISPATCHED | DELIVERED | CANCELLED
+  uniware_tracking_status text,   -- Uniware's own 89-value LSP-state enum
+  uniware_courier_status text,    -- the raw per-carrier string behind it
+  package_status_code text,
+  promised_date date,
+  promise_days int,
+  promise_source text,            -- RULES | ASSUMED -- see awb_tracker/watchlist.py's SLA lookup
+  promise_slacode text,
+  cohort text,                    -- live | backlog | no_dispatch_date | closed
+  needs_lsp_poll boolean not null default true,
+  awb_pattern_ok boolean,
+  last_pulled_at timestamptz not null default now()
+);
+create index if not exists idx_last_mile_watchlist_cohort on public.last_mile_watchlist (cohort);
+create index if not exists idx_last_mile_watchlist_needs_poll on public.last_mile_watchlist (needs_lsp_poll) where needs_lsp_poll;
+
+alter table public.last_mile_watchlist enable row level security;
+drop policy if exists last_mile_watchlist_select on public.last_mile_watchlist;
+create policy last_mile_watchlist_select on public.last_mile_watchlist
+  for select using (public.is_internal_staff());
+
+-- Poll state: next_poll_at / terminal / confirmed per AWB -- the tiering
+-- memory that makes the hourly job cheap. Lose this and every AWB gets
+-- polled every hour forever; keep it and a shipment already confirmed
+-- delivered, or not yet due for its next check, is skipped outright.
+-- Written only by sync_last_mile_hourly.py.
+create table if not exists public.last_mile_poll_state (
+  awb text primary key references public.last_mile_watchlist(awb) on delete cascade,
+  next_poll_at timestamptz not null default now(),
+  terminal boolean not null default false,     -- delivered/RTO/lost -- never re-poll
+  confirmed boolean not null default false,    -- an LSP call actually returned a result
+  last_status text,
+  last_polled_at timestamptz,
+  poll_count int not null default 0,
+  consecutive_failures int not null default 0,
+  updated_at timestamptz not null default now()
+);
+create index if not exists idx_last_mile_poll_state_due
+  on public.last_mile_poll_state (next_poll_at) where not terminal;
+
+alter table public.last_mile_poll_state enable row level security;
+drop policy if exists last_mile_poll_state_select on public.last_mile_poll_state;
+create policy last_mile_poll_state_select on public.last_mile_poll_state
+  for select using (public.is_internal_staff());
 
 -- One row per sync run -- run metadata, scope, and the headline counts
 -- the page's KPI tiles read. The frontend always wants the latest, so it
@@ -1721,21 +1812,34 @@ drop policy if exists last_mile_lsp_perf_select on public.last_mile_lsp_perf;
 create policy last_mile_lsp_perf_select on public.last_mile_lsp_perf
   for select using (public.is_internal_staff());
 
--- Worst lanes: one row per (pincode, lsp, facility) combination whose
--- volume clears min_volume, worst on-time% first -- where Operations
--- should look first, not every lane in the network.
+-- Worst lanes: one row per (LSP x city) lane whose GRADED volume clears
+-- the sync's minimum, worst on-time% first -- where Operations should
+-- look first, not every lane in the network.
+--
+-- Grain is LSP x CITY, not pincode: performance.worst_lanes() aggregates
+-- at 'lsp_city' because a single pincode rarely carries enough graded
+-- volume to say anything defensible about a carrier. There is deliberately
+-- no pincode or facility column here -- they do not exist at this grain,
+-- and columns that are always null invite false confidence.
+--
+-- "graded" is the denominator that matters: shipments with a real promise
+-- date that have actually resolved on-time or late. It is NOT the raw
+-- shipment count -- anything still in flight, or carrying only an ASSUMED
+-- promise, cannot be graded and is excluded (see excluded_assumed_promise).
 create table if not exists public.last_mile_worst_lanes (
   id bigserial primary key,
   run_id text not null references public.last_mile_run(run_id) on delete cascade,
-  pincode text,
-  city text,
-  facility_code text,
   lsp text not null,
-  volume int not null default 0,
-  delivered int not null default 0,
-  on_time int not null default 0,
+  city text,
+  graded int not null default 0,        -- on_time + late, the gradeable population
+  late int not null default 0,
   on_time_pct numeric,
-  avg_days_late numeric,
+  avg_transit_days numeric,
+  p85_transit_days numeric,             -- the tail, which an average hides
+  active int not null default 0,        -- still in flight on this lane
+  breached int not null default 0,
+  rto_in_flight int not null default 0,
+  excluded_assumed_promise int not null default 0,
   synced_at timestamptz not null default now()
 );
 create index if not exists idx_last_mile_worst_lanes_run on public.last_mile_worst_lanes (run_id);
@@ -1764,7 +1868,7 @@ create table if not exists public.last_mile_alerts (
   flags text[] not null default '{}',
   primary_flag text not null,
   bucket text not null check (bucket in ('rescue', 'closed_failure', 'data_quality')),
-  severity text,
+  severity int,
   lsp text,
   courier_code text,
   facility_code text,
