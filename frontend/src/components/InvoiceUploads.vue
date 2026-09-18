@@ -12,6 +12,7 @@ const props = defineProps({
   allowUpload: { type: Boolean, default: false }, // true from both vendor.html and admin.html
   uploaderLabel: { type: String, default: "" }, // current user's display name, recorded on the uploaded row
   expectedInvoiceCount: { type: Number, default: 0 }, // distinct invoice numbers on this PO's GRNs
+  canViewMatchDetails: { type: Boolean, default: false }, // admin/management only -- Kalrav's explicit call; vendor still sees the invoice copy itself, just not the OCR match summary/discrepancies/Re-check
 });
 
 const {
@@ -82,21 +83,23 @@ function fmtSize(bytes) {
             {{ workingIds.has(row.id) ? "Removing…" : "Remove" }}
           </button>
         </div>
-        <div class="invoice-match-row">
-          <span>{{ row.match_summary || (isChecking(row.id) ? "Checking…" : "Not yet checked.") }}</span>
-          <button
-            v-if="row.match_details?.discrepancies?.length"
-            class="link-btn-inline" @click="toggleDetails(row.id)"
-          >
-            {{ expandedId === row.id ? "Hide details" : "View details" }}
-          </button>
-          <button class="link-btn-inline" :disabled="isChecking(row.id)" @click="handleRecheck(row)">
-            {{ isChecking(row.id) ? "Checking…" : "Re-check" }}
-          </button>
-        </div>
-        <ul v-if="expandedId === row.id && row.match_details?.discrepancies?.length" class="invoice-match-discrepancies">
-          <li v-for="(d, i) in row.match_details.discrepancies" :key="i">{{ d.detail }}</li>
-        </ul>
+        <template v-if="canViewMatchDetails">
+          <div class="invoice-match-row">
+            <span>{{ row.match_summary || (isChecking(row.id) ? "Checking…" : "Not yet checked.") }}</span>
+            <button
+              v-if="row.match_details?.discrepancies?.length"
+              class="link-btn-inline" @click="toggleDetails(row.id)"
+            >
+              {{ expandedId === row.id ? "Hide details" : "View details" }}
+            </button>
+            <button class="link-btn-inline" :disabled="isChecking(row.id)" @click="handleRecheck(row)">
+              {{ isChecking(row.id) ? "Checking…" : "Re-check" }}
+            </button>
+          </div>
+          <ul v-if="expandedId === row.id && row.match_details?.discrepancies?.length" class="invoice-match-discrepancies">
+            <li v-for="(d, i) in row.match_details.discrepancies" :key="i">{{ d.detail }}</li>
+          </ul>
+        </template>
       </li>
     </ul>
 

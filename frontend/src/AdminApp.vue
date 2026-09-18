@@ -50,6 +50,12 @@ const canSeeManageAccess = computed(() => myRole.value === "admin"); // admin on
 const canSeeRateFinder = computed(() => ["admin", "management", "operations"].includes(myRole.value));
 const canSeeSop = computed(() => ["admin", "management", "operations"].includes(myRole.value));
 
+// Admin/Management only -- Kalrav's explicit call: the OCR match summary,
+// discrepancy details, and Re-check button in a PO's invoice section are
+// hidden from everyone else (vendor, operations, finance). The invoice
+// copy itself (filename, status chip, remove) stays visible to all.
+const canViewInvoiceMatchDetails = computed(() => ["admin", "management"].includes(myRole.value));
+
 // Approved by Kalrav after testing -- now a normal visible tab for
 // admin/management/operations, same as everything else.
 const RATE_FINDER_LIVE = true;
@@ -154,6 +160,7 @@ function openPoDetailModal(poCode) {
   openModal("Purchase Order", PoDetailModal, {
     po, items, invoices, vendorLabelText: vendorLabel(po.vendor_code, po.vendor_name),
     allowInvoiceUpload: true, allowDispatchPlanning: true, uploaderLabel: whoLine.value,
+    canViewInvoiceMatchDetails: canViewInvoiceMatchDetails.value,
   }, poCode);
 }
 
