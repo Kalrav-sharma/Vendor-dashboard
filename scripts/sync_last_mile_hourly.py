@@ -256,6 +256,24 @@ def main():
             flag = "" if (spec and spec.enabled) else "  [DISABLED]"
             print(f"  would poll {len(awbs):>5} via {adapter}{flag}")
     else:
+        # Circuit breaker -- ported PRINCIPLE, not the original mechanism.
+        # awb_tracker/preflight.py guarded against a specific trigger (a
+        # laptop waking from sleep with the VPN not yet back up) that
+        # doesn't apply to an always-on GitHub-hosted runner. But the
+        # DAMAGE it was built to prevent is architecture-independent: a
+        # batch of near-total failures isn't 485 individually-stale
+        # shipments, it's the carrier's API being down -- and recording
+        # each one as a consecutive_failure poisons tiering (backoff up to
+        # 24h) for every one of them, for a problem that had nothing to do
+        # with any single AWB. Measured on the source project: one bad
+        # night left 1,125 poll records sitting at 2 consecutive failures.
+        # So: skip state.record() for a batch that looks like an outage,
+        # not an AWB list. Left untouched, those AWBs are simply due again
+        # next run -- no penalty, no wasted signal.
+        UNHEALTHY_MIN_BATCH = 10   # below this, one bad AWB can't trip it
+        UNHEALTHY_MAX_OK_RATE = 0.20
+        skipped_adapters = []
+
         for adapter, awbs in sorted(grouped.items(), key=lambda kv: -len(kv[1])):
             mod = registry.get_adapter(adapter)
             if mod is None:
@@ -264,9 +282,20 @@ def main():
             got = mod.track(awbs, ctx)
             results.extend(got)
             oks = sum(1 for r in got if r.outcome == FetchOutcome.OK)
-            print(f"  {adapter:<12} polled {len(got):>5} ok={oks:<5} in {time.time() - t0:5.1f}s")
-        for r in results:
-            state.record(r, now=now_ist())
+            ok_rate = oks / len(got) if got else 1.0
+            unhealthy = len(got) >= UNHEALTHY_MIN_BATCH and ok_rate <= UNHEALTHY_MAX_OK_RATE
+            flag = "  [CIRCUIT BREAKER -- state.record() skipped this batch]" if unhealthy else ""
+            print(f"  {adapter:<12} polled {len(got):>5} ok={oks:<5} in {time.time() - t0:5.1f}s{flag}")
+            if unhealthy:
+                skipped_adapters.append(adapter)
+            else:
+                for r in got:
+                    state.record(r, now=now_ist())
+
+        if skipped_adapters:
+            print(f"WARN: {sorted(skipped_adapters)} looked like an outage this run "
+                  f"(<= {UNHEALTHY_MAX_OK_RATE:.0%} ok on >= {UNHEALTHY_MIN_BATCH} AWBs) -- "
+                  f"poll_state left untouched for those shipments, they are simply due again next run.")
 
     polls = {r.awb: r for r in results if r.outcome == FetchOutcome.OK}
 
