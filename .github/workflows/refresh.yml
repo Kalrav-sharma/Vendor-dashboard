@@ -3,7 +3,17 @@ name: Sync Uniware PO/GRN data to Supabase
 on:
   schedule:
     - cron: '*/5 * * * *'
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      force_po_codes:
+        description: >-
+          Space-separated PO code(s) to force-refresh even if already
+          settled, e.g. "PKLU/PO2627/0184" -- for a Uniware edit made AFTER
+          a PO was already fully received/GRN'd (a corrected invoice
+          number, say) that would otherwise never get re-synced. Leave
+          blank for a normal run.
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -24,7 +34,7 @@ jobs:
 
       - run: pip install -r requirements.txt
 
-      - run: python scripts/sync_to_supabase.py
+      - run: python scripts/sync_to_supabase.py --force ${{ github.event.inputs.force_po_codes }}
         env:
           UNIWARE_USERNAME: ${{ secrets.UNIWARE_USERNAME }}
           UNIWARE_PASSWORD: ${{ secrets.UNIWARE_PASSWORD }}

@@ -452,9 +452,22 @@ def upsert_rows(session, supabase_url, key, table, on_conflict, rows):
 # Main
 # ---------------------------------------------------------------------
 
+def parse_force_codes(argv):
+    """--force PO_CODE [PO_CODE ...] -- everything after --force is treated
+    as a PO code to unconditionally re-fetch (detail + GRNs), bypassing
+    is_settled() for just those codes. For the class of edit Uniware allows
+    AFTER a PO/GRN is already settled and normally never gets re-checked
+    again -- e.g. correcting a GRN's vendor invoice number after the fact --
+    which is otherwise invisible to this script forever once terminal."""
+    if "--force" not in argv:
+        return set()
+    return set(argv[argv.index("--force") + 1:])
+
+
 def main():
     supabase_url, supabase_key = supabase_config()
     session = requests.Session()
+    force_codes = parse_force_codes(sys.argv)
 
     vendor_map = fetch_vendor_map(session, supabase_url, supabase_key)
     if not vendor_map:
@@ -502,6 +515,13 @@ def main():
     for code, row in existing.items():
         if not is_settled(row, item_counts, grn_counts):
             codes_to_refresh.setdefault(code, row["facility"])
+
+    for code in force_codes:
+        row = existing.get(code)
+        if not row:
+            print(f"WARN: --force {code} not found in Supabase purchase_orders -- skipping", file=sys.stderr)
+            continue
+        codes_to_refresh[code] = row["facility"]
 
     # 2. Fetch fresh PO detail for all candidates, in parallel. Anything
     #    whose actual vendorCode isn't a known vendor login gets discarded
