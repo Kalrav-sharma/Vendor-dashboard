@@ -13,6 +13,7 @@ const props = defineProps({
   uploaderLabel: { type: String, default: "" }, // current user's display name, recorded on the uploaded row
   expectedInvoiceCount: { type: Number, default: 0 }, // distinct invoice numbers on this PO's GRNs
   isInternalStaff: { type: Boolean, default: false }, // gates the exact discrepancy reasons -- see reconciliation.js
+  canRecheck: { type: Boolean, default: false }, // Admin/Management only -- narrower than isInternalStaff (excludes Operations/Finance too)
 });
 
 const {
@@ -101,9 +102,10 @@ function fmtSize(bytes) {
           >
             {{ expandedId === row.id ? "Hide details" : "View details" }}
           </button>
-          <button class="link-btn-inline" :disabled="isChecking(row.id)" @click="handleRecheck(row)">
+          <button v-if="canRecheck" class="link-btn-inline" :disabled="isChecking(row.id)" @click="handleRecheck(row)">
             {{ isChecking(row.id) ? "Checking…" : "Re-check" }}
           </button>
+          <span v-else-if="isChecking(row.id)">Checking…</span>
         </div>
         <ul v-if="isInternalStaff && expandedId === row.id && row.match_details?.discrepancies?.length" class="invoice-match-discrepancies">
           <li v-for="(d, i) in row.match_details.discrepancies" :key="i">{{ d.detail }}</li>
