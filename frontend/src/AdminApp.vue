@@ -49,6 +49,12 @@ const canSeePaymentDashboard = computed(() => ["admin", "management", "finance"]
 const canSeeManageAccess = computed(() => myRole.value === "admin"); // admin only -- Kalrav's explicit call
 const canSeeRateFinder = computed(() => ["admin", "management", "operations"].includes(myRole.value));
 const canSeeSop = computed(() => ["admin", "management", "operations"].includes(myRole.value));
+// Narrower than "internal staff" -- Kalrav's explicit call: only
+// Admin/Management can re-run the invoice OCR match check (Operations/
+// Finance can still see the result, just not re-trigger it). Enforced
+// server-side too, in check-invoice-match/index.ts -- this only controls
+// whether the button shows.
+const canRecheckInvoice = computed(() => ["admin", "management"].includes(myRole.value));
 
 // Approved by Kalrav after testing -- now a normal visible tab for
 // admin/management/operations, same as everything else.
@@ -153,7 +159,8 @@ function openPoDetailModal(poCode) {
   const invoices = dedupeInvoiceNumbers(grns.map(g => g.vendor_invoice_number));
   openModal("Purchase Order", PoDetailModal, {
     po, items, invoices, vendorLabelText: vendorLabel(po.vendor_code, po.vendor_name),
-    allowInvoiceUpload: true, allowDispatchPlanning: true, uploaderLabel: whoLine.value, isInternalStaff: true,
+    allowInvoiceUpload: true, allowDispatchPlanning: true, uploaderLabel: whoLine.value,
+    isInternalStaff: true, canRecheck: canRecheckInvoice.value,
   }, poCode);
 }
 
