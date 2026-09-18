@@ -60,11 +60,16 @@ const kpiTiles = computed(() => {
 </script>
 
 <template>
-  <SummaryKpis :tiles="kpiTiles" />
+  <!-- Only render KPI tiles once a run exists. With no run the counts are all
+       zero, and a tile reading "0" is indistinguishable from a real measurement
+       of zero -- it must not look like we checked and found nothing wrong. -->
+  <SummaryKpis v-if="run" :tiles="kpiTiles" />
 
   <div v-if="loadError" class="form-error">{{ loadError }}</div>
   <div v-else-if="!run" class="empty-state" style="padding: 40px 0;">
-    No sync has run yet -- Last Mile Tracking has no data on file. See scripts/sync_last_mile.py.
+    No sync has run yet, so there is nothing to show -- these are not measured zeros.
+    The rollup tables are populated by the hourly courier-tracking job, which is not built yet;
+    scripts/sync_last_mile_daily.py currently only builds the shipment watchlist.
   </div>
 
   <template v-else>
