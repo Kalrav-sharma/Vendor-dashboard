@@ -4,14 +4,18 @@
 // resolveVendorLabel is optional -- pass it (admin.html) to enable the
 // Vendor column/filter; omit it (vendor.html, already scoped to one
 // vendor) and vendor filtering/fields are simply not part of the mix.
+//
+// isInternalStaff controls how specific the reconciliation label (and
+// therefore the filter dropdown built from it) gets -- see
+// reconciliation.js. Defaults false; admin.html passes true explicitly.
 import { reactive, computed } from "vue";
-import { fmtMoney, fmtDateOnly, invoiceStatusLabel } from "../format.js";
+import { fmtMoney, fmtDateOnly, paymentStatusLabel } from "../format.js";
 import { reconciliationLabel } from "../reconciliation.js";
 
-export function usePaymentFilters(rows, resolveVendorLabel) {
+export function usePaymentFilters(rows, resolveVendorLabel, isInternalStaff = false) {
   const filters = reactive({
     search: "", vendor: "", poCode: "", invoiceNumber: "",
-    invoiceValue: "", grnValue: "", dueDate: "", reconciliation: "", invoiceStatus: "",
+    invoiceValue: "", grnValue: "", dueDate: "", reconciliation: "", paymentStatus: "",
   });
 
   function rowFields(row) {
@@ -22,8 +26,8 @@ export function usePaymentFilters(rows, resolveVendorLabel) {
       invoiceValue: fmtMoney(row.match_details?.invoice_value ?? null),
       grnValue: fmtMoney(row.match_details?.grn_value ?? null),
       dueDate: fmtDateOnly(row.match_details?.invoice_due_date || null),
-      reconciliation: reconciliationLabel(row).text,
-      invoiceStatus: invoiceStatusLabel(row.oracle_status),
+      reconciliation: reconciliationLabel(row, isInternalStaff).text,
+      paymentStatus: paymentStatusLabel(row.payment_status),
     };
   }
 
@@ -32,7 +36,7 @@ export function usePaymentFilters(rows, resolveVendorLabel) {
     const f = filters;
     if (resolveVendorLabel && f.vendor && row.vendor_code !== f.vendor) return false;
     if (f.reconciliation && fields.reconciliation !== f.reconciliation) return false;
-    if (f.invoiceStatus && fields.invoiceStatus !== f.invoiceStatus) return false;
+    if (f.paymentStatus && fields.paymentStatus !== f.paymentStatus) return false;
     for (const key of ["poCode", "invoiceNumber", "invoiceValue", "grnValue", "dueDate"]) {
       if (f[key] && !fields[key].toLowerCase().includes(f[key].toLowerCase())) return false;
     }
@@ -46,10 +50,10 @@ export function usePaymentFilters(rows, resolveVendorLabel) {
   const filteredSorted = computed(() => rows.value.filter(matches));
 
   const reconciliationOptions = computed(() =>
-    [...new Set(rows.value.map((r) => reconciliationLabel(r).text))].sort());
+    [...new Set(rows.value.map((r) => reconciliationLabel(r, isInternalStaff).text))].sort());
 
-  const invoiceStatusOptions = computed(() =>
-    [...new Set(rows.value.map((r) => invoiceStatusLabel(r.oracle_status)))].sort());
+  const paymentStatusOptions = computed(() =>
+    [...new Set(rows.value.map((r) => paymentStatusLabel(r.payment_status)))].sort());
 
-  return { filters, filteredSorted, reconciliationOptions, invoiceStatusOptions };
+  return { filters, filteredSorted, reconciliationOptions, paymentStatusOptions };
 }

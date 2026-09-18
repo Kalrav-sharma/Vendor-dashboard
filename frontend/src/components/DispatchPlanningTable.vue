@@ -16,6 +16,7 @@ const props = defineProps({
   allowConfirmDispatch: { type: Boolean, default: false }, // true from admin.html (Operations/Management/Admin) only
   onDispatched: { type: Function, default: null }, // () => void -- called after a successful confirm, for an instant refresh
   onManualDispatch: { type: Function, default: null }, // () => void -- opens ManualDispatchModal.vue; omit to hide the button entirely
+  changedByLabel: { type: String, default: "" }, // current user's display name, recorded on a cancelled plan's audit row
 });
 
 // "Dispatched" -- confirm_dispatched() logs the shipment (with its AWB and
@@ -117,6 +118,43 @@ async function handleConfirmDispatch(row) {
   }
   delete awbInputs[key];
   delete courierInputs[key];
+  if (props.onDispatched) await props.onDispatched();
+}
+
+// Cancelling a still-pending plan (never a shipped one -- that has its own
+// AWB/tracking record and isn't touched here) just clears the two estimate
+// columns on po_items, same as any other edit to them -- so the row drops
+// off this table and the PO's detail view shows the SKU as not-yet-planned
+// again, automatically, once poItemsByPo re-fetches. Logged to
+// po_item_dispatch_changes with a required reason, same discipline as
+// PoDetailModal.vue's "change an already-set estimate" flow.
+async function handleCancelPlan(row) {
+  const key = keyFor(row);
+  if (!window.confirm(`Cancel the dispatch plan for ${row.item_sku} on ${row.po_code}? This clears the estimated dispatch date and quantity.`)) return;
+  const reason = (window.prompt("Reason for cancelling this dispatch plan (required):") || "").trim();
+  if (!reason) return;
+
+  workingKey.value = key;
+  rowErrors[key] = "";
+  const { error: updateErr } = await supabase
+    .from("po_items")
+    .update({ estimated_dispatch_date: null, estimated_dispatch_qty: null })
+    .eq("po_code", row.po_code).eq("item_sku", row.item_sku);
+  if (updateErr) {
+    workingKey.value = null;
+    rowErrors[key] = updateErr.message;
+    return;
+  }
+
+  await supabase.from("po_item_dispatch_changes").insert({
+    po_code: row.po_code, item_sku: row.item_sku, vendor_code: row.vendor_code,
+    changed_by: props.changedByLabel || null,
+    old_estimated_dispatch_date: row.estimated_dispatch_date, old_estimated_dispatch_qty: row.estimated_dispatch_qty,
+    new_estimated_dispatch_date: null, new_estimated_dispatch_qty: null,
+    reason: `Plan cancelled: ${reason}`,
+  });
+
+  workingKey.value = null;
   if (props.onDispatched) await props.onDispatched();
 }
 </script>
@@ -230,6 +268,10 @@ async function handleConfirmDispatch(row) {
               <button class="link-btn-inline" :disabled="workingKey === keyFor(row)" @click="handleConfirmDispatch(row)">
                 {{ workingKey === keyFor(row) ? "Working…" : "Dispatched" }}
               </button>
+              <button
+                class="link-btn-inline critical" style="margin-left: 10px;"
+                :disabled="workingKey === keyFor(row)" @click="handleCancelPlan(row)"
+              >Cancel plan</button>
               <div v-if="rowErrors[keyFor(row)]" class="form-error" style="margin: 4px 0 0; font-size: 0.72rem;">{{ rowErrors[keyFor(row)] }}</div>
             </template>
           </td>

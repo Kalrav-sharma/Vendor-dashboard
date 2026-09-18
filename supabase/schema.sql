@@ -788,41 +788,36 @@ alter table public.po_invoice_uploads add column if not exists match_details jso
 alter table public.po_invoice_uploads add column if not exists checked_at timestamptz;
 alter table public.po_invoice_uploads add column if not exists uploaded_by_name text;
 
--- Invoice submission status, synced from Jarvis query 594877's
--- ORACLE_STATUS (see scripts/sync_jarvis_payments.py). Written ONLY by the
--- sync job via service_role -- deliberately no INSERT/UPDATE policy for
--- authenticated below, same discipline as purchase_orders/grns: reported
--- state from a system of record, never hand-edited in the portal.
+-- Payment status, synced from Jarvis (Native payment details). Written
+-- ONLY by the sync job via service_role -- deliberately no INSERT/UPDATE
+-- policy for authenticated below, same discipline as purchase_orders/grns:
+-- this is reported state from a system of record, never something a vendor
+-- or an internal user edits by hand in the portal.
 --
--- READ THIS BEFORE USING IT AS A PAYMENT STATUS -- IT IS NOT ONE.
--- ORACLE_STATUS records whether the invoice RECORD reached Oracle, not
--- whether the vendor was paid. 'pushed' is ~95% of rows the moment an
--- invoice is receipted, long before any money moves. Surfacing it as
--- "Paid" would tell vendors they have been paid when they have not, so
--- the UI labels it "In Oracle" / "Not submitted" / "Submission failed"
--- and the column is named for what it actually is. When a real payments
--- source turns up (Oracle AP: paid date + UTR), that belongs in its own
--- columns alongside these, not folded into them.
---
--- Nullable on purpose: null means the sync has not seen this invoice yet,
--- which the UI shows as "Not synced" rather than asserting anything.
-alter table public.po_invoice_uploads add column if not exists oracle_status text
-  check (oracle_status is null or oracle_status in ('pushed', 'not_attempted', 'failed'));
-alter table public.po_invoice_uploads add column if not exists oracle_failure_remarks text;
-alter table public.po_invoice_uploads add column if not exists oracle_synced_at timestamptz;
+-- payment_status is NULLABLE on purpose, and null is NOT 'pending'. Null
+-- means no payment record has synced for this invoice yet; 'pending' is a
+-- positive statement from Jarvis that it's unpaid. The UI keeps those
+-- visually distinct (see paymentStatusLabel() in frontend/src/format.js) so
+-- an invoice the sync has never seen is never shown as a confirmed unpaid
+-- one. Every row is null until the sync exists, which is exactly how the
+-- dashboard already read before this column was added.
+alter table public.po_invoice_uploads add column if not exists payment_status text
+  check (payment_status is null or payment_status in ('pending', 'paid'));
+alter table public.po_invoice_uploads add column if not exists payment_date date;
+alter table public.po_invoice_uploads add column if not exists payment_ref text;   -- UTR / payment id as Jarvis reports it
+alter table public.po_invoice_uploads add column if not exists payment_synced_at timestamptz;
 
-create index if not exists po_invoice_uploads_oracle_status_idx
-  on public.po_invoice_uploads(oracle_status);
+create index if not exists po_invoice_uploads_payment_status_idx
+  on public.po_invoice_uploads(payment_status);
 
--- Superseded by the oracle_* columns above. These were added for a
--- "payment status" that Jarvis query 594877 turned out not to contain --
--- nothing ever wrote to them, so dropping is a no-op on data. Kept as
+-- Superseded by the payment_* columns above. The Jarvis invoice-status
+-- sync idea (querying ORACLE_STATUS) was tried and then dropped entirely --
+-- nothing writes to these anymore, so dropping is a no-op on data. Kept as
 -- explicit drops rather than deleted from this file so an already-applied
 -- database converges on re-run, per this schema's idempotency contract.
-alter table public.po_invoice_uploads drop column if exists payment_status;
-alter table public.po_invoice_uploads drop column if exists payment_date;
-alter table public.po_invoice_uploads drop column if exists payment_ref;
-alter table public.po_invoice_uploads drop column if exists payment_synced_at;
+alter table public.po_invoice_uploads drop column if exists oracle_status;
+alter table public.po_invoice_uploads drop column if exists oracle_failure_remarks;
+alter table public.po_invoice_uploads drop column if exists oracle_synced_at;
 
 create index if not exists po_invoice_uploads_po_code_idx on public.po_invoice_uploads(po_code);
 create index if not exists po_invoice_uploads_vendor_code_idx on public.po_invoice_uploads(vendor_code);
