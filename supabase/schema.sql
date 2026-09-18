@@ -1676,11 +1676,20 @@ create table if not exists public.last_mile_watchlist (
   promise_days int,
   promise_source text,            -- RULES | ASSUMED -- see awb_tracker/watchlist.py's SLA lookup
   promise_slacode text,
+  days_since_dispatch numeric,    -- calendar days since dispatch_date, as of the daily pull
   cohort text,                    -- live | backlog | no_dispatch_date | closed
   needs_lsp_poll boolean not null default true,
   awb_pattern_ok boolean,
   last_pulled_at timestamptz not null default now()
 );
+-- last_mile_watchlist already existed before days_since_dispatch was added
+-- (found missing 2026-09-18 when the hourly job read every shipment back
+-- with this field silently None, since Shipment.days_since_dispatch had no
+-- matching column) -- "create table if not exists" above won't
+-- retroactively add it on an already-deployed database; this does, and is
+-- a no-op if already there.
+alter table public.last_mile_watchlist add column if not exists days_since_dispatch numeric;
+
 create index if not exists idx_last_mile_watchlist_cohort on public.last_mile_watchlist (cohort);
 create index if not exists idx_last_mile_watchlist_needs_poll on public.last_mile_watchlist (needs_lsp_poll) where needs_lsp_poll;
 
