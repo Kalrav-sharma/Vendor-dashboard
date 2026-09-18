@@ -109,30 +109,34 @@ export function dtdcStatusClass(statusType) {
   return (DTDC_STATUS_META[(statusType || "").toLowerCase()] || [null, "muted"])[1];
 }
 
-// Payment status on a po_invoice_uploads row -- same [label, chip color]
-// pattern as STATUS_META above. Deliberately only two real states: an
-// invoice has either been settled or it hasn't, and nothing in between is
-// worth showing a vendor.
+// Invoice submission status, from Jarvis query 594877's ORACLE_STATUS --
+// same [label, chip color] pattern as STATUS_META above.
 //
-// null/undefined is NOT the same as "pending" and must keep its own label:
-// it means no payment record has synced for this invoice yet, whereas
-// "pending" is a positive statement that the source says it's unpaid.
-// Until the sync that populates this column exists, every row is null and
-// the dashboard reads exactly as it did before -- no column is quietly
-// asserting an unpaid status nobody actually confirmed.
-export const PAYMENT_STATUS_META = {
-  pending: ["Pending", "open"],
-  paid: ["Paid", "good"],
+// This is NOT a payment status and must never be labelled as one. Oracle
+// is where UC's payables live, and ORACLE_STATUS says whether the invoice
+// RECORD got pushed there -- which happens within hours of receipting,
+// long before anyone is paid (~95% of all rows are 'pushed'). Calling
+// that "Paid" would tell a vendor their money has gone out when it
+// hasn't. What it DOES tell them is genuinely useful and wasn't visible
+// anywhere before: whether their invoice actually made it into the system
+// that pays them, and if it didn't, that someone needs to fix it.
+//
+// null means the sync hasn't matched this invoice yet -- distinct from
+// every real status, and never dressed up as one.
+export const ORACLE_STATUS_META = {
+  pushed: ["In Oracle", "good"],
+  not_attempted: ["Not submitted", "open"],
+  failed: ["Submission failed", "critical"],
 };
 
-export function paymentStatusLabel(status) {
-  if (!status) return "Pending integration";
-  return (PAYMENT_STATUS_META[status] || [status, "muted"])[0];
+export function invoiceStatusLabel(status) {
+  if (!status) return "Not synced";
+  return (ORACLE_STATUS_META[status] || [status, "muted"])[0];
 }
 
-export function paymentStatusClass(status) {
+export function invoiceStatusClass(status) {
   if (!status) return "muted";
-  return (PAYMENT_STATUS_META[status] || [null, "muted"])[1];
+  return (ORACLE_STATUS_META[status] || [null, "muted"])[1];
 }
 
 export function visiblePos(pos) {

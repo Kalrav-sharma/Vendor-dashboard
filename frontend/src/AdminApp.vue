@@ -137,7 +137,7 @@ const dispatchPlanningRows = computed(() => [...pendingDispatchRows.value, ...sh
 const { filters: dispatchFilters, filteredSorted: dispatchFilteredSorted } = useDispatchPlanningFilters(dispatchPlanningRows, vendorLabel);
 
 const { allUploads, fetchAllUploads } = useInvoiceUploads();
-const { filters: paymentFilters, filteredSorted: paymentFilteredSorted, reconciliationOptions, paymentStatusOptions } = usePaymentFilters(allUploads, vendorLabel, true);
+const { filters: paymentFilters, filteredSorted: paymentFilteredSorted, reconciliationOptions, invoiceStatusOptions } = usePaymentFilters(allUploads, vendorLabel, true);
 
 const scopeLine = computed(() => {
   const total = currentPos.value.length;
@@ -295,7 +295,7 @@ async function signOut() {
         <div v-if="canSeePaymentDashboard" v-show="activeNav === 'payment-dashboard'">
           <PaymentDashboardTable
             :rows="paymentFilteredSorted" :filters="paymentFilters" :reconciliation-options="reconciliationOptions"
-            :payment-status-options="paymentStatusOptions"
+            :invoice-status-options="invoiceStatusOptions"
             :vendor-options="vendorOptions" :vendor-label="vendorLabel"
             :on-open-po="openPoDetailModal" :is-internal-staff="true"
           />
