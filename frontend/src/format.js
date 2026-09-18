@@ -109,7 +109,7 @@ export function dtdcStatusClass(statusType) {
   return (DTDC_STATUS_META[(statusType || "").toLowerCase()] || [null, "muted"])[1];
 }
 
-// Invoice submission status, from Jarvis query 594877's ORACLE_STATUS --
+// Invoice submission status, from Jarvis query 597609's ORACLE_STATUS --
 // same [label, chip color] pattern as STATUS_META above.
 //
 // This is NOT a payment status and must never be labelled as one. Oracle
