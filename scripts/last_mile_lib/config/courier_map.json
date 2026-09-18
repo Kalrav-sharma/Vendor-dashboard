@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "updated": "2026-09-07",
+  "_comment": [
+    "Maps Uniware's `Shipping Courier` value onto an adapter.",
+    "Keys on Shipping Courier, NEVER Shipping provider: DTDC's 15",
+    "DTDC_RAFTAAR_<location> provider variants only collapse to a single",
+    "`DTDC` value in the Courier column.",
+    "Resolution order is exact -> regex -> longest-matching-prefix, so the",
+    "rule list is order-independent and a future SFX_BOMBAY_ANDHERI or",
+    "BD_SMARTLOCKS_PUN lands correctly with zero edits here.",
+    "An unmatched code resolves to `unknown` and is REPORTED, never dropped."
+  ],
+  "resolution_order": ["exact", "regex", "prefix_longest_first"],
+  "on_unmapped": { "adapter": "unknown", "action": "flag_dq" },
+  "rules": [
+    { "match": "exact",  "value": "SELF",        "adapter": "not_trackable", "reason": "in_house_fleet" },
+    { "match": "exact",  "value": "SELF_PICKUP", "adapter": "not_trackable", "reason": "in_house_fleet" },
+    { "match": "exact",  "value": "",            "adapter": "not_trackable", "reason": "no_courier_assigned" },
+
+    { "match": "prefix", "value": "SFX_",             "adapter": "shadowfax" },
+    { "match": "prefix", "value": "SHADOWFAX",        "adapter": "shadowfax" },
+    { "match": "prefix", "value": "BD_SMARTLOCKS_",   "adapter": "bluedart" },
+    { "match": "prefix", "value": "BLUEDART",         "adapter": "bluedart" },
+    { "match": "prefix", "value": "DELHIVERY",        "adapter": "delhivery" },
+    { "match": "prefix", "value": "HOLISOL",          "adapter": "holisol" },
+    { "match": "exact",  "value": "PORTER",           "adapter": "porter" },
+    { "match": "exact",  "value": "RIPPLR",           "adapter": "unknown", "reason": "b2b_only_no_public_tracking" },
+    { "match": "regex",  "value": "^DTDC(_[A-Z0-9]+)*$", "adapter": "dtdc",
+      "note": "bare DTDC plus any DTDC_RAFTAAR_<location> variant" }
+  ]
+}
