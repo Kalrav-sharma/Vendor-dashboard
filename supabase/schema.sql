@@ -1964,3 +1964,60 @@ drop policy if exists last_mile_alerts_select on public.last_mile_alerts;
 create policy last_mile_alerts_select on public.last_mile_alerts
   for select using (public.is_internal_staff());
 -- ---------------------------------------------------------------------
+
+-- Open shipments: the FULL "not complete, not RTO" population -- every AWB
+-- in cohort (live, backlog, no_dispatch_date), whether or not it currently
+-- trips an alert. last_mile_alerts is a deliberately CURATED subset (only
+-- shipments evaluate() actually flags); this table is the superset it's
+-- drawn from, which is the real entry point into "what does this pipeline
+-- still need to track to completion" -- a shipment moving fine, not yet
+-- overdue, belongs here even though it never becomes an alert.
+--
+-- cohort in (closed, excluded) is the EXIT: those rows simply stop
+-- appearing here on the next run, same as they already stop appearing in
+-- alerts and in coverage_funnel()'s open_ships. That's the whole entry/exit
+-- contract this table makes visible as actual rows instead of only an
+-- aggregate count (performance.coverage_funnel()'s open_total).
+create table if not exists public.last_mile_open_shipments (
+  id bigserial primary key,
+  run_id text not null references public.last_mile_run(run_id) on delete cascade,
+  awb text not null,
+  cohort text not null,           -- live | backlog | no_dispatch_date
+  lsp text,
+  courier_code text,
+  facility_code text,
+  city text,
+  pincode text,
+  channel text,
+  payment_type text,
+  sale_order_codes text[],
+  item_count int,
+  -- Same fused (carrier-poll-aware) status alerts.fuse() computes -- not
+  -- just Uniware's own value -- so a healthy shipment shows the same
+  -- quality of status an alerted one does, not a downgraded view.
+  status text,
+  raw_status text,
+  status_source text,             -- lsp | uniware | none
+  status_at timestamptz,
+  promised_date date,
+  promise_source text,
+  days_overdue numeric,
+  days_since_dispatch numeric,
+  -- Whether THIS shipment also appears in last_mile_alerts this run, and
+  -- with what -- so the UI can highlight the alerted rows inline instead
+  -- of needing a second table join to know which ones already have eyes on them.
+  has_alert boolean not null default false,
+  primary_flag text,
+  bucket text,
+  synced_at timestamptz not null default now(),
+  unique (run_id, awb)
+);
+create index if not exists idx_last_mile_open_shipments_run on public.last_mile_open_shipments (run_id);
+create index if not exists idx_last_mile_open_shipments_cohort on public.last_mile_open_shipments (run_id, cohort);
+create index if not exists idx_last_mile_open_shipments_alert on public.last_mile_open_shipments (run_id, has_alert);
+
+alter table public.last_mile_open_shipments enable row level security;
+drop policy if exists last_mile_open_shipments_select on public.last_mile_open_shipments;
+create policy last_mile_open_shipments_select on public.last_mile_open_shipments
+  for select using (public.is_internal_staff());
+-- ---------------------------------------------------------------------

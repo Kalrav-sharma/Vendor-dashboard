@@ -7,19 +7,25 @@
 // own component backed by the same useLastMileData.js composable
 // (Supabase-polling), fed by scripts/sync_last_mile.py.
 //
-// Alerts is first and the default tab -- it's the actionable queue;
-// everything else here is context for it.
+// Open Shipments is first and the default tab -- the full "not complete,
+// not RTO" entry point (every AWB in cohort live/backlog/no_dispatch_date,
+// alerted or not). Alerts is a deliberately CURATED subset of that same
+// population (only the ones alerts.evaluate() actually flags) -- useful
+// for "what needs action right now", but not a substitute for seeing the
+// whole tracked population, which is the actual point of this page.
 //
 // All sections mount at once (v-show, not v-if) so a background poll
 // keeps running while another sub-tab is showing -- same convention
 // AdminApp.vue itself uses for its top-level nav.
 import { ref } from "vue";
+import LastMileOpenTab from "./LastMileOpenTab.vue";
 import LastMileAlertsTab from "./LastMileAlertsTab.vue";
 import LastMileCarrierTab from "./LastMileCarrierTab.vue";
 import LastMileWorstLanesTab from "./LastMileWorstLanesTab.vue";
 import LastMileCoverageTab from "./LastMileCoverageTab.vue";
 
 const SUBTABS = [
+  { id: "open", label: "Open Shipments" },
   { id: "alerts", label: "Alerts" },
   { id: "carrier", label: "Carrier Performance" },
   { id: "lanes", label: "Worst Lanes" },
@@ -38,6 +44,7 @@ const activeSubTab = ref(SUBTABS[0].id);
     >{{ t.label }}</button>
   </div>
 
+  <div v-show="activeSubTab === 'open'"><LastMileOpenTab /></div>
   <div v-show="activeSubTab === 'alerts'"><LastMileAlertsTab /></div>
   <div v-show="activeSubTab === 'carrier'"><LastMileCarrierTab /></div>
   <div v-show="activeSubTab === 'lanes'"><LastMileWorstLanesTab /></div>

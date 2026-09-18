@@ -78,6 +78,7 @@ from last_mile_lib.dq import DQSink                     # noqa: E402
 from last_mile_lib.lsp import registry                  # noqa: E402
 from last_mile_lib.lsp.base import FetchContext, FetchOutcome, TrackingResult  # noqa: E402
 from last_mile_lib.lsp.http import HttpClient           # noqa: E402
+from last_mile_lib.sla import days_overdue              # noqa: E402
 from last_mile_lib.tiering import PollState             # noqa: E402
 from last_mile_lib.uniware_status import to_canonical   # noqa: E402
 from last_mile_lib.watchlist import Shipment            # noqa: E402
@@ -312,7 +313,32 @@ def main():
         by_bucket[a.bucket] += 1
     open_ships = [s for s in ships if s.cohort in ("live", "backlog", "no_dispatch_date")]
 
-    print(f"alerts {len(al):,} { dict(by_bucket) } | scorecards {len(cards)} | lanes {len(lanes)}")
+    # The full "not complete, not RTO" entry point -- every open shipment,
+    # not just the curated subset evaluate_all() flags. Uses the SAME fused
+    # (carrier-poll-aware) status alerts.fuse() already computed for each of
+    # these, so a healthy shipment shows status of the same quality as an
+    # alerted one, not a downgraded Uniware-only view.
+    alerts_by_awb = {a.awb: a for a in al}
+    open_rows = []
+    for s in open_ships:
+        fused = alerts_mod.fuse(s, polls.get(s.awb), now)
+        alert = alerts_by_awb.get(s.awb)
+        spec = registry.get_spec(s.adapter_id)
+        open_rows.append({
+            "awb": s.awb, "cohort": s.cohort, "lsp": spec.display_name if spec else s.adapter_id,
+            "courier_code": s.courier_code, "facility_code": s.facility_code,
+            "city": s.city, "pincode": s.pincode, "channel": s.channel,
+            "payment_type": s.payment_type, "sale_order_codes": s.sale_order_codes[:5],
+            "item_count": s.item_count, "status": fused.canonical.value, "raw_status": fused.raw,
+            "status_source": fused.source, "status_at": fused.at.isoformat() if fused.at else None,
+            "promised_date": s.promised_date, "promise_source": s.promise_source,
+            "days_overdue": days_overdue(s.promised_date, now),
+            "days_since_dispatch": s.days_since_dispatch,
+            "has_alert": alert is not None, "primary_flag": alert.primary_flag if alert else None,
+            "bucket": alert.bucket if alert else None,
+        })
+
+    print(f"alerts {len(al):,} { dict(by_bucket) } | scorecards {len(cards)} | lanes {len(lanes)} | open {len(open_rows):,}")
 
     if dry_run:
         print("[dry-run] nothing written.")
@@ -403,6 +429,9 @@ def main():
         "attempts": a.attempts, "ndr_reason": a.ndr_reason,
         "notes": "; ".join(a.notes) if a.notes else None,
     } for a in al], on_conflict="run_id,awb")
+
+    sb_write(url, key, "last_mile_open_shipments",
+             [{**r, "run_id": run_id} for r in open_rows], on_conflict="run_id,awb")
 
     # Poll state last: it is the only table whose loss is merely a wasted
     # re-poll next run, so it is the safest thing to leave until the end.
