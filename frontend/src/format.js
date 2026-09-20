@@ -135,8 +135,19 @@ export function paymentStatusClass(status) {
   return (PAYMENT_STATUS_META[status] || [null, "muted"])[1];
 }
 
-export function visiblePos(pos) {
-  return pos.filter(p => !HIDDEN_STATUSES.has(p.status));
+// poCodesWithGrn is optional (existing callers that don't care about the
+// COMPLETE-with-no-GRN rule can omit it and get the old REJECTED/CREATED-
+// only behavior).
+export function visiblePos(pos, poCodesWithGrn) {
+  return pos.filter(p => {
+    if (HIDDEN_STATUSES.has(p.status)) return false;
+    // Uniware marking a PO COMPLETE while it never had a single GRN raised
+    // against it isn't a real fulfilled order -- it reads as a cancelled
+    // invoice, so treat it the same as REJECTED/CREATED above and hide it
+    // everywhere (Kalrav's explicit call).
+    if (p.status === "COMPLETE" && poCodesWithGrn && !poCodesWithGrn.has(p.po_code)) return false;
+    return true;
+  });
 }
 
 // Uniware can carry the same invoice number on more than one GRN record

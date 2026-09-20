@@ -31,7 +31,8 @@ export function usePurchaseOrders() {
     }
     loadError.value = null;
 
-    currentPos.value = visiblePos(pos);
+    const poCodesWithGrn = new Set((grns || []).map(g => g.po_code));
+    currentPos.value = visiblePos(pos, poCodesWithGrn);
     const visibleCodes = new Set(currentPos.value.map(p => p.po_code));
 
     const newGrnsByPo = {};
