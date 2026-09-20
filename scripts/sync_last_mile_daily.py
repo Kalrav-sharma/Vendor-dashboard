@@ -65,13 +65,21 @@ import requests
 
 # Ported logic from the awb-delivery-tracker project -- see each module's
 # docstring. These encode findings measured against real data (courier
-# timezone drift, the courier-code rule table, return detection); they are
-# deliberately copied rather than re-derived.
+# timezone drift, the courier-code rule table, return detection).
+#
+# This script used to hand-reimplement the collapse/cohort logic itself
+# (a duplicate of watchlist.build_shipments()) and got FIVE real details
+# wrong doing so: the adapter registry's import path, EXCLUDED_ADAPTERS'
+# actual location, the tie-break in recency_key, needs_lsp_poll's cohort
+# list, and a missing days_since_dispatch column entirely. Fixed 2026-09-18
+# by deleting that duplicate and calling the real, tested functions
+# directly instead -- see build_watchlist_rows() below. Do not reintroduce
+# a parallel reimplementation of anything in last_mile_lib.watchlist.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from last_mile_lib import registry                          # noqa: E402
-from last_mile_lib.dates import IST, now_ist, parse_dt      # noqa: E402
-from last_mile_lib.uniware_status import is_return          # noqa: E402
-from last_mile_lib.uniware_tz import to_ist                 # noqa: E402
+from last_mile_lib import watchlist                    # noqa: E402
+from last_mile_lib.dq import DQSink                     # noqa: E402
+from last_mile_lib.sla import SlaRules                  # noqa: E402
+from last_mile_lib.uniware_tz import to_ist             # noqa: E402
 
 UNIWARE_BASE_URL = "https://urbanclap.unicommerce.com"
 REQUEST_TIMEOUT = 90
@@ -99,22 +107,6 @@ COLUMNS = (
     "facility", "facilityCode",
     "returnedDate", "returnReason",
 )
-
-# The four channels that hold spares, refresh kits and RO purifiers.
-# B2B and internal BOM are excluded. See awb_tracker/watchlist.py.
-IN_SCOPE_CHANNELS = frozenset({
-    "CUSTOM_UC_APP", "CUSTOM_UC_D2C_RO", "CUSTOM_UC_MANUAL", "CUSTOM_UC_D2C_STORES",
-})
-
-# Order-item statuses meaning the shipment is settled and needs no more polling.
-CLOSED_ITEM_STATUS = frozenset({"DELIVERED", "CANCELLED"})
-
-# Cohort horizons, copied from awb_tracker/watchlist.py -- not arbitrary.
-LIVE_DISPATCH_HORIZON_DAYS = 15   # dispatched within this = actively tracked
-BACKLOG_HORIZON_DAYS = 60         # beyond the horizon but still not delivered
-
-BLANKS = {"", "-", "NA", "N/A", "0", "NULL", "NONE"}
-
 
 def env(name):
     v = os.environ.get(name)
@@ -240,145 +232,115 @@ def fetch_facility(session, token, facility, window_days, retries=3):
     return facility, [], last_err
 
 
-def _g(row, key):
-    return (row.get(key) or "").strip()
+def to_row(ship):
+    """Shipment -> a last_mile_watchlist row.
 
-
-def clean_awb(value):
-    awb = (value or "").strip().upper()
-    return "" if awb in BLANKS else awb
-
-
-def recency_key(row):
-    """Latest-wins ordering for de-duplication.
-
-    Preserves the upstream tie-break: a DELIVERED row beats an undelivered
-    one, then later `Updated`. Getting this wrong silently lost ~6,800 rows
-    upstream, so it is reproduced rather than re-invented.
+    Shipment keeps created_at/dispatch_date/delivery_time as Uniware's RAW
+    strings (for round-trip fidelity), not calibrated datetimes -- so this
+    is the one place that must independently run them through to_ist()
+    before handing them to Postgres. Using the raw string directly would
+    hand a `date`/`timestamptz` column a value in whatever format Uniware
+    happened to export that row in (dd-mm-yyyy for some, yyyy-mm-dd for
+    others -- see dates.py), and it would disagree with the cohort/
+    days_since_dispatch this same script already computed via the
+    calibrated value inside build_shipments().
     """
-    delivered = 1 if _g(row, "Sale Order Item Status") == "DELIVERED" else 0
-    updated = parse_dt(_g(row, "Updated")) or datetime.min.replace(tzinfo=IST)
-    return (delivered, updated)
+    created_dt = to_ist(ship.created_at, ship.adapter_id)
+    dispatch_dt = to_ist(ship.dispatch_date, ship.adapter_id)
+    delivery_dt = to_ist(ship.delivery_time, ship.adapter_id)
+    return {
+        "awb": ship.awb,
+        "courier_code": ship.courier_code or None,
+        "adapter_id": ship.adapter_id,
+        "sale_order_codes": ship.sale_order_codes,
+        "sale_order_item_codes": ship.sale_order_item_codes,
+        "item_count": ship.item_count,
+        "channel": ship.channel or None,
+        "payment_type": ship.payment_type or None,
+        "facility_code": ship.facility_code or None,
+        "city": ship.city or None,
+        "pincode": ship.pincode or None,
+        "shipping_provider": ship.shipping_provider or None,
+        "created_at_uniware": created_dt.isoformat() if created_dt else None,
+        "dispatch_date": dispatch_dt.date().isoformat() if dispatch_dt else None,
+        "delivery_time": delivery_dt.isoformat() if delivery_dt else None,
+        "item_status": ship.item_status or None,
+        "uniware_tracking_status": ship.uniware_tracking_status or None,
+        "uniware_courier_status": ship.uniware_courier_status or None,
+        "package_status_code": ship.package_status_code or None,
+        "promised_date": ship.promised_date,
+        "promise_days": ship.promise_days,
+        "promise_source": ship.promise_source or None,
+        "promise_slacode": ship.promise_slacode,
+        "days_since_dispatch": ship.days_since_dispatch,
+        "cohort": ship.cohort,
+        "needs_lsp_poll": ship.needs_lsp_poll,
+        "awb_pattern_ok": ship.awb_pattern_ok,
+    }
 
 
-def in_scope(row):
-    return _g(row, "Channel Name") in IN_SCOPE_CHANNELS
+def build_watchlist_rows(rows):
+    """rows (raw Uniware CSV dicts) -> last_mile_watchlist row dicts.
 
+    Thin wrapper around the real, tested pipeline in last_mile_lib.watchlist
+    -- dedupe() then build_shipments(). No collapse/cohort logic lives here
+    anymore; see the comment at this file's top for why.
 
-def build_watchlist(rows):
-    """Collapse order-item rows sharing one AWB into one shipment record.
-
-    Ported from awb_tracker/watchlist.py. The pieces below are load-bearing
-    and were each got WRONG in this script's first draft -- do not
-    "simplify" any of them back:
-
-      lead item      -- the most ADVANCED item drives the shipment's state
-                        (max by recency_key), not an arbitrary first row.
-      adapter        -- registry.resolve() against courier_map.json, which
-                        keys on `Shipping Courier` and does exact->regex->
-                        longest-prefix. Not string matching on the provider
-                        field, which collapses DTDC's 15 variants.
-      dispatch date  -- normalised through to_ist() for that adapter BEFORE
-                        any day-count. Shadowfax's timestamps are stored in
-                        UTC while everyone else's are IST; skipping this
-                        manufactures a phantom 5h30m gap on the majority of
-                        volume.
-      returns        -- is_return() closes them at intake. A return keeps
-                        item_status DISPATCHED, so CLOSED_ITEM_STATUS alone
-                        never catches one, and the rolling 45-day export
-                        would re-add every return every morning forever.
-      excluded       -- in-house fleet / Porter / unmapped are cohorted out
-                        at intake, not filtered at each surface.
-
-    Not ported: the SLA-rules promise lookup. That needs
-    SERVICEABILITYRULES_DP from Jarvis, which is VPN-gated; this daily leg
-    is deliberately Uniware-only so it can run on GitHub's hosted runners.
-    promised_date / promise_source stay null until that is wired in.
+    SlaRules() needs a rules CSV to exist or it raises FileNotFoundError --
+    scripts/last_mile_lib/reference/serviceability_rules_active.csv ships
+    as a header-only stub (SERVICEABILITYRULES_DP is Jarvis-sourced and
+    VPN-gated, so this daily leg deliberately can't pull it), which makes
+    every lookup miss and every promise fall through to ASSUMED -- exactly
+    SlaRules' own documented fallback, not a workaround bolted on here.
     """
-    by_awb = defaultdict(list)
-    skipped_no_awb = 0
-    for row in rows:
-        if not in_scope(row):
-            continue
-        awb = clean_awb(_g(row, "Tracking Number"))
-        if not awb:
-            skipped_no_awb += 1
-            continue
-        by_awb[awb].append(row)
-
-    now = now_ist()
-    watchlist = []
-    unmapped_couriers = defaultdict(int)
-
-    for awb, items in by_awb.items():
-        lead = max(items, key=recency_key)
-        courier_code = _g(lead, "Shipping Courier")
-        res = registry.resolve(courier_code)
-        if res.is_unknown:
-            unmapped_couriers[courier_code or "(blank)"] += 1
-
-        item_status = _g(lead, "Sale Order Item Status")
-        track_status = _g(lead, "Shipping Tracking Status")
-        pkg_code = _g(lead, "Shipping Package Status Code")
-
-        dispatch_dt = to_ist(_g(lead, "Dispatch Date"), res.adapter_id)
-        days_since = (now.date() - dispatch_dt.date()).days if dispatch_dt else None
-
-        if res.adapter_id in registry.EXCLUDED_ADAPTERS:
-            cohort = "excluded"
-        elif item_status in CLOSED_ITEM_STATUS:
-            cohort = "closed"
-        elif is_return(track_status, pkg_code):
-            cohort = "closed"
-        elif days_since is None:
-            cohort = "no_dispatch_date"
-        elif days_since <= LIVE_DISPATCH_HORIZON_DAYS:
-            cohort = "live"
-        elif days_since <= BACKLOG_HORIZON_DAYS:
-            cohort = "backlog"
-        else:
-            cohort = "aged_out"
-
-        created_dt = to_ist(_g(lead, "Created"), res.adapter_id)
-        delivery_dt = to_ist(_g(lead, "Delivery Time"), res.adapter_id)
-
-        watchlist.append({
-            "awb": awb,
-            "courier_code": courier_code or None,
-            "adapter_id": res.adapter_id,
-            "sale_order_codes": sorted({_g(r, "Sale Order Code") for r in items} - {""}),
-            "sale_order_item_codes": sorted({_g(r, "Sale Order Item Code") for r in items} - {""}),
-            "item_count": len(items),
-            "channel": _g(lead, "Channel Name") or None,
-            "payment_type": "COD" if _g(lead, "COD") in ("1", "true", "True") else "Prepaid",
-            "facility_code": _g(lead, "Facility Code") or None,
-            "city": _g(lead, "Shipping Address City") or None,
-            "pincode": _g(lead, "Shipping Address Pincode") or None,
-            "shipping_provider": _g(lead, "Shipping provider") or None,
-            "created_at_uniware": created_dt.isoformat() if created_dt else None,
-            "dispatch_date": dispatch_dt.date().isoformat() if dispatch_dt else None,
-            "delivery_time": delivery_dt.isoformat() if delivery_dt else None,
-            "item_status": item_status or None,
-            "uniware_tracking_status": track_status or None,
-            "uniware_courier_status": _g(lead, "Shipping Courier Status") or None,
-            "package_status_code": pkg_code or None,
-            "cohort": cohort,
-            # Only cohorts that are still in flight get polled. 'excluded' and
-            # 'aged_out' are deliberately not polled but ARE kept on file so
-            # the coverage funnel reconciles against its own input.
-            "needs_lsp_poll": cohort in ("live", "backlog"),
-        })
-
-    if skipped_no_awb:
-        print(f"  {skipped_no_awb} in-scope row(s) had no AWB (data-quality item).")
-    if unmapped_couriers:
-        top = sorted(unmapped_couriers.items(), key=lambda kv: -kv[1])[:5]
-        print(f"  unmapped couriers: {dict(top)}")
-    return watchlist
+    deduped = watchlist.dedupe(rows)
+    dq = DQSink(state_dir=os.path.join(os.path.dirname(os.path.abspath(__file__)), ".dq"))
+    ships, stats = watchlist.build_shipments(deduped, rules=SlaRules(), dq=dq)
+    print(f"  intake stats: {stats}")
+    dq_sum = dq.summary()
+    if dq_sum:
+        print(f"  data-quality items this pull: { {k: v.get('total_occurrences') for k, v in dq_sum.items()} }")
+    return [to_row(s) for s in ships]
 
 
 def supabase_config():
     return env("SUPABASE_URL").rstrip("/"), env("SUPABASE_SERVICE_ROLE_KEY")
+
+
+def refresh_sla_rules_csv(supabase_url, key):
+    """Pull public.last_mile_sla_rules and overwrite the local CSV
+    scripts/last_mile_lib/sla.py's SlaRules() reads. This is a plain
+    Supabase read -- no VPN needed here, unlike
+    scripts/sync_last_mile_sla_rules.py (the script that actually pulls
+    Jarvis and populates that table, run manually on the VPN).
+
+    If the table is empty (SLA rules have never been synced, or it's been
+    a while since the last manual run), this writes a header-only file,
+    same as the stub it started as -- every promise falls through to
+    ASSUMED, exactly like it did before this existed. Nothing here can
+    make the daily pull fail because SLA rules aren't ready yet.
+    """
+    import csv as csv_mod
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        "last_mile_lib", "reference", "serviceability_rules_active.csv")
+    headers = {"apikey": key, "Authorization": f"Bearer {key}"}
+    rows = []
+    try:
+        r = requests.get(f"{supabase_url}/rest/v1/last_mile_sla_rules",
+                         headers=headers, params={"select": "*"}, timeout=REQUEST_TIMEOUT)
+        if r.ok:
+            rows = r.json()
+    except Exception as e:
+        print(f"WARN: could not read last_mile_sla_rules ({e}) -- using ASSUMED promises.", file=sys.stderr)
+
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        w = csv_mod.writer(f)
+        w.writerow(["PINCODE", "CITY", "WAREHOUSE", "LSPPARTNER", "SLACODE", "ISACTIVE"])
+        for r in rows:
+            w.writerow([r.get("pincode") or "", r.get("city") or "", r.get("warehouse") or "",
+                       r.get("lsp_partner") or "", r.get("slacode") or "",
+                       "true" if r.get("is_active") else "false"])
+    print(f"SLA rules CSV: {len(rows)} row(s) (real rules if >0, ASSUMED fallback if 0).")
 
 
 def upsert_watchlist(supabase_url, key, rows):
@@ -425,12 +387,16 @@ def main():
         sys.exit(f"{len(failures)} facility export(s) failed -- aborting without writing a partial watchlist.")
 
     print(f"{len(all_rows)} order-item row(s) across {len(facilities)} facilities.")
-    watchlist = build_watchlist(all_rows)
-    print(f"Collapsed to {len(watchlist)} shipment(s) in scope.")
+    supabase_url, key = supabase_config()
+    refresh_sla_rules_csv(supabase_url, key)
+    # NOT named `watchlist` -- that shadows the imported last_mile_lib.watchlist
+    # module, which build_watchlist_rows() itself still needs to call.
+    watchlist_rows = build_watchlist_rows(all_rows)
+    print(f"Collapsed to {len(watchlist_rows)} shipment(s) in scope.")
 
     by_cohort = defaultdict(int)
     by_adapter = defaultdict(int)
-    for w in watchlist:
+    for w in watchlist_rows:
         by_cohort[w["cohort"]] += 1
         by_adapter[w["adapter_id"]] += 1
     print("  by cohort:", dict(by_cohort))
@@ -440,9 +406,8 @@ def main():
         print("[dry-run] nothing written.")
         return
 
-    supabase_url, key = supabase_config()
-    upsert_watchlist(supabase_url, key, watchlist)
-    print(f"Upserted {len(watchlist)} row(s) into last_mile_watchlist.")
+    upsert_watchlist(supabase_url, key, watchlist_rows)
+    print(f"Upserted {len(watchlist_rows)} row(s) into last_mile_watchlist.")
 
 
 if __name__ == "__main__":

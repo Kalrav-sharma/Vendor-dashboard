@@ -26,22 +26,30 @@ on:
         default: hourly
         type: choice
         options: [hourly, daily, both]
+      adapters:
+        description: 'Hourly only: comma-separated adapter(s) to poll (e.g. "dtdc"), blank = all. For a cheap isolated test after rotating one carrier credential.'
+        required: false
+        default: ''
 
 permissions:
   contents: read
-
-concurrency:
-  # The two legs write different tables and the source project notes they
-  # never need a lock against each other -- but two HOURLY runs overlapping
-  # would double-poll the carriers, so serialise on the leg.
-  group: sync-last-mile-${{ github.event.inputs.leg || 'scheduled' }}
-  cancel-in-progress: false
 
 jobs:
   daily:
     if: github.event.schedule == '10 4 * * *' || contains(fromJSON('["daily","both"]'), github.event.inputs.leg)
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    concurrency:
+      # Fixed per-job, NOT derived from github.event.inputs.leg -- a
+      # `schedule` trigger carries no `leg` input at all, so keying off it
+      # put a scheduled run and a manual `-f leg=hourly` dispatch into TWO
+      # DIFFERENT groups (sync-last-mile-scheduled vs sync-last-mile-hourly),
+      # meaning they never actually serialised against each other. Confirmed
+      # live 2026-09-18: a manual hourly test and that hour's cron firing
+      # ran concurrently for ~7 minutes, double-polling every carrier. A
+      # fixed group per job is correct regardless of what triggered it.
+      group: sync-last-mile-daily-lock
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -59,13 +67,21 @@ jobs:
     if: github.event.schedule == '0 5-18 * * *' || contains(fromJSON('["hourly","both"]'), github.event.inputs.leg)
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    concurrency:
+      group: sync-last-mile-hourly-lock
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
       - run: pip install -r requirements.txt
-      - run: python scripts/sync_last_mile_hourly.py --budget-minutes 20
+      - run: |
+          ARGS="--budget-minutes 20"
+          if [ -n "${{ github.event.inputs.adapters }}" ]; then
+            ARGS="$ARGS --adapters ${{ github.event.inputs.adapters }}"
+          fi
+          python scripts/sync_last_mile_hourly.py $ARGS
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

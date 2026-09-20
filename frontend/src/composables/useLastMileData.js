@@ -15,6 +15,23 @@ import { supabase } from "../supabaseClient.js";
 
 const POLL_INTERVAL_MS = 60 * 1000;
 
+// last_mile_open_shipments can hold 1,000+ rows per run (the whole live+
+// backlog population, not the curated alerts subset) -- past Supabase's
+// default per-request row cap, so a plain .select() would silently
+// truncate. Pages through with .range() until a page comes back short.
+async function fetchAllPaged(table, runId, orderCol, pageSize = 1000) {
+  const rows = [];
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await supabase.from(table).select("*")
+      .eq("run_id", runId).order(orderCol, { ascending: false })
+      .range(from, from + pageSize - 1);
+    if (error) return { data: null, error };
+    rows.push(...(data || []));
+    if (!data || data.length < pageSize) break;
+  }
+  return { data: rows, error: null };
+}
+
 export function useLastMileData() {
   const run = ref(null);
   const coverage = ref(null);
@@ -22,6 +39,7 @@ export function useLastMileData() {
   const lspPerf = ref([]);
   const worstLanes = ref([]);
   const alerts = ref([]);
+  const openShipments = ref([]);
   const loadError = ref("");
 
   async function refresh() {
@@ -40,6 +58,7 @@ export function useLastMileData() {
       lspPerf.value = [];
       worstLanes.value = [];
       alerts.value = [];
+      openShipments.value = [];
       loadError.value = "";
       return;
     }
@@ -50,12 +69,14 @@ export function useLastMileData() {
       { data: lsp, error: e3 },
       { data: lanes, error: e4 },
       { data: al, error: e5 },
+      { data: openRows, error: e6 },
     ] = await Promise.all([
       supabase.from("last_mile_coverage").select("*").eq("run_id", latest.run_id).maybeSingle(),
       supabase.from("last_mile_dq_summary").select("*").eq("run_id", latest.run_id).maybeSingle(),
       supabase.from("last_mile_lsp_perf").select("*").eq("run_id", latest.run_id).order("on_time_pct"),
       supabase.from("last_mile_worst_lanes").select("*").eq("run_id", latest.run_id).order("on_time_pct"),
       supabase.from("last_mile_alerts").select("*").eq("run_id", latest.run_id).order("days_overdue", { ascending: false }),
+      fetchAllPaged("last_mile_open_shipments", latest.run_id, "days_overdue"),
     ]);
 
     coverage.value = cov || null;
@@ -63,7 +84,8 @@ export function useLastMileData() {
     lspPerf.value = lsp || [];
     worstLanes.value = lanes || [];
     alerts.value = al || [];
-    loadError.value = e1?.message || e2?.message || e3?.message || e4?.message || e5?.message || "";
+    openShipments.value = openRows || [];
+    loadError.value = e1?.message || e2?.message || e3?.message || e4?.message || e5?.message || e6?.message || "";
   }
 
   let intervalId = null;
@@ -75,5 +97,5 @@ export function useLastMileData() {
     if (intervalId) clearInterval(intervalId);
   });
 
-  return { run, coverage, dqSummary, lspPerf, worstLanes, alerts, loadError, refresh };
+  return { run, coverage, dqSummary, lspPerf, worstLanes, alerts, openShipments, loadError, refresh };
 }

@@ -33,6 +33,48 @@ function fmtDays(n) {
   const r = Math.round(n * 10) / 10;
   return r > 0 ? `+${r}d` : `${r}d`;
 }
+// "" is a real value from Uniware -- an export predating the COD column --
+// distinct from a shipment we simply never resolved a payment type for.
+// Neither is shown as if it were a confirmed Prepaid.
+function fmtPayment(p) {
+  if (p === "COD" || p === "Prepaid") return p;
+  return "–";
+}
+
+// CSV of exactly what's currently filtered/visible -- not the full alert
+// set -- so "download" always matches what's on screen, same principle as
+// every filter in this app already following what you're looking at.
+const CSV_COLUMNS = [
+  ["awb", "AWB"], ["primary_flag", "Flag"], ["bucket", "Bucket"], ["lsp", "LSP"],
+  ["city", "City"], ["pincode", "Pincode"], ["payment_type", "Payment"],
+  ["order", "Order"], ["status", "Status"], ["promised_date", "Promised"],
+  ["days_overdue", "Overdue (days)"], ["notes", "Notes"],
+];
+function csvCell(v) {
+  const s = v == null ? "" : String(v);
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+function downloadCsv() {
+  const rows = filteredSorted.value.map(a => ({
+    awb: a.awb, primary_flag: fmtFlag(a.primary_flag), bucket: BUCKET_LABEL[a.bucket] || a.bucket,
+    lsp: a.lsp || "", city: a.city || "", pincode: a.pincode || "", payment_type: fmtPayment(a.payment_type),
+    order: (a.sale_order_codes || [])[0] || "", status: a.status || a.raw_status || "",
+    promised_date: fmtDate(a.promised_date), days_overdue: a.days_overdue ?? "",
+    notes: a.ndr_reason || a.notes || "",
+  }));
+  const lines = [
+    CSV_COLUMNS.map(([, label]) => csvCell(label)).join(","),
+    ...rows.map(r => CSV_COLUMNS.map(([key]) => csvCell(r[key])).join(",")),
+  ];
+  const blob = new Blob([lines.join("\r\n")], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  const stamp = new Date().toISOString().slice(0, 16).replace(/[T:]/g, "-");
+  a.href = url;
+  a.download = `last-mile-alerts-${stamp}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 const filteredSorted = computed(() => alerts.value.filter(a => {
   if (filters.bucket && a.bucket !== filters.bucket) return false;
@@ -78,9 +120,15 @@ const kpiTiles = computed(() => {
       · trailing {{ run.window_days }} days
     </p>
 
-    <div class="field" style="max-width: 340px; margin-bottom: 14px;">
-      <label for="lastmile-search">Search AWB, order, city, pincode…</label>
-      <input id="lastmile-search" v-model="filters.search" type="text" placeholder="Type to search…">
+    <div style="display: flex; align-items: flex-end; gap: 16px; margin-bottom: 14px; flex-wrap: wrap;">
+      <div class="field" style="max-width: 340px; margin-bottom: 0;">
+        <label for="lastmile-search">Search AWB, order, city, pincode…</label>
+        <input id="lastmile-search" v-model="filters.search" type="text" placeholder="Type to search…">
+      </div>
+      <button
+        class="primary-btn" style="width: auto; padding: 9px 16px;"
+        :disabled="!filteredSorted.length" @click="downloadCsv"
+      >Download as CSV ({{ filteredSorted.length }})</button>
     </div>
 
     <div class="table-card"><div class="table-scroll">
@@ -88,7 +136,7 @@ const kpiTiles = computed(() => {
         <thead>
           <tr>
             <th>AWB</th><th>Flag</th><th>Bucket</th><th>LSP</th><th>City / pincode</th>
-            <th>Order</th><th>Status</th><th>Promised</th><th class="num">Overdue</th><th>Notes</th>
+            <th>Payment</th><th>Order</th><th>Status</th><th>Promised</th><th class="num">Overdue</th><th>Notes</th>
           </tr>
           <tr class="filter-row">
             <td></td><td></td>
@@ -110,12 +158,12 @@ const kpiTiles = computed(() => {
                 <option v-for="c in cityOptions" :key="c" :value="c">{{ c }}</option>
               </select>
             </td>
-            <td></td><td></td><td></td><td></td><td></td>
+            <td></td><td></td><td></td><td></td><td></td><td></td>
           </tr>
         </thead>
         <tbody>
           <tr v-if="!filteredSorted.length">
-            <td colspan="10" class="empty-state">No alerts match these filters.</td>
+            <td colspan="11" class="empty-state">No alerts match these filters.</td>
           </tr>
           <tr v-for="a in filteredSorted" :key="a.id">
             <td class="mono">{{ a.awb }}</td>
@@ -123,6 +171,7 @@ const kpiTiles = computed(() => {
             <td><span class="chip" :class="`chip-${BUCKET_CLASS[a.bucket]}`">{{ BUCKET_LABEL[a.bucket] || a.bucket }}</span></td>
             <td>{{ a.lsp || "–" }}</td>
             <td>{{ a.city || "–" }}<span v-if="a.pincode" class="mono" style="color: var(--muted);"> · {{ a.pincode }}</span></td>
+            <td><span v-if="fmtPayment(a.payment_type) !== '–'" class="chip" :class="a.payment_type === 'COD' ? 'chip-open' : 'chip-muted'">{{ fmtPayment(a.payment_type) }}</span><span v-else>–</span></td>
             <td class="mono">{{ (a.sale_order_codes || [])[0] || "–" }}</td>
             <td>{{ a.status || a.raw_status || "–" }}</td>
             <td>{{ fmtDate(a.promised_date) }}</td>

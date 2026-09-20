@@ -78,6 +78,7 @@ from last_mile_lib.dq import DQSink                     # noqa: E402
 from last_mile_lib.lsp import registry                  # noqa: E402
 from last_mile_lib.lsp.base import FetchContext, FetchOutcome, TrackingResult  # noqa: E402
 from last_mile_lib.lsp.http import HttpClient           # noqa: E402
+from last_mile_lib.sla import days_overdue              # noqa: E402
 from last_mile_lib.tiering import PollState             # noqa: E402
 from last_mile_lib.uniware_status import to_canonical   # noqa: E402
 from last_mile_lib.watchlist import Shipment            # noqa: E402
@@ -190,6 +191,19 @@ def main():
     budget_minutes = 20
     if "--budget-minutes" in sys.argv:
         budget_minutes = int(sys.argv[sys.argv.index("--budget-minutes") + 1])
+    # Restrict THIS run's carrier calls to a subset, e.g. --adapters dtdc for
+    # a cheap isolated test after rotating one carrier's credential. The run
+    # still recomputes and writes all six rollup tables as usual -- an
+    # untouched adapter's shipments just keep whatever status they already
+    # had (Uniware's own, or a prior poll), same as any hourly run where a
+    # given AWB simply wasn't due yet.
+    only_adapters = None
+    if "--adapters" in sys.argv:
+        only_adapters = {x.strip().lower() for x in
+                         sys.argv[sys.argv.index("--adapters") + 1].split(",") if x.strip()}
+        unknown = only_adapters - POLLED_ADAPTERS
+        if unknown:
+            sys.exit(f"--adapters: not pollable: {sorted(unknown)}; choose from {sorted(POLLED_ADAPTERS)}")
 
     url, key = env("SUPABASE_URL").rstrip("/"), env("SUPABASE_SERVICE_ROLE_KEY")
     now = now_ist()
@@ -221,6 +235,10 @@ def main():
     candidates = [s for s in ships
                   if s.needs_lsp_poll and s.awb not in settled
                   and s.adapter_id in POLLED_ADAPTERS]
+    if only_adapters:
+        before = len(candidates)
+        candidates = [s for s in candidates if s.adapter_id in only_adapters]
+        print(f"--adapters {sorted(only_adapters)}: {len(candidates)} of {before} candidates in scope")
 
     statuses = {s.awb: to_canonical(s.uniware_tracking_status)[0] for s in candidates}
     due, tally = state.due(candidates, statuses, now=now, limit=limit)
@@ -239,6 +257,24 @@ def main():
             flag = "" if (spec and spec.enabled) else "  [DISABLED]"
             print(f"  would poll {len(awbs):>5} via {adapter}{flag}")
     else:
+        # Circuit breaker -- ported PRINCIPLE, not the original mechanism.
+        # awb_tracker/preflight.py guarded against a specific trigger (a
+        # laptop waking from sleep with the VPN not yet back up) that
+        # doesn't apply to an always-on GitHub-hosted runner. But the
+        # DAMAGE it was built to prevent is architecture-independent: a
+        # batch of near-total failures isn't 485 individually-stale
+        # shipments, it's the carrier's API being down -- and recording
+        # each one as a consecutive_failure poisons tiering (backoff up to
+        # 24h) for every one of them, for a problem that had nothing to do
+        # with any single AWB. Measured on the source project: one bad
+        # night left 1,125 poll records sitting at 2 consecutive failures.
+        # So: skip state.record() for a batch that looks like an outage,
+        # not an AWB list. Left untouched, those AWBs are simply due again
+        # next run -- no penalty, no wasted signal.
+        UNHEALTHY_MIN_BATCH = 10   # below this, one bad AWB can't trip it
+        UNHEALTHY_MAX_OK_RATE = 0.20
+        skipped_adapters = []
+
         for adapter, awbs in sorted(grouped.items(), key=lambda kv: -len(kv[1])):
             mod = registry.get_adapter(adapter)
             if mod is None:
@@ -247,9 +283,20 @@ def main():
             got = mod.track(awbs, ctx)
             results.extend(got)
             oks = sum(1 for r in got if r.outcome == FetchOutcome.OK)
-            print(f"  {adapter:<12} polled {len(got):>5} ok={oks:<5} in {time.time() - t0:5.1f}s")
-        for r in results:
-            state.record(r, now=now_ist())
+            ok_rate = oks / len(got) if got else 1.0
+            unhealthy = len(got) >= UNHEALTHY_MIN_BATCH and ok_rate <= UNHEALTHY_MAX_OK_RATE
+            flag = "  [CIRCUIT BREAKER -- state.record() skipped this batch]" if unhealthy else ""
+            print(f"  {adapter:<12} polled {len(got):>5} ok={oks:<5} in {time.time() - t0:5.1f}s{flag}")
+            if unhealthy:
+                skipped_adapters.append(adapter)
+            else:
+                for r in got:
+                    state.record(r, now=now_ist())
+
+        if skipped_adapters:
+            print(f"WARN: {sorted(skipped_adapters)} looked like an outage this run "
+                  f"(<= {UNHEALTHY_MAX_OK_RATE:.0%} ok on >= {UNHEALTHY_MIN_BATCH} AWBs) -- "
+                  f"poll_state left untouched for those shipments, they are simply due again next run.")
 
     polls = {r.awb: r for r in results if r.outcome == FetchOutcome.OK}
 
@@ -266,7 +313,32 @@ def main():
         by_bucket[a.bucket] += 1
     open_ships = [s for s in ships if s.cohort in ("live", "backlog", "no_dispatch_date")]
 
-    print(f"alerts {len(al):,} { dict(by_bucket) } | scorecards {len(cards)} | lanes {len(lanes)}")
+    # The full "not complete, not RTO" entry point -- every open shipment,
+    # not just the curated subset evaluate_all() flags. Uses the SAME fused
+    # (carrier-poll-aware) status alerts.fuse() already computed for each of
+    # these, so a healthy shipment shows status of the same quality as an
+    # alerted one, not a downgraded Uniware-only view.
+    alerts_by_awb = {a.awb: a for a in al}
+    open_rows = []
+    for s in open_ships:
+        fused = alerts_mod.fuse(s, polls.get(s.awb), now)
+        alert = alerts_by_awb.get(s.awb)
+        spec = registry.get_spec(s.adapter_id)
+        open_rows.append({
+            "awb": s.awb, "cohort": s.cohort, "lsp": spec.display_name if spec else s.adapter_id,
+            "courier_code": s.courier_code, "facility_code": s.facility_code,
+            "city": s.city, "pincode": s.pincode, "channel": s.channel,
+            "payment_type": s.payment_type, "sale_order_codes": s.sale_order_codes[:5],
+            "item_count": s.item_count, "status": fused.canonical.value, "raw_status": fused.raw,
+            "status_source": fused.source, "status_at": fused.at.isoformat() if fused.at else None,
+            "promised_date": s.promised_date, "promise_source": s.promise_source,
+            "days_overdue": days_overdue(s.promised_date, now),
+            "days_since_dispatch": s.days_since_dispatch,
+            "has_alert": alert is not None, "primary_flag": alert.primary_flag if alert else None,
+            "bucket": alert.bucket if alert else None,
+        })
+
+    print(f"alerts {len(al):,} { dict(by_bucket) } | scorecards {len(cards)} | lanes {len(lanes)} | open {len(open_rows):,}")
 
     if dry_run:
         print("[dry-run] nothing written.")
@@ -357,6 +429,9 @@ def main():
         "attempts": a.attempts, "ndr_reason": a.ndr_reason,
         "notes": "; ".join(a.notes) if a.notes else None,
     } for a in al], on_conflict="run_id,awb")
+
+    sb_write(url, key, "last_mile_open_shipments",
+             [{**r, "run_id": run_id} for r in open_rows], on_conflict="run_id,awb")
 
     # Poll state last: it is the only table whose loss is merely a wasted
     # re-poll next run, so it is the safest thing to leave until the end.

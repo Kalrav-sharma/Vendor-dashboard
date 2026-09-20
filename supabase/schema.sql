@@ -1676,11 +1676,20 @@ create table if not exists public.last_mile_watchlist (
   promise_days int,
   promise_source text,            -- RULES | ASSUMED -- see awb_tracker/watchlist.py's SLA lookup
   promise_slacode text,
+  days_since_dispatch numeric,    -- calendar days since dispatch_date, as of the daily pull
   cohort text,                    -- live | backlog | no_dispatch_date | closed
   needs_lsp_poll boolean not null default true,
   awb_pattern_ok boolean,
   last_pulled_at timestamptz not null default now()
 );
+-- last_mile_watchlist already existed before days_since_dispatch was added
+-- (found missing 2026-09-18 when the hourly job read every shipment back
+-- with this field silently None, since Shipment.days_since_dispatch had no
+-- matching column) -- "create table if not exists" above won't
+-- retroactively add it on an already-deployed database; this does, and is
+-- a no-op if already there.
+alter table public.last_mile_watchlist add column if not exists days_since_dispatch numeric;
+
 create index if not exists idx_last_mile_watchlist_cohort on public.last_mile_watchlist (cohort);
 create index if not exists idx_last_mile_watchlist_needs_poll on public.last_mile_watchlist (needs_lsp_poll) where needs_lsp_poll;
 
@@ -1694,9 +1703,19 @@ create policy last_mile_watchlist_select on public.last_mile_watchlist
 -- polled every hour forever; keep it and a shipment already confirmed
 -- delivered, or not yet due for its next check, is skipped outright.
 -- Written only by sync_last_mile_hourly.py.
+-- next_poll_at is NULLABLE ON PURPOSE: PollState.record() (tiering.py) sets
+-- it to None -- not a placeholder time -- for a return "settled on sight"
+-- or a delivery that has just received its confirmation re-poll, meaning
+-- "never poll this again," not "poll again now." A not-null default of
+-- now() would be actively wrong here: it would schedule an immediate
+-- re-poll for exactly the shipments the tiering logic just decided are
+-- done. Found live 2026-09-18: the first real hourly run failed this
+-- constraint on its very last write, after every rollup table (run,
+-- coverage, dq_summary, lsp_perf, worst_lanes, alerts) had already
+-- written successfully.
 create table if not exists public.last_mile_poll_state (
   awb text primary key references public.last_mile_watchlist(awb) on delete cascade,
-  next_poll_at timestamptz not null default now(),
+  next_poll_at timestamptz,
   terminal boolean not null default false,     -- delivered/RTO/lost -- never re-poll
   confirmed boolean not null default false,    -- an LSP call actually returned a result
   last_status text,
@@ -1705,6 +1724,13 @@ create table if not exists public.last_mile_poll_state (
   consecutive_failures int not null default 0,
   updated_at timestamptz not null default now()
 );
+-- last_mile_poll_state already existed with next_poll_at declared NOT NULL
+-- -- "create table if not exists" above won't retroactively relax that on
+-- an already-deployed database; this does, and is a no-op if already
+-- relaxed.
+alter table public.last_mile_poll_state alter column next_poll_at drop not null;
+alter table public.last_mile_poll_state alter column next_poll_at drop default;
+
 create index if not exists idx_last_mile_poll_state_due
   on public.last_mile_poll_state (next_poll_at) where not terminal;
 
@@ -1826,6 +1852,32 @@ create policy last_mile_lsp_perf_select on public.last_mile_lsp_perf
 -- date that have actually resolved on-time or late. It is NOT the raw
 -- shipment count -- anything still in flight, or carrying only an ASSUMED
 -- promise, cannot be graded and is excluded (see excluded_assumed_promise).
+--
+-- ONE-TIME MIGRATION, conditional, not a plain drop: an earlier version of
+-- this table shipped with a pincode/facility_code/volume/delivered/
+-- avg_days_late shape that turned out not to match what
+-- performance.worst_lanes() actually returns (see sync_last_mile_hourly.py's
+-- fix, 2026-09-18). "create table if not exists" is a no-op against an
+-- already-deployed table, so changing the column list below would silently
+-- never apply to a live database without this.
+--
+-- The drop only fires if the OLD `pincode` column is still present, which
+-- was true only while this table had zero rows on file (no hourly sync had
+-- run yet). Once migrated, `pincode` is gone, this check is false forever
+-- after, and re-running schema.sql stays a safe no-op for this table --
+-- same "safe to re-run anytime" contract as the rest of this file. Do NOT
+-- widen this to an unconditional drop; a future re-apply must never wipe
+-- real alert/lane data.
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'last_mile_worst_lanes' and column_name = 'pincode'
+  ) then
+    drop table public.last_mile_worst_lanes;
+  end if;
+end $$;
+
 create table if not exists public.last_mile_worst_lanes (
   id bigserial primary key,
   run_id text not null references public.last_mile_run(run_id) on delete cascade,
@@ -1897,8 +1949,112 @@ create table if not exists public.last_mile_alerts (
 create index if not exists idx_last_mile_alerts_run on public.last_mile_alerts (run_id);
 create index if not exists idx_last_mile_alerts_bucket on public.last_mile_alerts (run_id, bucket);
 
+-- severity was originally `text`; alerts.Alert.severity is an int (e.g. 80),
+-- so a live database created before this line existed still has the wrong
+-- type -- same "create table if not exists is a no-op on an existing table"
+-- trap as last_mile_worst_lanes above. Unlike that table, this is a single
+-- column, so a direct alter is enough rather than a conditional drop -- and
+-- it is safe to run unconditionally on every re-apply: converting an
+-- already-int column to int via `using severity::int` is a harmless no-op,
+-- so this line never needs to be removed once it has taken effect.
+alter table public.last_mile_alerts alter column severity type int using severity::int;
+
 alter table public.last_mile_alerts enable row level security;
 drop policy if exists last_mile_alerts_select on public.last_mile_alerts;
 create policy last_mile_alerts_select on public.last_mile_alerts
+  for select using (public.is_internal_staff());
+-- ---------------------------------------------------------------------
+
+-- Open shipments: the FULL "not complete, not RTO" population -- every AWB
+-- in cohort (live, backlog, no_dispatch_date), whether or not it currently
+-- trips an alert. last_mile_alerts is a deliberately CURATED subset (only
+-- shipments evaluate() actually flags); this table is the superset it's
+-- drawn from, which is the real entry point into "what does this pipeline
+-- still need to track to completion" -- a shipment moving fine, not yet
+-- overdue, belongs here even though it never becomes an alert.
+--
+-- cohort in (closed, excluded) is the EXIT: those rows simply stop
+-- appearing here on the next run, same as they already stop appearing in
+-- alerts and in coverage_funnel()'s open_ships. That's the whole entry/exit
+-- contract this table makes visible as actual rows instead of only an
+-- aggregate count (performance.coverage_funnel()'s open_total).
+create table if not exists public.last_mile_open_shipments (
+  id bigserial primary key,
+  run_id text not null references public.last_mile_run(run_id) on delete cascade,
+  awb text not null,
+  cohort text not null,           -- live | backlog | no_dispatch_date
+  lsp text,
+  courier_code text,
+  facility_code text,
+  city text,
+  pincode text,
+  channel text,
+  payment_type text,
+  sale_order_codes text[],
+  item_count int,
+  -- Same fused (carrier-poll-aware) status alerts.fuse() computes -- not
+  -- just Uniware's own value -- so a healthy shipment shows the same
+  -- quality of status an alerted one does, not a downgraded view.
+  status text,
+  raw_status text,
+  status_source text,             -- lsp | uniware | none
+  status_at timestamptz,
+  promised_date date,
+  promise_source text,
+  days_overdue numeric,
+  days_since_dispatch numeric,
+  -- Whether THIS shipment also appears in last_mile_alerts this run, and
+  -- with what -- so the UI can highlight the alerted rows inline instead
+  -- of needing a second table join to know which ones already have eyes on them.
+  has_alert boolean not null default false,
+  primary_flag text,
+  bucket text,
+  synced_at timestamptz not null default now(),
+  unique (run_id, awb)
+);
+create index if not exists idx_last_mile_open_shipments_run on public.last_mile_open_shipments (run_id);
+create index if not exists idx_last_mile_open_shipments_cohort on public.last_mile_open_shipments (run_id, cohort);
+create index if not exists idx_last_mile_open_shipments_alert on public.last_mile_open_shipments (run_id, has_alert);
+
+alter table public.last_mile_open_shipments enable row level security;
+drop policy if exists last_mile_open_shipments_select on public.last_mile_open_shipments;
+create policy last_mile_open_shipments_select on public.last_mile_open_shipments
+  for select using (public.is_internal_staff());
+-- ---------------------------------------------------------------------
+
+-- Real SERVICEABILITYRULES_DP rows, synced from Jarvis query 562880 by
+-- scripts/sync_last_mile_sla_rules.py -- run MANUALLY, by hand, on a
+-- VPN-connected laptop, roughly weekly (rules change rarely, so no
+-- scheduled runner is worth the infrastructure for this one piece).
+-- Jarvis is IP-gated at Cloudflare's edge (confirmed 2026-09-18 -- a
+-- GitHub-hosted runner got Cloudflare's own "Attention Required" block
+-- page, not an auth error), so this table can only ever be refreshed
+-- from VPN-reachable compute; nothing about that changes by running it
+-- by hand instead of on a schedule.
+--
+-- Wholesale replaced each run (delete-then-insert), same convention as
+-- mm_rate_card. Read back by sync_last_mile_daily.py (GitHub-hosted, no
+-- VPN needed for THIS read -- it is a plain Supabase query, not a Jarvis
+-- call) to materialise the local CSV
+-- scripts/last_mile_lib/reference/serviceability_rules_active.csv,
+-- which scripts/last_mile_lib/sla.py's SlaRules() already reads. Until
+-- this table has real rows, that CSV stays header-only and every promise
+-- falls through to ASSUMED -- exactly today's behaviour, unchanged.
+create table if not exists public.last_mile_sla_rules (
+  id bigserial primary key,
+  pincode text,
+  city text,
+  warehouse text,
+  lsp_partner text,
+  slacode text,
+  is_active boolean not null default true,
+  synced_at timestamptz not null default now()
+);
+create index if not exists idx_last_mile_sla_rules_pincode on public.last_mile_sla_rules (pincode);
+create index if not exists idx_last_mile_sla_rules_city on public.last_mile_sla_rules (city);
+
+alter table public.last_mile_sla_rules enable row level security;
+drop policy if exists last_mile_sla_rules_select on public.last_mile_sla_rules;
+create policy last_mile_sla_rules_select on public.last_mile_sla_rules
   for select using (public.is_internal_staff());
 -- ---------------------------------------------------------------------
