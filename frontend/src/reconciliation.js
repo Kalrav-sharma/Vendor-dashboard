@@ -14,7 +14,10 @@ export function reconciliationLabel(row) {
   const status = row.match_status;
   if (status === "pending") return { text: "Checking…", cls: "muted" };
   if (status === "error") return { text: "Check failed", cls: "critical" };
-  if (status === "needs_review") return { text: "Needs review", cls: "open" };
+  // needs_review is set only when no GRN at all has been raised against
+  // this PO yet (see check-invoice-match/index.ts) -- "GRN Pending" says
+  // exactly that, rather than the vaguer "Needs review".
+  if (status === "needs_review") return { text: "GRN Pending", cls: "open" };
   if (status === "matched") return { text: "Reconciliation passed", cls: "good" };
 
   // status === "mismatch" -- pick the single most relevant reason. Real

@@ -56,7 +56,7 @@ export const MATCH_STATUS_META = {
   pending: ["Checking…", "muted"],
   matched: ["Matches PO/GRN", "good"],
   mismatch: ["Mismatch found", "critical"],
-  needs_review: ["Needs review", "open"],
+  needs_review: ["GRN Pending", "open"],
   error: ["Check failed", "critical"],
 };
 
