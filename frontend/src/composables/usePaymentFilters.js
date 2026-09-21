@@ -4,15 +4,11 @@
 // resolveVendorLabel is optional -- pass it (admin.html) to enable the
 // Vendor column/filter; omit it (vendor.html, already scoped to one
 // vendor) and vendor filtering/fields are simply not part of the mix.
-//
-// isInternalStaff controls how specific the reconciliation label (and
-// therefore the filter dropdown built from it) gets -- see
-// reconciliation.js. Defaults false; admin.html passes true explicitly.
 import { reactive, computed } from "vue";
 import { fmtMoney, fmtDateOnly, paymentStatusLabel } from "../format.js";
 import { reconciliationLabel } from "../reconciliation.js";
 
-export function usePaymentFilters(rows, resolveVendorLabel, isInternalStaff = false) {
+export function usePaymentFilters(rows, resolveVendorLabel) {
   const filters = reactive({
     search: "", vendor: "", poCode: "", invoiceNumber: "",
     invoiceValue: "", grnValue: "", dueDate: "", reconciliation: "", paymentStatus: "",
@@ -26,7 +22,7 @@ export function usePaymentFilters(rows, resolveVendorLabel, isInternalStaff = fa
       invoiceValue: fmtMoney(row.match_details?.invoice_value ?? null),
       grnValue: fmtMoney(row.match_details?.grn_value ?? null),
       dueDate: fmtDateOnly(row.match_details?.invoice_due_date || null),
-      reconciliation: reconciliationLabel(row, isInternalStaff).text,
+      reconciliation: reconciliationLabel(row).text,
       paymentStatus: paymentStatusLabel(row.payment_status),
     };
   }
@@ -47,10 +43,21 @@ export function usePaymentFilters(rows, resolveVendorLabel, isInternalStaff = fa
     return true;
   }
 
-  const filteredSorted = computed(() => rows.value.filter(matches));
+  // Problem cases surface first (an in-progress check is grouped in here
+  // too -- it's as unresolved as a real mismatch), then GRN Pending, with
+  // fully reconciled invoices last -- Kalrav's explicit call, same order
+  // for every role. Native Array#sort is a stable sort, so rows within
+  // the same group keep their existing (created_at-desc) order.
+  const STATUS_SORT_PRIORITY = { mismatch: 0, error: 0, pending: 0, needs_review: 1, matched: 2 };
+  function statusSortPriority(row) {
+    return STATUS_SORT_PRIORITY[row.match_status] ?? 0;
+  }
+
+  const filteredSorted = computed(() =>
+    rows.value.filter(matches).sort((a, b) => statusSortPriority(a) - statusSortPriority(b)));
 
   const reconciliationOptions = computed(() =>
-    [...new Set(rows.value.map((r) => reconciliationLabel(r, isInternalStaff).text))].sort());
+    [...new Set(rows.value.map((r) => reconciliationLabel(r).text))].sort());
 
   const paymentStatusOptions = computed(() =>
     [...new Set(rows.value.map((r) => paymentStatusLabel(r.payment_status)))].sort());
