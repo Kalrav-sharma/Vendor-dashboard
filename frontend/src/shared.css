@@ -248,12 +248,59 @@ tbody tr:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); 
 .cell-open { background: var(--open-soft); color: var(--open); font-weight: 600; }
 .cell-critical { background: var(--critical-soft); color: var(--critical); font-weight: 600; }
 
+/* DOI heatmap (S&OP > UC App + PLS > DOI) -- the same three .cell-* tints, but
+   drawn as inset rounded tiles instead of full-bleed cell fills, so the matrix
+   reads as a grid of colour rather than a striped table. The tint lives on the
+   inner .doi-pill, which is why .doi-cell drops its own padding and hairline:
+   a border-bottom drawn across a tinted cell cuts every tile in half. An
+   untinted pill (null DOI -- no sales in the DRR window, so the ratio is
+   undefined) falls through to no background and muted text. */
+/* Fixed layout so the six SKU columns split the leftover width evenly. Under the
+   default auto layout the facility column absorbed every spare pixel and squeezed
+   the tiles into a thin strip down the right-hand edge -- the .num-c width:1% that
+   works for ordinary numeric columns works against a heatmap, where the tile IS
+   the thing being looked at. */
+.doi-table { table-layout: fixed; }
+.doi-table th.doi-facility { width: 230px; }
+.doi-table th.num-c { width: auto; }
+.doi-cell { padding: 3px; border-bottom: none; }
+td.doi-facility { white-space: nowrap; }
+.doi-pill {
+  display: block; border-radius: 8px; padding: 10px 6px; text-align: center;
+  font-weight: 600; font-size: 0.95rem; font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+/* .doi-pill is declared after .cell-* above, so its muted default would otherwise
+   win the cascade on equal specificity and grey out every banded number. These
+   two-class selectors hand the colour back to the band. */
+.doi-pill.cell-good { color: var(--good); }
+.doi-pill.cell-open { color: var(--open); }
+.doi-pill.cell-critical { color: var(--critical); }
+/* Facility names stay put if a narrow window makes the matrix scroll -- the
+   global table { min-width: 920px } means it can. The header cell needs the
+   higher z-index so it wins over the body cells sliding under it. */
+.doi-facility { position: sticky; left: 0; background: var(--surface); z-index: 1; }
+th.doi-facility { background: var(--paper); z-index: 2; }
+
+/* Legend strip along the bottom of a .table-card, pairing chip swatches with
+   what each colour means -- the counterpart to .card-caption at the top. */
+.card-legend {
+  display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+  padding: 10px 12px; border-top: 1px solid var(--line);
+  font-size: 0.72rem; color: var(--muted);
+}
+.card-legend .chip { margin-left: 6px; }
+.card-legend .chip:first-child { margin-left: 0; }
+.legend-note { margin-left: 8px; }
+
 /* Section heading used by every sop/*.vue tab -- replaces the ~15
    copy-pasted inline style="font-size: 0.95rem; margin: 0 0 10px;" h3s. */
 .section-title { font-size: 0.95rem; font-weight: 600; margin: 0 0 10px; }
 
-/* Grouped-column tables (the two DRR/DOI matrices, where every SKU spans a
-   DRR + DOI pair). Without these the pairs run together as one wall of
+/* Grouped-column tables -- now just Inventory Overview's Channel DRR/DOI
+   matrix, where every SKU spans a DRR + DOI pair (UC App + PLS's facility
+   matrix dropped its DRR columns on 2026-09-21 and is a .doi-pill heatmap
+   now). Without these the pairs run together as one wall of
    numbers and the SKU label sits hard-right over its pair, because th.num
    right-aligns it. .col-group centres the spanning header; .col-sep draws
    the vertical rule that opens each group and runs the full table height;
@@ -265,8 +312,11 @@ tbody tr:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); 
 .num-c { text-align: center; white-space: nowrap; width: 1%; }
 
 /* Card caption -- the small title bar inside a .table-card (dark-store city
-   names, per-scope plan sections). */
+   names, per-scope plan sections, the two DOI heatmaps). The -center modifier
+   is for a card whose caption titles the whole matrix below it rather than
+   labelling a left-aligned first column. */
 .card-caption { font-size: 0.83rem; font-weight: 600; margin: 0; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.card-caption-center { text-align: center; }
 
 /* Heading above one channel/warehouse block in S&OP Planning. */
 .scope-title { font-size: 0.85rem; font-weight: 600; margin: 0 0 4px; text-transform: uppercase; letter-spacing: 0.02em; }

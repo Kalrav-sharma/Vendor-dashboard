@@ -3,13 +3,13 @@
 // between Inventory Overview and Sales: Plan vs Actual. Covers the 5 UC
 // warehouses AND, since 2026-09-16, the individual dark stores within each
 // DTDC/SFX bucket -- on-hand, in-transit (with a toggle to add on-hand back
-// in), and a DRR/DOI health view.
+// in), and a DOI health view.
 //
 // Each DTDC/SFX bucket in "Current Inventory" turned out to be an aggregate
 // label over multiple individual dark stores (confirmed live 2026-09-16,
 // correcting an earlier wrong assumption that only city-aggregated totals
 // existed) -- 21 stores total, 19 of which also have their own "UC sales
-// trackr" DRR block (2 don't, and so have no DRR/DOI row -- see
+// trackr" DRR block (2 don't, and so have no DOI row -- see
 // DARK_STORE_TITLE_COLS in sync_sop_inventory.py).
 //
 // On-hand is live Uniware stock (sop_uniware_inventory, since 2026-09-16) --
@@ -26,7 +26,9 @@ const DARK_STORE_CITIES = ["DTDC Bangalore", "DTDC Gurgaon", "DTDC Kolkata", "SF
 const VIEWS = [
   { key: "on-hand", label: "On hand Inventory" },
   { key: "in-transit", label: "In-transit" },
-  { key: "drr-doi", label: "DRR / DOI" },
+  // Key stays "drr-doi" (it's only an internal id); the label dropped "DRR /"
+  // on 2026-09-21 when the DRR columns moved to a per-cell tooltip.
+  { key: "drr-doi", label: "DOI" },
 ];
 const IN_TRANSIT_MODES = [
   { key: "in_transit", label: "In-Transit only" },
@@ -83,31 +85,51 @@ const darkStoreTables = computed(() => DARK_STORE_CITIES.map(city => {
   return { city, ...buildMatrix(stores, "store", cityRows, "on_hand") };
 }));
 
-// DRR/DOI: warehouses first, then all dark stores that have a block (facility names already say
-// which city they're in, e.g. "PB-UC-BLR-NERALURU").
-const drrDoiTable = computed(() => {
-  const byKey = Object.fromEntries(facilityDrrDoiRows.value.map(r => [`${r.facility}|${r.sku}`, r]));
-  const darkStoreNames = [...new Set(
-    facilityDrrDoiRows.value.filter(r => r.facility_type === "DARK_STORE").map(r => r.facility),
-  )].sort();
-  return [...WAREHOUSES, ...darkStoreNames].map(name => ({
-    name,
-    isDarkStore: darkStoreNames.includes(name),
-    cells: SKUS.map(s => byKey[`${name}|${s}`]),
-  }));
-});
+// DOI heatmap: split into two cards (2026-09-21, per Anish) because warehouses and
+// dark stores are scored on different bands -- one shared legend would have had to
+// describe two scales at once. Facility names already say which city they're in
+// (e.g. "PB-UC-BLR-NERALURU"), so neither card needs a city column.
+const doiByKey = computed(() =>
+  Object.fromEntries(facilityDrrDoiRows.value.map(r => [`${r.facility}|${r.sku}`, r])));
 
-// Red-only, per Anish (2026-09-16): colour here means "needs attention" and nothing else -- no
-// green at any value, because a healthy DOI doesn't need to shout. Warehouses flag below 15 days,
-// dark stores below 10 (they restock far more often, so a lower cover is normal for them).
-function doiClass(row) {
-  if (!row || row.doi == null) return "";
-  const floor = row.facility_type === "DARK_STORE" ? 10 : 15;
-  return row.doi < floor ? "cell-critical" : "";
+function doiRowsFor(names) {
+  return names.map(name => ({ name, cells: SKUS.map(s => doiByKey.value[`${name}|${s}`]) }));
 }
+
+const warehouseDoiRows = computed(() => doiRowsFor(WAREHOUSES));
+const darkStoreDoiRows = computed(() => doiRowsFor([...new Set(
+  facilityDrrDoiRows.value.filter(r => r.facility_type === "DARK_STORE").map(r => r.facility),
+)].sort()));
+
+// Green/amber/red bands, per Anish (2026-09-21), replacing the red-only scheme this
+// view launched with on 2026-09-16: healthy cover is now stated outright rather than
+// implied by the absence of red. Dark stores restock far more often than warehouses,
+// so their whole band sits lower (5/10 vs 15/30).
+//
+// A null DOI (no sales at all in the DRR window, so the ratio is undefined) stays
+// deliberately uncoloured: stock with zero recorded demand is infinite cover
+// arithmetically, but painting it green would hide a dead SKU behind the best colour
+// on the card.
+function doiBand(row, isDarkStore) {
+  if (!row || row.doi == null) return "";
+  const [floor, target] = isDarkStore ? [5, 10] : [15, 30];
+  if (row.doi < floor) return "cell-critical";
+  if (row.doi <= target) return "cell-open";
+  return "cell-good";
+}
+// Always one decimal, even on a whole number: a column mixing "9" and "23.6" reads
+// as two different precisions when it's really one.
 function doiText(row) {
-  if (!row) return "–";
-  return row.doi == null ? "–" : (Math.round(row.doi * 10) / 10).toLocaleString("en-IN");
+  if (!row || row.doi == null) return "–";
+  return row.doi.toLocaleString("en-IN", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+}
+// The DRR that produced this DOI, plus the on-hand it divided -- kept on hover now
+// that the DRR columns are gone. One decimal, not fmt()'s integer rounding: plenty of
+// per-facility DRRs sit under 1/day and would render as a useless "0/day".
+function doiTooltip(row) {
+  if (!row) return "";
+  const drr = (Math.round((row.drr || 0) * 10) / 10).toLocaleString("en-IN");
+  return `DRR ${drr}/day · on-hand ${fmt(row.on_hand)}`;
 }
 
 const kpiTiles = computed(() => [
@@ -205,37 +227,66 @@ const kpiTiles = computed(() => [
   </div>
 
   <div v-show="activeView === 'drr-doi'">
-    <h3 class="section-title" style="margin-bottom: 6px;">Warehouse &amp; dark-store DRR / DOI</h3>
-    <p class="field-hint" style="margin: 0 0 10px;">
-      DRR: trailing 10-day average (warehouses) / 15-day average (dark stores) direct sales. DOI: on-hand / DRR.
-      Only low cover is flagged:
-      <span class="chip chip-critical" style="margin-left: 6px;">warehouse DOI &lt; 15</span>
-      <span class="chip chip-critical" style="margin-left: 4px;">dark store DOI &lt; 10</span>
+    <h3 class="section-title" style="margin-bottom: 6px;">Days of inventory</h3>
+    <p class="field-hint" style="margin: 0 0 14px;">
+      DOI: on-hand / DRR, where DRR is a trailing 10-day average (warehouses) or 15-day average
+      (dark stores) of that facility's own direct sales. Hover any cell for its DRR and on-hand.
     </p>
-    <div class="table-card"><div class="table-scroll">
-      <table>
-        <thead>
-          <tr>
-            <th rowspan="2">Facility</th>
-            <th v-for="s in SKUS" :key="s" colspan="2" class="col-group">{{ s }}</th>
-          </tr>
-          <tr>
-            <template v-for="s in SKUS" :key="s">
-              <th class="num-c col-sep">DRR</th>
-              <th class="num-c">DOI</th>
-            </template>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="r in drrDoiTable" :key="r.name">
-            <td :class="r.isDarkStore ? 'fac-code' : ''"><b v-if="!r.isDarkStore">{{ r.name }}</b><template v-else>{{ r.name }}</template></td>
-            <template v-for="(c, i) in r.cells" :key="i">
-              <td class="num-c mono col-sep">{{ c ? fmt(c.drr) : "–" }}</td>
-              <td class="num-c mono" :class="doiClass(c)">{{ doiText(c) }}</td>
-            </template>
-          </tr>
-        </tbody>
-      </table>
-    </div></div>
+
+    <div class="table-card" style="margin-bottom: 20px;">
+      <h4 class="card-caption card-caption-center">UC Warehouses — {{ warehouseDoiRows.length }}</h4>
+      <div class="table-scroll">
+        <table class="doi-table">
+          <thead>
+            <tr>
+              <th class="doi-facility">Facility</th>
+              <th v-for="s in SKUS" :key="s" class="num-c">{{ s }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="r in warehouseDoiRows" :key="r.name">
+              <td class="doi-facility"><b>{{ r.name }}</b></td>
+              <td v-for="(c, i) in r.cells" :key="i" class="doi-cell">
+                <span class="doi-pill" :class="doiBand(c, false)" :title="doiTooltip(c)">{{ doiText(c) }}</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="card-legend">
+        <span class="chip chip-good">&gt; 30</span> healthy
+        <span class="chip chip-open">15–30</span> watch
+        <span class="chip chip-critical">&lt; 15</span> low
+        <span class="legend-note">– = no sales in the window</span>
+      </div>
+    </div>
+
+    <div class="table-card">
+      <h4 class="card-caption card-caption-center">Dark Stores — {{ darkStoreDoiRows.length }}</h4>
+      <div class="table-scroll">
+        <table class="doi-table">
+          <thead>
+            <tr>
+              <th class="doi-facility">Facility</th>
+              <th v-for="s in SKUS" :key="s" class="num-c">{{ s }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="r in darkStoreDoiRows" :key="r.name">
+              <td class="doi-facility fac-code">{{ r.name }}</td>
+              <td v-for="(c, i) in r.cells" :key="i" class="doi-cell">
+                <span class="doi-pill" :class="doiBand(c, true)" :title="doiTooltip(c)">{{ doiText(c) }}</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="card-legend">
+        <span class="chip chip-good">&gt; 10</span> healthy
+        <span class="chip chip-open">5–10</span> watch
+        <span class="chip chip-critical">&lt; 5</span> low
+        <span class="legend-note">– = no sales in the window</span>
+      </div>
+    </div>
   </div>
 </template>
