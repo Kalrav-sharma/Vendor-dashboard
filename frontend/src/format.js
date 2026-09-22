@@ -109,6 +109,30 @@ export function dtdcStatusClass(statusType) {
   return (DTDC_STATUS_META[(statusType || "").toLowerCase()] || [null, "muted"])[1];
 }
 
+// Lets Transport (tracked via Softpal's TrackingApiCommon_Softpal API)'s
+// shipment_tracking.status_type -- same reasoning as DTDC_STATUS_META
+// above: Softpal DOES return a short status_code at the header level
+// (e.g. "OFD"), but only 2 codes have been observed so far and historical
+// scan entries don't carry one at all, so this keys on the free-text
+// current_status_name instead, for full and consistent coverage. Only
+// these 5 are confirmed so far (see scripts/sync_lets_transport_tracking.py)
+// -- add other known values here as they're observed.
+export const LETS_TRANSPORT_STATUS_META = {
+  "shipment booked": ["Booked", "muted"],
+  "in transit": ["In transit", "open"],
+  "arrived hub": ["Arrived hub", "open"],
+  "out for delivery": ["Out for delivery", "open"],
+  delivered: ["Delivered", "good"],
+};
+
+export function letsTransportStatusLabel(statusType) {
+  return (LETS_TRANSPORT_STATUS_META[(statusType || "").toLowerCase()] || [statusType || "Not tracked", "muted"])[0];
+}
+
+export function letsTransportStatusClass(statusType) {
+  return (LETS_TRANSPORT_STATUS_META[(statusType || "").toLowerCase()] || [null, "muted"])[1];
+}
+
 // Payment status on a po_invoice_uploads row -- same [label, chip color]
 // pattern as STATUS_META above. Deliberately only two real states: an
 // invoice has either been settled or it hasn't, and nothing in between is

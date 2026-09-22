@@ -1,0 +1,32 @@
+name: Sync Lets Transport shipment tracking
+
+# Polls Softpal's tracking API (Lets Transport's tracking is white-labelled
+# through Softpal) for every non-terminal AWB in po_item_shipments with
+# courier='letstransport' and refreshes shipment_tracking. Runs every 30
+# minutes, same cadence as the Bluedart/DTDC syncs. "Run workflow" in the
+# Actions tab also works, for an immediate on-demand refresh.
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - run: pip install -r requirements.txt
+
+      - run: python scripts/sync_lets_transport_tracking.py
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          LETS_TRANSPORT_HOST_ID: ${{ secrets.LETS_TRANSPORT_HOST_ID }}

@@ -5,6 +5,7 @@ import { fmtNum, fmtDateOnly, fmtDate } from "../format.js";
 import SummaryKpis from "./SummaryKpis.vue";
 import BluedartStatusChip from "./BluedartStatusChip.vue";
 import DtdcStatusChip from "./DtdcStatusChip.vue";
+import LetsTransportStatusChip from "./LetsTransportStatusChip.vue";
 
 const props = defineProps({
   rows: { type: Array, required: true },        // mix of kind: "pending" (po_items row, awaiting dispatch) and
@@ -30,6 +31,7 @@ const props = defineProps({
 const COURIER_OPTIONS = [
   { value: "bluedart", label: "Bluedart" },
   { value: "dtdc", label: "DTDC" },
+  { value: "letstransport", label: "Lets Transport" },
 ];
 const awbInputs = reactive({});     // "po|sku" -> typed AWB/Tracking ID, mandatory
 const courierInputs = reactive({}); // "po|sku" -> selected courier, defaults to Bluedart
@@ -64,9 +66,9 @@ function isOverdue(row) {
 
 // Buckets a shipped row's courier-specific status_type into one of the
 // three KPI tiles below -- each courier has its own status vocabulary
-// (Bluedart: short codes; DTDC: free text), so this is the one place that
-// needs to know both, rather than spreading courier-specific checks
-// across the KPI computation itself.
+// (Bluedart: short codes; DTDC and Lets Transport: free text), so this is
+// the one place that needs to know all three, rather than spreading
+// courier-specific checks across the KPI computation itself.
 function trackingBucket(row) {
   const status = row.tracking?.status_type;
   if (row.courier === "bluedart") {
@@ -76,6 +78,10 @@ function trackingBucket(row) {
   } else if (row.courier === "dtdc") {
     const s = (status || "").toLowerCase();
     if (["in transit", "out for delivery", "pickup awaited"].includes(s)) return "in_transit";
+    if (s === "delivered") return "delivered";
+  } else if (row.courier === "letstransport") {
+    const s = (status || "").toLowerCase();
+    if (["shipment booked", "in transit", "arrived hub", "out for delivery"].includes(s)) return "in_transit";
     if (s === "delivered") return "delivered";
   }
   return null;
@@ -245,6 +251,7 @@ async function handleCancelPlan(row) {
 
           <td v-if="row.kind === 'shipped' && row.courier === 'bluedart'"><BluedartStatusChip :status-type="row.tracking?.status_type" /></td>
           <td v-else-if="row.kind === 'shipped' && row.courier === 'dtdc'"><DtdcStatusChip :status-type="row.tracking?.status_type" /></td>
+          <td v-else-if="row.kind === 'shipped' && row.courier === 'letstransport'"><LetsTransportStatusChip :status-type="row.tracking?.status_type" /></td>
           <td v-else-if="row.kind === 'shipped'">{{ row.tracking?.status_text || row.tracking?.status_type || "–" }}</td>
           <td v-else class="cell-empty">Awaiting dispatch</td>
 

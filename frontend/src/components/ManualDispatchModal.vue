@@ -12,6 +12,7 @@ const props = defineProps({
 const COURIER_OPTIONS = [
   { value: "bluedart", label: "Bluedart" },
   { value: "dtdc", label: "DTDC" },
+  { value: "letstransport", label: "Lets Transport" },
 ];
 
 const poCodeInput = ref("");

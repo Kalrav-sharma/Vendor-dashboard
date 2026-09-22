@@ -422,7 +422,7 @@ create index if not exists po_item_shipments_awb_idx on public.po_item_shipments
 
 -- po_item_shipments already existed before DTDC support -- these two
 -- statements retroactively add the courier column on an already-deployed
--- database (no-op if already there). 'bluedart' | 'dtdc', which tracking
+-- database (no-op if already there). 'bluedart' | 'dtdc' | 'letstransport', which tracking
 -- API owns this AWB -- the default backfills the Bluedart-only rows
 -- created before DTDC existed; every new row sets it explicitly
 -- (Dispatch Planning's courier dropdown -- see confirm_dispatched()).
@@ -463,7 +463,7 @@ create policy po_item_shipments_select on public.po_item_shipments
 -- ---------------------------------------------------------------------
 create table if not exists public.shipment_tracking (
   awb_number text not null,
-  courier text not null default 'bluedart',  -- 'bluedart' | 'dtdc'
+  courier text not null default 'bluedart',  -- 'bluedart' | 'dtdc' | 'letstransport'
   vendor_code text,
   status_type text,          -- the courier's own raw status code
   status_text text,          -- human-readable status, e.g. "In Transit. Await delivery information"
@@ -554,8 +554,8 @@ begin
     raise exception 'AWB/Tracking ID is required';
   end if;
 
-  if p_courier not in ('bluedart', 'dtdc') then
-    raise exception 'courier must be one of: bluedart, dtdc';
+  if p_courier not in ('bluedart', 'dtdc', 'letstransport') then
+    raise exception 'courier must be one of: bluedart, dtdc, letstransport';
   end if;
 
   select vendor_code, pending_quantity, estimated_dispatch_qty, estimated_dispatch_date
@@ -631,8 +631,8 @@ begin
     raise exception 'AWB/Tracking ID is required';
   end if;
 
-  if p_courier not in ('bluedart', 'dtdc') then
-    raise exception 'courier must be one of: bluedart, dtdc';
+  if p_courier not in ('bluedart', 'dtdc', 'letstransport') then
+    raise exception 'courier must be one of: bluedart, dtdc, letstransport';
   end if;
 
   if p_dispatched_qty is null or p_dispatched_qty <= 0 then
