@@ -62,7 +62,7 @@ WAREHOUSE_FACILITY_CODES = {
     'Kolkata': ['PB-UC-KOL', 'PB-UC-KOL-PANCHLA'],
 }
 
-# Individual dark store -> the DTDC/SFX bucket it rolls into. Deliberately the 27
+# Individual dark store -> the DTDC/SFX bucket it rolls into. Deliberately the
 # stores the business already tracks, NOT every dark store Uniware exposes -- per
 # Anish, so the totals stay comparable to what the portal has always shown. Order
 # and bucket labels mirror the "Current Inventory" tab's own rows 37-63.
@@ -97,6 +97,21 @@ DARK_STORE_FACILITIES = {
     'PB-UC-BOM-MALAD-WEST': 'SFX Mumbai',
     'PB-UC-BOM-MALAD-EAST': 'SFX Mumbai',
     'PB-UC-HYD-MANIKONDA': 'SFX Hyderabad',
+}
+
+# The "SFX MFCs" section added to the sheet on 2026-09-22. Held OUT of the roster above, and
+# therefore out of ALL_UNIWARE_FACILITIES, because the Uniware login behind the UNIWARE_USERNAME
+# GitHub secret cannot read inventory at these facilities: inventorySnapshot/get answers
+# "HTTP 403 Access denied, access resource LOOKUP_INVENTORY is needed". sync_uniware_inventory.py
+# treats one unreachable facility as fatal on purpose (a silently missing store understates its
+# city and reads as a stockout), so including them took the whole S&OP section's snapshot down --
+# observed live in workflow run #178.
+#
+# Anish's own login CAN read them, so this is a per-account grant, not a missing facility. Once
+# LOOKUP_INVENTORY is granted to the CI account for these six, merge this dict into
+# DARK_STORE_FACILITIES above and delete it -- nothing else needs changing: the bucket list, the
+# Uniware pull and both frontend tables all follow from that one dict.
+SFX_MFC_FACILITIES_PENDING_ACCESS = {
     'PB-UC-SFX-CHENNAI': 'SFX MFCs',
     'PB-UC-SFX-JAIPUR': 'SFX MFCs',
     'PB-UC-SFX-BHOPAL': 'SFX MFCs',

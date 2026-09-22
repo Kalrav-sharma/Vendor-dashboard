@@ -80,12 +80,15 @@ function buildMatrix(rowLabels, rowKey, rows, valueKey) {
 const onHandMatrix = computed(() => buildMatrix(WAREHOUSES, "warehouse", warehouseRows.value, "on_hand"));
 const inTransitMatrix = computed(() => buildMatrix(WAREHOUSES, "warehouse", warehouseRows.value, inTransitMode.value));
 
-// One table per DTDC/SFX city, listing that city's individual dark stores.
+// One table per DTDC/SFX city, listing that city's individual dark stores. A city with no
+// stores yet is skipped rather than drawn as a card with nothing but a zero Total row -- that
+// lets a bucket be listed here before its facilities go live (as "SFX MFCs" is, pending a
+// Uniware access grant) and appear on its own once rows start arriving.
 const darkStoreTables = computed(() => DARK_STORE_CITIES.map(city => {
   const cityRows = darkStoreRows.value.filter(r => r.city === city);
   const stores = [...new Set(cityRows.map(r => r.store))].sort();
-  return { city, ...buildMatrix(stores, "store", cityRows, "on_hand") };
-}));
+  return { city, stores, ...buildMatrix(stores, "store", cityRows, "on_hand") };
+}).filter(t => t.stores.length > 0));
 
 // DOI heatmap: split into two cards (2026-09-21, per Anish) because warehouses and
 // dark stores are scored on different bands -- one shared legend would have had to

@@ -58,6 +58,10 @@ from sop_common import (  # noqa: E402
 UNIWARE_BASE_URL = "https://urbanclap.unicommerce.com"
 INVENTORY_PATH = "/services/rest/v1/inventory/inventorySnapshot/get"
 
+# Uniware's "Could not find any any items" [sic] -- no stock of the requested SKUs at that
+# facility, which is an answer, not a failure. See fetch_facility_inventory below.
+EMPTY_FACILITY_ERROR_CODE = 60004
+
 AUTH_RETRY_ATTEMPTS = 3
 AUTH_RETRY_BACKOFF_SECONDS = 5      # doubles each attempt: 5s, 10s
 # The call is ~0.1s, so retrying is nearly free -- be patient rather than clever.
@@ -130,9 +134,19 @@ def fetch_facility_inventory(token, facility):
         raise RuntimeError(f"inventorySnapshot/get failed (HTTP {resp.status_code}): {resp.text[:300]}")
     payload = resp.json()
     # Uniware answers 200 with successful:false for application-level problems (an unknown facility
-    # code, say), which would otherwise read as "this facility has no stock".
+    # code, say), which would otherwise read as "this facility has no stock" -- except for error
+    # 60004 / INVENTORY_NOT_AVAILABLE, which means exactly that and nothing more: the facility is
+    # fine, it just holds none of the SKUs we asked about. A brand-new dark store answers this way
+    # until its first stock arrives, and treating it as fatal would take the whole snapshot down
+    # over a facility that is working perfectly (three of the six SFX MFCs answered this way on
+    # 2026-09-22).
     if not payload.get("successful", False):
-        raise RuntimeError(f"inventorySnapshot/get reported failure: {str(payload)[:300]}")
+        codes = {e.get("code") for e in (payload.get("errors") or [])}
+        if codes != {EMPTY_FACILITY_ERROR_CODE}:
+            raise RuntimeError(f"inventorySnapshot/get reported failure: {str(payload)[:300]}")
+        print(f"NOTE: {facility} holds none of our SKUs -- recording it as zero stock.",
+              file=sys.stderr)
+        return {sku: 0.0 for sku in UNIWARE_SKU_MAP.values()}
 
     by_sku = {sku: 0.0 for sku in UNIWARE_SKU_MAP.values()}
     matched = 0
