@@ -16,7 +16,7 @@ import SummaryKpis from "../SummaryKpis.vue";
 const SKUS = ["M0", "M1-2nd Gen", "M1 Pro", "M2 Pro", "M3", "M3 Pro"];
 const CHANNELS = [
   "UC App+PLS", "Amazon", "Flipkart", "DTDC Bangalore", "DTDC Gurgaon",
-  "DTDC Kolkata", "SFX Mumbai", "SFX Hyderabad", "MT",
+  "DTDC Kolkata", "SFX Mumbai", "SFX Hyderabad", "SFX MFCs", "MT",
 ];
 const DRR_DOI_CHANNELS = ["UC App+PLS", "Amazon", "Flipkart", "MT"];
 

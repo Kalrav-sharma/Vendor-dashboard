@@ -1136,7 +1136,7 @@ create policy sop_uniware_inventory_select on public.sop_uniware_inventory
 -- view, individual dark-store rows shown below the 5 warehouses (city
 -- grouping: DTDC Bangalore/Gurgaon/Kolkata, SFX Mumbai/Hyderabad). Each
 -- DTDC/SFX bucket in "Current Inventory" is actually an aggregate label
--- over multiple individual dark stores (21 as of 2026-09-16, confirmed
+-- over multiple individual dark stores (27 as of 2026-09-22, confirmed
 -- live -- corrects an earlier wrong assumption that only city-aggregated
 -- totals existed). Rolled up from sop_uniware_inventory by
 -- build_uniware_on_hand() in sync_sop_inventory.py; DARK_STORE_FACILITIES in
@@ -1163,8 +1163,10 @@ create policy sop_dark_store_inventory_select on public.sop_dark_store_inventory
 -- sop_facility_drr_doi — "UC App + PLS" tab's warehouse AND dark-store
 -- DRR/DOI health view. facility_type 'WAREHOUSE' rows use a 10-day DRR
 -- lookback; 'DARK_STORE' rows use 15 days (per Anish) and only exist for
--- the 19 of 21 dark stores that have their own "UC sales trackr" block
--- (2 don't -- see DARK_STORE_TITLE_COLS in sync_sop_inventory.py). DRR =
+-- those dark stores that have their own "UC sales trackr" block (a store
+-- without one gets on-hand but no DRR/DOI; the blocks are discovered from
+-- the sheet's own header row by find_trackr_title_cols in sop_common.py,
+-- not from a hardcoded column table). DRR =
 -- trailing N-day average from "UC sales trackr"'s per-facility Actual
 -- Sales blocks (parse_uc_sales_trackr_facility_block in sop_common.py);
 -- DOI = simple on_hand/DRR ratio (not a forward-series walk, unlike
