@@ -582,6 +582,7 @@ def main():
                     "sales_expected": r["sales_expected"], "projected_closing": r["projected_closing"],
                     "target_closing": doi["target"], "required_dispatch": doi["required_dispatch"],
                     "status": doi["status"],
+                    "worst_warehouses": None,  # PostgREST bulk insert needs identical keys on every row
                     "projected_doi": r["projected_doi"] if isinstance(r["projected_doi"], (int, float)) else None,
                     "projected_doi_flag": r["projected_doi"] if isinstance(r["projected_doi"], str) else None,
                 })
