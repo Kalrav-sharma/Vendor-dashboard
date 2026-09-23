@@ -69,6 +69,14 @@ function isOverdue(row) {
 // (Bluedart: short codes; DTDC and Lets Transport: free text), so this is
 // the one place that needs to know all three, rather than spreading
 // courier-specific checks across the KPI computation itself.
+// Actual delivery date/time -- the newest scan IS the delivery event once
+// a shipment reaches "delivered" (that's exactly why the sync scripts
+// stop polling it), so last_scan_at at that point already is the actual
+// delivery timestamp. No separate field/column needed anywhere upstream.
+function deliveredAt(row) {
+  return trackingBucket(row) === "delivered" ? row.tracking?.last_scan_at : null;
+}
+
 function trackingBucket(row) {
   const status = row.tracking?.status_type;
   if (row.courier === "bluedart") {
@@ -187,7 +195,7 @@ async function handleCancelPlan(row) {
           <th v-if="vendorOptions">Vendor</th>
           <th>PO code</th><th>SKU</th><th>Item</th>
           <th class="num">Qty</th><th>Dispatch date</th>
-          <th>AWB / Tracking ID</th><th>Courier</th><th>Status</th><th>Route</th><th>Expected delivery</th><th>Last scan</th>
+          <th>AWB / Tracking ID</th><th>Courier</th><th>Status</th><th>Route</th><th>Expected delivery</th><th>Actual delivery</th><th>Last scan</th>
           <th v-if="allowConfirmDispatch"></th>
         </tr>
         <tr class="filter-row">
@@ -219,13 +227,13 @@ async function handleCancelPlan(row) {
               <option value="RL">Redirected</option>
             </select>
           </td>
-          <td></td><td></td><td></td>
+          <td></td><td></td><td></td><td></td>
           <td v-if="allowConfirmDispatch"></td>
         </tr>
       </thead>
       <tbody>
         <tr v-if="!rows.length">
-          <td :colspan="(vendorOptions ? 12 : 11) + (allowConfirmDispatch ? 1 : 0)" class="empty-state">Nothing here yet -- rows appear once a vendor fills in an estimated dispatch date and quantity for a SKU, and stay once dispatched with their live shipment status.</td>
+          <td :colspan="(vendorOptions ? 13 : 12) + (allowConfirmDispatch ? 1 : 0)" class="empty-state">Nothing here yet -- rows appear once a vendor fills in an estimated dispatch date and quantity for a SKU, and stay once dispatched with their live shipment status.</td>
         </tr>
         <tr v-for="row in rows" :key="keyFor(row)">
           <td v-if="vendorOptions">{{ vendorLabel(row.vendor_code) }}</td>
@@ -259,6 +267,9 @@ async function handleCancelPlan(row) {
           <td v-else class="cell-empty">–</td>
 
           <td v-if="row.kind === 'shipped'" class="mono">{{ row.tracking?.expected_delivery_date ? fmtDateOnly(row.tracking.expected_delivery_date) : "–" }}</td>
+          <td v-else class="cell-empty">–</td>
+
+          <td v-if="row.kind === 'shipped'" class="mono">{{ deliveredAt(row) ? fmtDate(deliveredAt(row)) : "–" }}</td>
           <td v-else class="cell-empty">–</td>
 
           <td v-if="row.kind === 'shipped'">
