@@ -12,10 +12,11 @@
 // something the model is asked to judge. That keeps the comparison
 // auditable and doesn't depend on an LLM's arithmetic being right.
 //
-// Deliberately a HEADER-LEVEL 3-way check, not a SKU-by-SKU one -- real
+// Deliberately a HEADER-LEVEL check, not a line-by-line one -- real
 // vendor invoices routinely don't print SKU codes at all (just
-// descriptions), which made a line-by-line SKU match produce dozens of
-// false "unmatched line" discrepancies on real invoices. The five checks:
+// descriptions), so the OCR extraction never attempts to attribute any
+// single printed line to a specific SKU; only the invoice's overall
+// totals are read. The five checks:
 //   1. GRN received value vs invoice total -- summed across EVERY GRN
 //      sharing this invoice's number, not just one, since a single
 //      invoice can legitimately cover several GRN batches (goods
@@ -24,12 +25,17 @@
 //      also how the matching GRN(s) are selected in the first place)
 //   3. GRN received qty vs invoice qty (summed from its line quantities),
 //      same combined-GRN basis as check 1
-//   4. Invoice qty/value doesn't exceed this PO's own ordered qty/value
+//   4. Invoice qty/value doesn't exceed what could ever be ordered for
+//      the SKUs actually involved -- once GRN(s) are matched, grn_items
+//      tells us which SKUs those are (a join, not OCR guesswork), so this
+//      compares against THEIR combined po_items qty/value, not the whole
+//      PO's. Before any GRN is matched, falls back to the whole-PO total
+//      as the best available signal.
 //   5. The PO number printed on the invoice matches this PO's code
-// Checks 1 and 3 only run once at least one GRN is found by invoice
-// number (see below) -- without one there's no confirmed receipt to
-// compare against, so the result is "needs_review" rather than a hard
-// pass/fail.
+// Checks 1, 3 and the GRN-scoped half of 4 only run once at least one GRN
+// is found by invoice number (see below) -- without one there's no
+// confirmed receipt to compare against, so the result is "needs_review"
+// rather than a hard pass/fail.
 //
 // Required secrets (Project Settings -> Edge Functions -> Secrets):
 //   ANTHROPIC_API_KEY  -- pay-as-you-go key from console.anthropic.com,
@@ -113,11 +119,13 @@ Deno.serve(async (req) => {
         return await recordResult(adminClient, upload.id, "error", "Couldn't read the uploaded file back from storage.", null);
       }
 
-      const [{ data: po }, { data: grns }] = await Promise.all([
+      const [{ data: po }, { data: grns }, { data: poItems }] = await Promise.all([
         adminClient.from("purchase_orders").select("po_code, total_amount, qty_ordered").eq("po_code", upload.po_code).single(),
         adminClient.from("grns").select("*").eq("po_code", upload.po_code),
+        adminClient.from("po_items").select("item_sku, quantity, total").eq("po_code", upload.po_code),
       ]);
       const grnsList = grns || [];
+      const poItemsList = poItems || [];
 
       let extracted;
       try {
@@ -145,12 +153,12 @@ Deno.serve(async (req) => {
       let grnItems: any[] = [];
       if (matchingGrns.length) {
         const { data } = await adminClient
-          .from("grn_items").select("quantity").in("grn_code", matchingGrns.map((g) => g.grn_code));
+          .from("grn_items").select("quantity, item_sku").in("grn_code", matchingGrns.map((g) => g.grn_code));
         grnItems = data || [];
       }
 
       const { status, summary, discrepancies, referenceLabel } = compareInvoiceToReference(
-        extracted, po, matchingGrns, grnItems, grnsList
+        extracted, po, matchingGrns, grnItems, grnsList, poItemsList
       );
 
       // Many vendor invoices don't print a due date or payment terms at
@@ -269,14 +277,15 @@ function normalizeCode(s: string | null | undefined) {
 }
 
 // Header-level 3-way check -- see the file header comment for the five
-// specific checks. Deliberately not SKU-by-SKU: real vendor invoices
-// routinely skip printing SKU codes at all, which made a line-by-line
-// match produce false "unmatched line" discrepancies on real invoices.
+// specific checks. Deliberately not attributing individual invoice PDF
+// lines to SKUs: real vendor invoices routinely skip printing SKU codes
+// at all. Check 4's SKU-scoped ceiling below still doesn't need that --
+// it gets its SKU set from the GRN join, not from OCR.
 //
 // `grns` is every GRN sharing this invoice's number (can be more than
 // one -- see the caller), compared against their COMBINED value/qty,
 // since a single invoice can legitimately cover several GRN batches.
-function compareInvoiceToReference(extracted: any, po: any, grns: any[], grnItems: any[], allGrns: any[]) {
+function compareInvoiceToReference(extracted: any, po: any, grns: any[], grnItems: any[], allGrns: any[], poItems: any[]) {
   const discrepancies: { type: string; detail: string }[] = [];
   // Flagged for a human to look at, but don't by themselves make this a
   // hard "mismatch" -- each reflects something the check couldn't fully
@@ -343,25 +352,49 @@ function compareInvoiceToReference(extracted: any, po: any, grns: any[], grnItem
     });
   }
 
-  // Check 4: invoice qty/value shouldn't exceed this PO's own ordered
-  // qty/value, regardless of GRN status.
-  if (po?.qty_ordered != null && invoiceQty > 0) {
-    const poQty = Number(po.qty_ordered);
-    const tolerance = Math.max(poQty * 0.01, 1);
-    if (invoiceQty - poQty > tolerance) {
+  // Check 4: invoice qty/value shouldn't exceed what could ever be
+  // ordered for the SKUs actually involved.
+  //
+  // Once GRN(s) are matched, grn_items tells us exactly which SKUs this
+  // invoice covers -- so compare against THEIR combined ordered qty/value,
+  // not the whole PO's. The whole-PO total (used below only as a fallback,
+  // before any GRN is matched) is far too loose a ceiling on a PO with many
+  // SKUs: an invoice can wildly over-state one SKU's quantity and still
+  // sit well under the PO's grand total, because every other SKU's own
+  // (undispatched) quantity is baked into that total too. That's exactly
+  // what happened on PUBM/PO2627/0386 (Kalrav, 2026-09-23): an invoice
+  // overstated one SKU's qty by 600 units, which the whole-PO check
+  // couldn't see (4,650 invoiced vs a 22,450 PO total) but the SKU-scoped
+  // check does (4,650 invoiced vs 4,150 ordered for the SKUs on its GRNs).
+  let qtyCeiling = po?.qty_ordered != null ? Number(po.qty_ordered) : null;
+  let valueCeiling = po?.total_amount != null ? Number(po.total_amount) : null;
+  let ceilingLabel = "this PO's ordered";
+
+  if (hasGrn) {
+    const matchedSkus = new Set(grnItems.map((gi) => gi.item_sku).filter(Boolean));
+    const matchedPoItems = poItems.filter((pi) => matchedSkus.has(pi.item_sku));
+    if (matchedPoItems.length) {
+      qtyCeiling = matchedPoItems.reduce((s, pi) => s + (Number(pi.quantity) || 0), 0);
+      valueCeiling = matchedPoItems.reduce((s, pi) => s + (Number(pi.total) || 0), 0);
+      ceilingLabel = `the SKU(s) on ${grnLabel}'s`;
+    }
+  }
+
+  if (qtyCeiling != null && invoiceQty > 0) {
+    const tolerance = Math.max(qtyCeiling * 0.01, 1);
+    if (invoiceQty - qtyCeiling > tolerance) {
       discrepancies.push({
         type: "qty_exceeds_po",
-        detail: `Invoice qty ${invoiceQty} exceeds this PO's ordered qty ${poQty}.`,
+        detail: `Invoice qty ${invoiceQty} exceeds ${ceilingLabel} qty ${qtyCeiling}.`,
       });
     }
   }
-  if (po?.total_amount != null && invoiceTotal >= 0) {
-    const poTotal = Number(po.total_amount);
-    const tolerance = Math.max(poTotal * 0.01, 5);
-    if (invoiceTotal - poTotal > tolerance) {
+  if (valueCeiling != null && invoiceTotal >= 0) {
+    const tolerance = Math.max(valueCeiling * 0.01, 5);
+    if (invoiceTotal - valueCeiling > tolerance) {
       discrepancies.push({
         type: "value_exceeds_po",
-        detail: `Invoice total ₹${invoiceTotal} exceeds this PO's value ₹${poTotal}.`,
+        detail: `Invoice total ₹${invoiceTotal} exceeds ${ceilingLabel} value ₹${valueCeiling}.`,
       });
     }
   }
