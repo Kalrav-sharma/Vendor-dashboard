@@ -23,6 +23,12 @@ Uniware snapshot -- not from the "Current Inventory" sheet (2026-09-16).
 Amazon / Flipkart / MT are still sheet-parsed: that stock sits in the
 marketplaces' own warehouses, which Uniware can't see.
 
+2026-09-23 -- ported the skill's 2026-09-22 changes: UC App + PLS's status
+carries the warehouse(s) driving it (worst_warehouses); Proj. DOI says
+"insufficient data" instead of ">60" when the forecast runs out first; the
+Production check counts UC on-hand + in-transit as supply alongside
+production (gap = total_available - required).
+
 Credentials: GOOGLE_SERVICE_ACCOUNT_JSON, SUPABASE_URL,
 SUPABASE_SERVICE_ROLE_KEY (all already provisioned, no new secrets).
 """
@@ -44,6 +50,10 @@ CHANNELS = ["UC App + PLS", "Amazon", "Flipkart", "MT"]
 DOI_TARGETS = [30, 15, 7, 0]
 PRODUCTION_LEAD_DAYS = 5
 HORIZON_DAYS = [7, 15, 21, 30, 45, 60, 90]
+# Proj. DOI when the forward walk runs off a channel's own daily-trackr range before 60 days of
+# demand are confirmed -- shown instead of ">60", which would claim more than the data proves
+# (2026-09-23, ported from the skill's 2026-09-22 change). Dispatch plan only.
+DOI_CUTOFF_FLAG = "insufficient data"
 
 WAREHOUSES = ["Bangalore", "Gurgaon", "Hyderabad", "Mumbai", "Kolkata"]
 WH_SPLIT = {"Bangalore": 0.25, "Gurgaon": 0.23, "Hyderabad": 0.23, "Mumbai": 0.20, "Kolkata": 0.09}
@@ -382,21 +392,28 @@ def compute_for_date(ctx, target_ymd, window_days, apply_fixed_targets=False, pr
                           "status": derive_status(target, projected_closing, required_dispatch)}
             projected_doi = compute_forward_doi_from_series(
                 ctx["channel_series"]["UC App + PLS"]["series"], ctx["channel_series"]["UC App + PLS"]["max_date"],
-                target_ymd, sku, projected_closing, WH_SPLIT[wh])
+                target_ymd, sku, projected_closing, WH_SPLIT[wh], cutoff_flag=DOI_CUTOFF_FLAG)
             wh_rows.append({"sku": sku, "warehouse": wh, "on_hand": on_hand, "po_out": po_out,
                             "sales_expected": sales_expected, "projected_closing": projected_closing,
                             "projected_doi": projected_doi, "doi": doi})
 
     status_severity = ["ALREADY SHORT", "NEEDS DISPATCH", "ON TRACK", "N/A"]
-    wh_total_required, wh_total_target, wh_worst_status = {}, {}, {}
+    wh_total_required, wh_total_target, wh_worst_status, wh_worst_warehouses = {}, {}, {}, {}
     for d in DOI_TARGETS:
-        wh_total_required[d], wh_total_target[d], wh_worst_status[d] = {}, {}, {}
+        wh_total_required[d], wh_total_target[d], wh_worst_status[d], wh_worst_warehouses[d] = {}, {}, {}, {}
         for sku in SKUS:
             rows_for_sku = [r for r in wh_rows if r["sku"] == sku]
             wh_total_required[d][sku] = sum(r["doi"][d]["required_dispatch"] for r in rows_for_sku)
             wh_total_target[d][sku] = sum(r["doi"][d]["target"] for r in rows_for_sku)
             statuses = [r["doi"][d]["status"] for r in rows_for_sku]
             wh_worst_status[d][sku] = next((s for s in status_severity if s in statuses), "N/A")
+            # Which warehouse(s) drive that worst status (2026-09-23, ported from the skill's
+            # 2026-09-22 change): UC App + PLS's status is the worst of the 5 warehouses, NOT
+            # derived from its own pooled Projected Closing, so a healthy pooled closing can sit next
+            # to ALREADY SHORT. Naming the warehouse makes that row read as intended, not as a bug.
+            wh_worst_warehouses[d][sku] = (
+                [r["warehouse"] for r in rows_for_sku if r["doi"][d]["status"] == wh_worst_status[d][sku]]
+                if wh_worst_status[d][sku] in ("ALREADY SHORT", "NEEDS DISPATCH") else [])
 
     rows_ = []
     for ch in CHANNELS:
@@ -421,11 +438,12 @@ def compute_for_date(ctx, target_ymd, window_days, apply_fixed_targets=False, pr
                     target = target_closing_by_ch_by_doi[ch][d]["result"][sku]
                 required_dispatch = wh_total_required[d][sku] if is_uc else max(0.0, target - projected_closing)
                 status = wh_worst_status[d][sku] if is_uc else derive_status(target, projected_closing, required_dispatch)
-                doi[d] = {"target": target, "required_dispatch": required_dispatch, "status": status}
+                doi[d] = {"target": target, "required_dispatch": required_dispatch, "status": status,
+                          "worst_warehouses": wh_worst_warehouses[d][sku] if is_uc else []}
 
             projected_doi = compute_forward_doi_from_series(
                 ctx["channel_series"][ch]["series"], ctx["channel_series"][ch]["max_date"],
-                target_ymd, sku, projected_closing)
+                target_ymd, sku, projected_closing, cutoff_flag=DOI_CUTOFF_FLAG)
 
             rows_.append({"sku": sku, "channel": ch, "on_hand": on_hand, "po_in": po_in,
                           "sales_expected": sales_expected, "projected_closing": projected_closing,
@@ -436,13 +454,19 @@ def compute_for_date(ctx, target_ymd, window_days, apply_fixed_targets=False, pr
         total_required_by_doi[d] = {sku: sum(r["doi"][d]["required_dispatch"] for r in rows_ if r["sku"] == sku)
                                      for sku in SKUS}
 
+    # Available supply = UC's own on-hand + in-transit (network-wide, the UC App + PLS row's on_hand)
+    # + production planned in the window -- not production alone (2026-09-23, ported from the
+    # skill's 2026-09-22 change): stock already sitting in or heading to UC is real supply too.
+    uc_on_hand_by_sku = {r["sku"]: r["on_hand"] for r in rows_ if r["channel"] == "UC App + PLS"}
     production_rows_by_doi = {}
     for d in DOI_TARGETS:
         production_rows_by_doi[d] = []
         for sku in SKUS:
             required = total_required_by_doi[d][sku]
             planned = production_planned.get(sku, 0.0)
-            gap = planned - required
+            on_hand_in_transit = uc_on_hand_by_sku.get(sku, 0.0)
+            total_available = on_hand_in_transit + planned
+            gap = total_available - required
             if not has_production_window:
                 status = "N/A"
             elif required == 0:
@@ -452,6 +476,8 @@ def compute_for_date(ctx, target_ymd, window_days, apply_fixed_targets=False, pr
             else:
                 status = "SHORTFALL"
             production_rows_by_doi[d].append({"sku": sku, "required": required, "planned": planned,
+                                              "on_hand_in_transit": on_hand_in_transit,
+                                              "total_available": total_available,
                                               "gap": gap, "status": status})
 
     return {"rows_": rows_, "wh_rows": wh_rows, "production_rows_by_doi": production_rows_by_doi,
@@ -543,6 +569,7 @@ def main():
                     "sales_expected": r["sales_expected"], "projected_closing": r["projected_closing"],
                     "target_closing": doi["target"], "required_dispatch": doi["required_dispatch"],
                     "status": doi["status"],
+                    "worst_warehouses": ", ".join(doi["worst_warehouses"]) or None,
                     "projected_doi": r["projected_doi"] if isinstance(r["projected_doi"], (int, float)) else None,
                     "projected_doi_flag": r["projected_doi"] if isinstance(r["projected_doi"], str) else None,
                 })
@@ -566,7 +593,8 @@ def main():
                 # summing them in the Total.
                 prod_check_rows.append({
                     "run_date": run_date, "view_key": view_key, "doi_target": d, "sku": r["sku"],
-                    "production_planned": r["planned"], "required": r["required"], "gap": r["gap"],
+                    "production_planned": r["planned"], "on_hand_in_transit": r["on_hand_in_transit"],
+                    "total_available": r["total_available"], "required": r["required"], "gap": r["gap"],
                     "status": r["status"],
                 })
 

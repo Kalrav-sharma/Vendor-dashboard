@@ -60,7 +60,7 @@ function fmtRate(n) {
   return n == null ? "–" : (Math.round(n * 10) / 10).toLocaleString("en-IN");
 }
 function fmtDoi(row) {
-  if (row.projected_doi_flag) return row.projected_doi_flag; // ">60"
+  if (row.projected_doi_flag) return row.projected_doi_flag; // ">60" | "insufficient data"
   return row.projected_doi == null ? "–" : (Math.round(row.projected_doi * 10) / 10).toLocaleString("en-IN");
 }
 function addDaysYMD(ymd, days) {
@@ -78,6 +78,11 @@ function dateLabel(ymd) {
   const [y, m, d] = ymd.split("-").map(Number);
   const mon = new Date(Date.UTC(y, m - 1, d)).toLocaleDateString("en-IN", { month: "short", timeZone: "UTC" });
   return `${String(d).padStart(2, "0")}-${mon}-${y}`;
+}
+// UC App + PLS's status is the worst of its 5 warehouses, so name the one(s) driving it -- otherwise
+// ALREADY SHORT next to a healthy pooled Proj. Closing reads like a bug (skill change, 2026-09-22).
+function statusLabel(c) {
+  return c.worst_warehouses ? `${c.status} (${c.worst_warehouses})` : c.status;
 }
 function isPinned(v) {
   return v.startsWith("PINNED_");
@@ -204,7 +209,9 @@ const productionCheckTotal = computed(() => {
   const rows = productionCheckForView.value;
   if (!rows.length) return null;
   return {
+    on_hand_in_transit: rows.reduce((s, r) => s + (r.on_hand_in_transit || 0), 0),
     production_planned: rows.reduce((s, r) => s + (r.production_planned || 0), 0),
+    total_available: rows.reduce((s, r) => s + (r.total_available || 0), 0),
     required: rows.reduce((s, r) => s + (r.required || 0), 0),
     gap: rows.reduce((s, r) => s + (r.gap || 0), 0),
     status: STATUS_SEVERITY.find(s => rows.some(r => r.status === s)) || "N/A",
@@ -281,9 +288,10 @@ const productionCheckTotal = computed(() => {
         <span v-for="(sku, i) in SKUS" :key="sku" class="mono">{{ sku }}={{ fmt(section.cells[i] ? section.cells[i].on_hand : 0) }}<template v-if="i < SKUS.length - 1">&nbsp;</template></span>
       </p>
       <p v-if="section.name === 'UC App + PLS'" class="field-hint" style="margin: 0 0 10px; font-style: italic;">
-        ⚠ Target / Req. Dispatch / Status below are the SUM of each warehouse's own independently
+        † ⚠ Target / Req. Dispatch / Status below are the SUM of each warehouse's own independently
         computed gap &mdash; a surplus in one UC warehouse can't offset a deficit in another without an
-        actual transfer.
+        actual transfer. Status names the warehouse(s) driving it, so it can read ALREADY SHORT even
+        when this row's pooled Proj. Closing looks healthy.
       </p>
       <p v-else-if="isPinned(activeView) && activeScope === 'CHANNEL'" class="field-hint" style="margin: 0 0 10px; font-style: italic;">
         📌 Target Closing here is a live-read committed number for this date (Diwali Sales Plan tab's
@@ -302,9 +310,9 @@ const productionCheckTotal = computed(() => {
               <th class="num">Sales Exp ({{ windowDays }}d)</th>
               <th class="num">Proj. Closing<br><span class="th-sub">{{ dateLabel(targetDateFor(activeView)) }}</span></th>
               <th class="num">Proj. DOI</th>
-              <th class="num">Target ({{ activeDoi }} DOI)</th>
-              <th class="num">Req. Dispatch ({{ activeDoi }} DOI)</th>
-              <th>Status ({{ activeDoi }} DOI)</th>
+              <th class="num">Target ({{ activeDoi }} DOI){{ section.name === "UC App + PLS" ? " †" : "" }}</th>
+              <th class="num">Req. Dispatch ({{ activeDoi }} DOI){{ section.name === "UC App + PLS" ? " †" : "" }}</th>
+              <th>Status ({{ activeDoi }} DOI){{ section.name === "UC App + PLS" ? " †" : "" }}</th>
             </tr>
           </thead>
           <tbody>
@@ -319,7 +327,7 @@ const productionCheckTotal = computed(() => {
                 <td class="num mono">{{ fmtDoi(c) }}</td>
                 <td class="num mono">{{ fmt(c.target_closing) }}</td>
                 <td class="num mono"><b>{{ fmt(c.required_dispatch) }}</b></td>
-                <td><span class="chip" :class="STATUS_CHIP_CLASS[c.status]">{{ c.status }}</span></td>
+                <td><span class="chip" :class="STATUS_CHIP_CLASS[c.status]">{{ statusLabel(c) }}</span></td>
               </template>
               <template v-else><td colspan="9">&#8211;</td></template>
             </tr>
@@ -341,24 +349,35 @@ const productionCheckTotal = computed(() => {
     </div>
 
     <h3 class="section-title">Production check ({{ activeDoi }} DOI)</h3>
+    <p class="field-hint" style="margin: 0 0 10px;">
+      Available supply = UC on-hand + in-transit (network-wide) + production planned in the window;
+      Gap = Total Available − Req. Dispatch.
+    </p>
     <p v-if="productionCheckIsLegacy" class="field-hint" style="margin: 0 0 10px;">
       Showing the last run's figures, which predate per-DOI-target tracking &mdash; they won't change
       with the DOI toggle until the next dispatch-plan sync.
     </p>
     <div class="table-card"><div class="table-scroll">
       <table>
-        <thead><tr><th>SKU</th><th class="num">Planned</th><th class="num">Required</th><th class="num">Gap</th><th>Status</th></tr></thead>
+        <thead><tr>
+          <th>SKU</th><th class="num">On-Hand + In-Transit (UC)</th><th class="num">Production Planned</th>
+          <th class="num">Total Available</th><th class="num">Req. Dispatch (4-chan)</th><th class="num">Gap</th><th>Status</th>
+        </tr></thead>
         <tbody>
           <tr v-for="r in productionCheckForView" :key="r.sku" :class="STATUS_ROW_CLASS[r.status] || ''">
             <td><b>{{ r.sku }}</b></td>
+            <td class="num mono">{{ fmt(r.on_hand_in_transit) }}</td>
             <td class="num mono">{{ fmt(r.production_planned) }}</td>
+            <td class="num mono">{{ fmt(r.total_available) }}</td>
             <td class="num mono">{{ fmt(r.required) }}</td>
             <td class="num mono">{{ fmt(r.gap) }}</td>
             <td><span class="chip" :class="STATUS_CHIP_CLASS[r.status]">{{ r.status }}</span></td>
           </tr>
           <tr v-if="productionCheckTotal" class="row-total">
             <td>Total</td>
+            <td class="num mono">{{ fmt(productionCheckTotal.on_hand_in_transit) }}</td>
             <td class="num mono">{{ fmt(productionCheckTotal.production_planned) }}</td>
+            <td class="num mono">{{ fmt(productionCheckTotal.total_available) }}</td>
             <td class="num mono">{{ fmt(productionCheckTotal.required) }}</td>
             <td class="num mono">{{ fmt(productionCheckTotal.gap) }}</td>
             <td><span class="chip" :class="STATUS_CHIP_CLASS[productionCheckTotal.status]">{{ productionCheckTotal.status }}</span></td>

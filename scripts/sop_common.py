@@ -262,7 +262,7 @@ def add_days_ymd(ymd, days):
 
 
 def compute_forward_doi_from_series(series, max_known_ymd, start_ymd, sku, quantity, rate_multiplier=1.0,
-                                     cap_days=DOI_DISPLAY_CAP_DAYS):
+                                     cap_days=DOI_DISPLAY_CAP_DAYS, cutoff_flag=None):
     """Port of computeForwardDOIFromSeries(): forward walk consuming daily rate until exhausted.
     Returns a float day count if exhausted within cap_days, or the literal string f">{cap_days}"
     otherwise -- whether that's because the walk ran past the series' own known forecast window, or
@@ -271,14 +271,20 @@ def compute_forward_doi_from_series(series, max_known_ymd, start_ymd, sku, quant
     outcome reads better on a leadership-facing dashboard than distinguishing "insufficient data"
     from "400+" (the two outcomes this collapsed, before 2026-09-16).
     Shared by sync_sop_dispatch_plan.py (Target Closing / Required Dispatch) and
-    sync_sop_inventory.py (sop_channel_drr_doi's DOI column)."""
+    sync_sop_inventory.py (sop_channel_drr_doi's DOI column).
+
+    cutoff_flag (2026-09-23, ported from the /channel-dispatch-plan skill's 2026-09-22 change): when
+    set, it's returned instead of f">{cap_days}" if the walk runs off the end of the known forecast
+    before cap_days are confirmed -- fewer than cap_days of real demand were seen, so ">60" would
+    claim more than the data proves. Only the dispatch plan passes it; the DRR/DOI heatmap keeps the
+    single ">60" convention."""
     if not (quantity > 0):
         return 0.0
     remaining, ymd = quantity, start_ymd
     for days in range(1, cap_days + 1):
         ymd = add_days_ymd(ymd, 1)
         if not max_known_ymd or ymd > max_known_ymd:
-            return f">{cap_days}"
+            return cutoff_flag or f">{cap_days}"
         daily_rate = series.get(ymd, {}).get(sku, 0.0) * rate_multiplier
         if daily_rate <= 0:
             continue
