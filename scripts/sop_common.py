@@ -62,17 +62,25 @@ WAREHOUSE_FACILITY_CODES = {
     'Kolkata': ['PB-UC-KOL', 'PB-UC-KOL-PANCHLA'],
 }
 
-# Individual dark store -> the DTDC/SFX bucket it rolls into. Deliberately the 21
-# stores the business already tracks, NOT every dark store Uniware exposes (it has
-# ~22 more, 14 of them under Hyderabad alone) -- per Anish, so the totals stay
-# comparable to what the portal has always shown. Adding a store is a one-line
-# change here plus a column offset in DARK_STORE_TITLE_COLS for its DRR.
+# Individual dark store -> the DTDC/SFX bucket it rolls into. Deliberately the
+# stores the business already tracks, NOT every dark store Uniware exposes -- per
+# Anish, so the totals stay comparable to what the portal has always shown. Order
+# and bucket labels mirror the "Current Inventory" tab's own rows 37-63.
+#
+# Adding or dropping a store is a one-line change here and nothing else: the DRR
+# block columns are discovered from the sheet by find_trackr_title_cols() rather
+# than hardcoded, and both dark-store tables are written with replace_by_filter()
+# rather than upsert, so a dropped store leaves no orphan row behind.
+#
+# 2026-09-22: PB-UC-BLR-SARAKKI dropped (store gone non-functional) and
+# PB-UC-BLR-CHAMRAJPET added in its place; the 6 "SFX MFCs" facilities added as a
+# new sixth bucket.
 DARK_STORE_FACILITIES = {
     'PB-UC-BLR-NERALURU': 'DTDC Bangalore',
     'PB-UC-BLR-WHITEFIELD': 'DTDC Bangalore',
     'PB-UC-BLR-YELAHANKA': 'DTDC Bangalore',
     'PB-UC-BLR-BUMMANAHALLI': 'DTDC Bangalore',
-    'PB-UC-BLR-SARAKKI': 'DTDC Bangalore',
+    'PB-UC-BLR-CHAMRAJPET': 'DTDC Bangalore',
     'PB-UC-DEL-JHILMIL': 'DTDC Gurgaon',
     'PB-UC-DEL-KAPASHERA': 'DTDC Gurgaon',
     'PB-UC-DEL-OKHLA': 'DTDC Gurgaon',
@@ -89,6 +97,27 @@ DARK_STORE_FACILITIES = {
     'PB-UC-BOM-MALAD-WEST': 'SFX Mumbai',
     'PB-UC-BOM-MALAD-EAST': 'SFX Mumbai',
     'PB-UC-HYD-MANIKONDA': 'SFX Hyderabad',
+}
+
+# The "SFX MFCs" section added to the sheet on 2026-09-22. Held OUT of the roster above, and
+# therefore out of ALL_UNIWARE_FACILITIES, because the Uniware login behind the UNIWARE_USERNAME
+# GitHub secret cannot read inventory at these facilities: inventorySnapshot/get answers
+# "HTTP 403 Access denied, access resource LOOKUP_INVENTORY is needed". sync_uniware_inventory.py
+# treats one unreachable facility as fatal on purpose (a silently missing store understates its
+# city and reads as a stockout), so including them took the whole S&OP section's snapshot down --
+# observed live in workflow run #178.
+#
+# Anish's own login CAN read them, so this is a per-account grant, not a missing facility. Once
+# LOOKUP_INVENTORY is granted to the CI account for these six, merge this dict into
+# DARK_STORE_FACILITIES above and delete it -- nothing else needs changing: the bucket list, the
+# Uniware pull and both frontend tables all follow from that one dict.
+SFX_MFC_FACILITIES_PENDING_ACCESS = {
+    'PB-UC-SFX-CHENNAI': 'SFX MFCs',
+    'PB-UC-SFX-JAIPUR': 'SFX MFCs',
+    'PB-UC-SFX-BHOPAL': 'SFX MFCs',
+    'PB-UC-SFX-AHM': 'SFX MFCs',
+    'PB-UC-SFX-LUCKNOW': 'SFX MFCs',
+    'PB-UC-SFX-ZIRAKPUR': 'SFX MFCs',
 }
 
 # Every facility the Uniware snapshot has to cover, warehouses first.
@@ -267,7 +296,7 @@ def parse_uc_sales_trackr_facility_block(rows, title_col):
     row occupying a data column. Verified live 2026-09-15: PB-UC-BLR@17, PB-UC-HYD@25,
     PB-UC-GGN@33, PB-UC-BOMBAY@41, PB-UC-KOL@49 (8-column stride, one blank separator column
     between blocks); the same stride continues rightward into the 21 individual dark-store blocks
-    (see DARK_STORE_TITLE_COLS in sync_sop_inventory.py). Date column is always 0 (col A),
+    (discovered by find_trackr_title_cols below). Date column is always 0 (col A),
     same convention as every other daily tab."""
     import datetime
     current_year = datetime.date.today().year
@@ -289,6 +318,40 @@ def parse_uc_sales_trackr_facility_block(rows, title_col):
         if max_date is None or ymd > max_date:
             max_date = ymd
     return {"series": series, "min_date": min_date, "max_date": max_date}
+
+
+def find_trackr_title_cols(rows, codes):
+    """Maps each facility code to its "UC sales trackr" block title column, read off the tab's own
+    header row rather than a hardcoded table.
+
+    The blocks sit on an 8-column stride (7 data columns + 1 blank separator) and a block's title
+    cell IS its first SKU column -- see parse_uc_sales_trackr_facility_block above. Those offsets
+    used to be hardcoded per facility with nothing ever checking them against the title cell, so
+    removing one block (a dark store closing) shifted every block to its right by 8 and each of
+    those stores would silently have been read off its neighbour's numbers. Discovering them here
+    keeps the sheet the single source of truth for its own layout.
+
+    A code with no block is left out rather than defaulted: some tracked stores genuinely have none
+    (PB-UC-DEL-JHILMIL, PB-UC-GGN-SOHNA), and a newly opened store won't until someone adds it.
+    Both cases mean on-hand but no DRR/DOI, which is the intended behaviour, not an error."""
+    header = rows[0] if rows else []
+    by_code = {}
+    for col, cell in enumerate(header):
+        code = str(cell or "").strip().upper()
+        if code and code not in by_code:  # first match wins, as elsewhere in these parsers
+            by_code[code] = col
+
+    found, missing = {}, []
+    for code in codes:
+        col = by_code.get(str(code).strip().upper())
+        if col is None:
+            missing.append(code)
+        else:
+            found[code] = col
+    if missing:
+        print(f"NOTE: no 'UC sales trackr' block for {', '.join(missing)} -- on-hand only, "
+              f"no DRR/DOI.", file=sys.stderr)
+    return found
 
 
 def fetch_uniware_on_hand(supabase_url, key):

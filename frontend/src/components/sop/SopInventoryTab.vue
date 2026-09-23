@@ -16,7 +16,7 @@ import SummaryKpis from "../SummaryKpis.vue";
 const SKUS = ["M0", "M1-2nd Gen", "M1 Pro", "M2 Pro", "M3", "M3 Pro"];
 const CHANNELS = [
   "UC App+PLS", "Amazon", "Flipkart", "DTDC Bangalore", "DTDC Gurgaon",
-  "DTDC Kolkata", "SFX Mumbai", "SFX Hyderabad", "MT",
+  "DTDC Kolkata", "SFX Mumbai", "SFX Hyderabad", "SFX MFCs", "MT",
 ];
 const DRR_DOI_CHANNELS = ["UC App+PLS", "Amazon", "Flipkart", "MT"];
 
@@ -48,7 +48,15 @@ function buildMatrix(rows, rowKey, rowLabels, valueKey) {
   return { body, totalRow };
 }
 
-const channelMatrix = computed(() => buildMatrix(channelRows.value, "channel", CHANNELS, "qty"));
+// Only channels the sync actually published a row for. buildMatrix seeds every listed channel
+// to 0, so a channel listed here but absent from the data would draw a full row of zeros --
+// indistinguishable from a real stockout. "SFX MFCs" is listed ahead of its facilities going
+// live (pending a Uniware access grant), and appears by itself once rows start arriving.
+const liveChannels = computed(() => {
+  const present = new Set(channelRows.value.map(r => r.channel));
+  return CHANNELS.filter(ch => present.has(ch));
+});
+const channelMatrix = computed(() => buildMatrix(channelRows.value, "channel", liveChannels.value, "qty"));
 
 const drrDoiTable = computed(() => {
   const byKey = Object.fromEntries(channelDrrDoiRows.value.map(r => [`${r.channel}|${r.sku}`, r]));

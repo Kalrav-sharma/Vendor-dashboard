@@ -1,5 +1,5 @@
 // S&OP > UC App + PLS -- public.sop_inventory_uc_warehouse (5 warehouses x 6
-// SKUs, on-hand/in-transit/combined) + public.sop_dark_store_inventory (21
+// SKUs, on-hand/in-transit/combined) + public.sop_dark_store_inventory (27
 // individual dark stores, grouped by city) + public.sop_facility_drr_doi
 // (WAREHOUSE + DARK_STORE rows), synced by scripts/sync_sop_inventory.py.
 //

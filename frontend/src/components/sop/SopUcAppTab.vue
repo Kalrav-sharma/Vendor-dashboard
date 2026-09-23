@@ -8,9 +8,10 @@
 // Each DTDC/SFX bucket in "Current Inventory" turned out to be an aggregate
 // label over multiple individual dark stores (confirmed live 2026-09-16,
 // correcting an earlier wrong assumption that only city-aggregated totals
-// existed) -- 21 stores total, 19 of which also have their own "UC sales
-// trackr" DRR block (2 don't, and so have no DOI row -- see
-// DARK_STORE_TITLE_COLS in sync_sop_inventory.py).
+// existed) -- 27 stores as of 2026-09-22, most of which also have their own
+// "UC sales trackr" DRR block. A store without one gets an on-hand row but no
+// DOI row, so it simply doesn't appear on the DOI card (see
+// find_trackr_title_cols in scripts/sop_common.py).
 //
 // On-hand is live Uniware stock (sop_uniware_inventory, since 2026-09-16) --
 // hence the "Stock as of" stamp on that view: it's the one figure here that
@@ -22,7 +23,8 @@ import SummaryKpis from "../SummaryKpis.vue";
 
 const SKUS = ["M0", "M1-2nd Gen", "M1 Pro", "M2 Pro", "M3", "M3 Pro"];
 const WAREHOUSES = ["Bangalore", "Gurgaon", "Hyderabad", "Mumbai", "Kolkata"];
-const DARK_STORE_CITIES = ["DTDC Bangalore", "DTDC Gurgaon", "DTDC Kolkata", "SFX Mumbai", "SFX Hyderabad"];
+const DARK_STORE_CITIES = ["DTDC Bangalore", "DTDC Gurgaon", "DTDC Kolkata", "SFX Mumbai",
+  "SFX Hyderabad", "SFX MFCs"];
 const VIEWS = [
   { key: "on-hand", label: "On hand Inventory" },
   { key: "in-transit", label: "In-transit" },
@@ -78,12 +80,15 @@ function buildMatrix(rowLabels, rowKey, rows, valueKey) {
 const onHandMatrix = computed(() => buildMatrix(WAREHOUSES, "warehouse", warehouseRows.value, "on_hand"));
 const inTransitMatrix = computed(() => buildMatrix(WAREHOUSES, "warehouse", warehouseRows.value, inTransitMode.value));
 
-// One table per DTDC/SFX city, listing that city's individual dark stores.
+// One table per DTDC/SFX city, listing that city's individual dark stores. A city with no
+// stores yet is skipped rather than drawn as a card with nothing but a zero Total row -- that
+// lets a bucket be listed here before its facilities go live (as "SFX MFCs" is, pending a
+// Uniware access grant) and appear on its own once rows start arriving.
 const darkStoreTables = computed(() => DARK_STORE_CITIES.map(city => {
   const cityRows = darkStoreRows.value.filter(r => r.city === city);
   const stores = [...new Set(cityRows.map(r => r.store))].sort();
-  return { city, ...buildMatrix(stores, "store", cityRows, "on_hand") };
-}));
+  return { city, stores, ...buildMatrix(stores, "store", cityRows, "on_hand") };
+}).filter(t => t.stores.length > 0));
 
 // DOI heatmap: split into two cards (2026-09-21, per Anish) because warehouses and
 // dark stores are scored on different bands -- one shared legend would have had to
