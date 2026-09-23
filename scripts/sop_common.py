@@ -97,21 +97,13 @@ DARK_STORE_FACILITIES = {
     'PB-UC-BOM-MALAD-WEST': 'SFX Mumbai',
     'PB-UC-BOM-MALAD-EAST': 'SFX Mumbai',
     'PB-UC-HYD-MANIKONDA': 'SFX Hyderabad',
-}
-
-# The "SFX MFCs" section added to the sheet on 2026-09-22. Held OUT of the roster above, and
-# therefore out of ALL_UNIWARE_FACILITIES, because the Uniware login behind the UNIWARE_USERNAME
-# GitHub secret cannot read inventory at these facilities: inventorySnapshot/get answers
-# "HTTP 403 Access denied, access resource LOOKUP_INVENTORY is needed". sync_uniware_inventory.py
-# treats one unreachable facility as fatal on purpose (a silently missing store understates its
-# city and reads as a stockout), so including them took the whole S&OP section's snapshot down --
-# observed live in workflow run #178.
-#
-# Anish's own login CAN read them, so this is a per-account grant, not a missing facility. Once
-# LOOKUP_INVENTORY is granted to the CI account for these six, merge this dict into
-# DARK_STORE_FACILITIES above and delete it -- nothing else needs changing: the bucket list, the
-# Uniware pull and both frontend tables all follow from that one dict.
-SFX_MFC_FACILITIES_PENDING_ACCESS = {
+    # The "SFX MFCs" bucket, added to the sheet 2026-09-22 and live here from 2026-09-23. Held
+    # out for a day in between: the Uniware login behind the UNIWARE_USERNAME secret had no
+    # LOOKUP_INVENTORY grant on these six and answered HTTP 403, which is fatal by design and
+    # took the whole snapshot down (run #178). Note for anyone adding a facility here: a code
+    # showing as ENABLED in Uniware's facility listing does NOT mean the CI account can read its
+    # inventory -- those are separate permissions, and only inventorySnapshot/get proves the
+    # second one.
     'PB-UC-SFX-CHENNAI': 'SFX MFCs',
     'PB-UC-SFX-JAIPUR': 'SFX MFCs',
     'PB-UC-SFX-BHOPAL': 'SFX MFCs',
@@ -262,7 +254,7 @@ def add_days_ymd(ymd, days):
 
 
 def compute_forward_doi_from_series(series, max_known_ymd, start_ymd, sku, quantity, rate_multiplier=1.0,
-                                     cap_days=DOI_DISPLAY_CAP_DAYS):
+                                     cap_days=DOI_DISPLAY_CAP_DAYS, cutoff_flag=None):
     """Port of computeForwardDOIFromSeries(): forward walk consuming daily rate until exhausted.
     Returns a float day count if exhausted within cap_days, or the literal string f">{cap_days}"
     otherwise -- whether that's because the walk ran past the series' own known forecast window, or
@@ -271,14 +263,20 @@ def compute_forward_doi_from_series(series, max_known_ymd, start_ymd, sku, quant
     outcome reads better on a leadership-facing dashboard than distinguishing "insufficient data"
     from "400+" (the two outcomes this collapsed, before 2026-09-16).
     Shared by sync_sop_dispatch_plan.py (Target Closing / Required Dispatch) and
-    sync_sop_inventory.py (sop_channel_drr_doi's DOI column)."""
+    sync_sop_inventory.py (sop_channel_drr_doi's DOI column).
+
+    cutoff_flag (2026-09-23, ported from the /channel-dispatch-plan skill's 2026-09-22 change): when
+    set, it's returned instead of f">{cap_days}" if the walk runs off the end of the known forecast
+    before cap_days are confirmed -- fewer than cap_days of real demand were seen, so ">60" would
+    claim more than the data proves. Only the dispatch plan passes it; the DRR/DOI heatmap keeps the
+    single ">60" convention."""
     if not (quantity > 0):
         return 0.0
     remaining, ymd = quantity, start_ymd
     for days in range(1, cap_days + 1):
         ymd = add_days_ymd(ymd, 1)
         if not max_known_ymd or ymd > max_known_ymd:
-            return f">{cap_days}"
+            return cutoff_flag or f">{cap_days}"
         daily_rate = series.get(ymd, {}).get(sku, 0.0) * rate_multiplier
         if daily_rate <= 0:
             continue

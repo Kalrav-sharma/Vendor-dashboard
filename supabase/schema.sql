@@ -1385,10 +1385,13 @@ create table if not exists public.sop_dispatch_plan (
   required_dispatch numeric,
   status text,
   projected_doi numeric,             -- null when projected_doi_flag is set
-  projected_doi_flag text,           -- null | '>60' (walk didn't exhaust within 60 days)
+  projected_doi_flag text,           -- null | '>60' (walk didn't exhaust within 60 days) | 'insufficient data' (forecast ran out first)
   synced_at timestamptz not null default now()
 );
 create index if not exists idx_sop_dispatch_plan_run_view on public.sop_dispatch_plan(run_date, view_key);
+-- Added 2026-09-23: which warehouse(s) drive a UC App + PLS channel row's non-ON-TRACK status
+-- (comma-joined), since that status is the worst of the 5 warehouses, not the pooled closing.
+alter table public.sop_dispatch_plan add column if not exists worst_warehouses text;
 
 alter table public.sop_dispatch_plan enable row level security;
 drop policy if exists sop_dispatch_plan_select on public.sop_dispatch_plan;
@@ -1413,6 +1416,10 @@ create table if not exists public.sop_dispatch_production_check (
 -- Added 2026-09-16: the sync always wrote one row per (view, DOI target, SKU) but had no column to
 -- say WHICH target, so the portal couldn't filter and stacked all four sets into one table.
 alter table public.sop_dispatch_production_check add column if not exists doi_target int;
+-- Added 2026-09-23: available supply is now UC on-hand + in-transit + production planned, and
+-- gap = total_available - required (was production_planned - required).
+alter table public.sop_dispatch_production_check add column if not exists on_hand_in_transit numeric;
+alter table public.sop_dispatch_production_check add column if not exists total_available numeric;
 
 alter table public.sop_dispatch_production_check enable row level security;
 drop policy if exists sop_dispatch_production_check_select on public.sop_dispatch_production_check;
