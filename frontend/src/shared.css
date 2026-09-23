@@ -265,9 +265,13 @@ tbody tr:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); 
 .doi-table th.num-c { width: auto; }
 .doi-cell { padding: 3px; border-bottom: none; }
 td.doi-facility { white-space: nowrap; }
+/* Sized to match ordinary table cells (0.86rem) rather than standing above
+   them -- the tiles were the largest text in any table on the portal, and the
+   matrix ran taller than a screen. The padding carried most of that height,
+   so it comes down with the type. */
 .doi-pill {
-  display: block; border-radius: 8px; padding: 10px 6px; text-align: center;
-  font-weight: 600; font-size: 0.95rem; font-variant-numeric: tabular-nums;
+  display: block; border-radius: 8px; padding: 6px; text-align: center;
+  font-weight: 600; font-size: 0.86rem; font-variant-numeric: tabular-nums;
   color: var(--muted);
 }
 /* .doi-pill is declared after .cell-* above, so its muted default would otherwise
