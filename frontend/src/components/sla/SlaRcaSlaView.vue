@@ -1,7 +1,8 @@
 <script setup>
 // RCA › SLA View: the skill's seven cards, in the same order.
 //   1 Week-on-week SLA  2 Demand share  3 City-wise SLA  4 City × LSP share
-//   5 City × LSP on-time  6 Serviceability coverage  7 Ideal SLA coverage
+//   5 City × LSP on-time  6 Serviceability coverage
+// (The skill's 7th card, Ideal SLA coverage, is deliberately not shown on the portal.)
 // "SLA" means average ACTUAL_TAT in days, not a compliance percentage, matching the skill.
 import { ref, computed } from "vue";
 import { CITY_FILTERS, matchGroup, pct, days, otdCls } from "./slaUtil.js";
@@ -54,11 +55,6 @@ const svcTotals = computed(() => {
   return { t, g };
 });
 
-// 7 ideal SLA coverage
-const f7 = ref("Top9");
-const m7 = ref("pct");
-const ideal = computed(() => v.value.idealSla);
-const idealRows = computed(() => (ideal.value ? ideal.value.cities.filter(c => matchGroup(c.cityGroup, f7.value)) : []));
 </script>
 
 <template>
@@ -181,28 +177,4 @@ const idealRows = computed(() => (ideal.value ? ideal.value.cities.filter(c => m
     </div>
   </section>
 
-  <!-- 7 -->
-  <section class="table-card" style="margin-bottom:16px;">
-    <div class="sla-card-head" style="padding:14px 16px 0;">
-      <div><div class="sla-card-step">07</div><h3>Ideal SLA coverage · best achievable SLA</h3>
-        <p class="desc">Each pincode is counted once, under the fastest SLA code available to it. Pincodes and their cities come from the Unique Pincode DB reference sheet.<template v-if="ideal && ideal.excludedPincodeCount">&nbsp;{{ ideal.excludedPincodeCount }} live pincodes didn't match the sheet and are excluded.</template></p></div>
-      <div v-if="ideal" class="tbl-tools">
-        <select v-model="f7"><option v-for="f in CITY_FILTERS" :key="f.id" :value="f.id">{{ f.label }}</option></select>
-        <div class="seg sm"><button :class="{ active: m7 === 'pct' }" @click="m7 = 'pct'">%</button><button :class="{ active: m7 === 'count' }" @click="m7 = 'count'">#</button></div>
-      </div>
-    </div>
-    <div v-if="!ideal" class="empty-state">Pincode DB unavailable this run.</div>
-    <div v-else class="table-scroll scroll-y" style="margin-top:12px;">
-      <table>
-        <thead><tr><th>City</th><th v-for="code in ideal.slaCodes" :key="code" class="num">{{ code }}</th><th class="num">Pincodes</th></tr></thead>
-        <tbody>
-          <tr v-for="c in idealRows" :key="c.city">
-            <td>{{ c.city }}</td>
-            <td v-for="code in ideal.slaCodes" :key="code" class="num mono heat-cell" :style="tint((c.counts[code] || 0) / (c.total || 1))">{{ m7 === 'pct' ? (c.total ? pct(((c.counts[code] || 0) / c.total) * 100) : "–") : (c.counts[code] || 0) }}</td>
-            <td class="num mono"><strong>{{ c.total }}</strong></td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-  </section>
 </template>

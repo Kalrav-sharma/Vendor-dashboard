@@ -4,11 +4,11 @@
 //   Warehouse cities: Delhi, Bangalore, Kolkata, Mumbai, Hyderabad
 //   MFC cities:       the RCA skill's 9-city list (see useSlaTrendsData.js)
 //   Other cities:     everything else
-// Four views, all under one Weekly/Monthly toggle:
+// Three views, all under one Weekly/Monthly toggle:
 //   1. SLA: avg days to deliver
-//   2. Demand Share: tier mix, SDD share in the 5 WH cities, SFX-MFC share
+//   2. Demand Share: 02a tier mix, 02b SDD share in the 5 WH cities, 02c SFX-MFC share,
+//      02d Shadowfax share in other cities
 //   3. On-Time Delivery
-//   4. Primary LSP Share: its city-tier selector picks WH SDD LSP / SFX MFC / Other SFX
 // Deltas always compare the last COMPLETE period with the one before it. The
 // in-progress week or month is plotted, dashed, but never used as a headline number.
 import { ref, computed } from "vue";
@@ -20,12 +20,10 @@ const { weekly, monthly, loadError, lastSynced, rows } = useSlaTrendsData();
 
 const grain = ref("week");
 const view = ref("sla");
-const lspTier = ref("wh");
 const VIEWS = [
   { id: "sla", label: "SLA" },
   { id: "demand", label: "Demand Share" },
   { id: "otd", label: "On-Time Delivery" },
-  { id: "lsp", label: "Primary LSP Share" },
 ];
 const TIERS = [
   { key: "all", label: "Pan India", color: "--sla-pan", width: 3 },
@@ -52,9 +50,6 @@ const otdSeries = computed(() => TIERS.map(t => ({ ...t, data: P.value.map(p => 
 const mixSeries = computed(() => TIERS.slice(1).map(t => ({ ...t, data: P.value.map(p => ratio(tierOf(p, t.key).orders, p.totals.all.orders)) })));
 const sddDemandSeries = computed(() => WH_CITIES.map((c, i) => ({
   label: c.label, color: CITY_COLORS[i], data: P.value.map(p => ratio(cityOf(p, c.key).ds_facility_orders, cityOf(p, c.key).orders)),
-})));
-const sddLspSeries = computed(() => WH_CITIES.map((c, i) => ({
-  label: `${c.label} · ${c.lsp}`, color: CITY_COLORS[i], data: P.value.map(p => ratio(cityOf(p, c.key).sdd_lsp_orders, cityOf(p, c.key).orders)),
 })));
 const otherSfxSeries = computed(() => [{
   label: "Shadowfax share · Other cities", color: "--sla-s3", width: 3,
@@ -230,6 +225,23 @@ const tileStyle = v => {
           </table>
         </div>
       </section>
+
+      <section class="sla-card">
+        <div class="sla-card-head">
+          <div>
+            <div class="sla-card-step">02d · Other cities SFX share</div>
+            <h3>Shadowfax share · other cities (combined)</h3>
+            <p class="desc">Share of all other-city orders carried by any Shadowfax service.</p>
+          </div>
+        </div>
+        <SlaChart :labels="labels" :tooltip-titles="titles" :datasets="otherSfxSeries" format="pct" :y-min="0" :partial-last="partialLast" />
+        <div class="sla-deltas">
+          <div v-for="c in deltaCells(otherSfxSeries, fmtPct, true)" :key="c.label" class="sla-delta-cell">
+            <span class="name"><span class="swatch" :style="{ background: `var(${c.color})` }"></span>{{ c.label }}</span>
+            <span class="row"><span class="v">{{ c.value }}</span><span class="delta" :class="c.cls">{{ c.deltaText }}</span></span>
+          </div>
+        </div>
+      </section>
     </template>
 
     <!-- 03 OTD -->
@@ -248,59 +260,6 @@ const tileStyle = v => {
           <span class="row"><span class="v">{{ c.value }}</span><span class="delta" :class="c.cls">{{ c.deltaText }}</span></span>
         </div>
       </div>
-    </section>
-
-    <!-- 04 Primary LSP -->
-    <section v-if="view === 'lsp'" class="sla-card">
-      <div class="sla-card-head">
-        <div>
-          <div class="sla-card-step">04 · Primary LSP share</div>
-          <h3 v-if="lspTier === 'wh'">SDD LSP share · warehouse cities</h3>
-          <h3 v-else-if="lspTier === 'mfc'">SFX MFC share · MFC cities</h3>
-          <h3 v-else>Shadowfax share · other cities (combined)</h3>
-          <p class="desc" v-if="lspTier === 'wh'">Share of each city's orders carried by its same-day LSP: DTDC Raftaar in Delhi, Bangalore and Kolkata, Shadowfax Dark Store in Mumbai and Hyderabad.</p>
-          <p class="desc" v-else-if="lspTier === 'mfc'">Share of each MFC city's orders fulfilled by Shadowfax from its MFC.</p>
-          <p class="desc" v-else>Share of all other-city orders carried by any Shadowfax service.</p>
-        </div>
-        <div class="seg sm">
-          <button :class="{ active: lspTier === 'wh' }" @click="lspTier = 'wh'">Warehouse cities</button>
-          <button :class="{ active: lspTier === 'mfc' }" @click="lspTier = 'mfc'">MFC cities</button>
-          <button :class="{ active: lspTier === 'other' }" @click="lspTier = 'other'">Other cities</button>
-        </div>
-      </div>
-
-      <template v-if="lspTier === 'wh'">
-        <SlaChart :labels="labels" :tooltip-titles="titles" :datasets="sddLspSeries" format="pct" :y-min="0" :partial-last="partialLast" />
-        <div class="sla-deltas">
-          <div v-for="c in deltaCells(sddLspSeries, fmtPct, true)" :key="c.label" class="sla-delta-cell">
-            <span class="name"><span class="swatch" :style="{ background: `var(${c.color})` }"></span>{{ c.label }}</span>
-            <span class="row"><span class="v">{{ c.value }}</span><span class="delta" :class="c.cls">{{ c.deltaText }}</span></span>
-          </div>
-        </div>
-      </template>
-      <template v-else-if="lspTier === 'mfc'">
-        <div v-if="!mfcLive" class="sla-notlive"><span class="chip chip-muted">Not live yet</span><span>No MFC city has an SFX MFC order yet, so every share is <strong>0%</strong>.</span></div>
-        <div class="table-scroll">
-          <table class="sla-heat">
-            <thead><tr><th class="city">City</th><th v-for="(l, i) in labels" :key="i">{{ l }}</th></tr></thead>
-            <tbody>
-              <tr v-for="r in mfcMatrix" :key="r.key">
-                <td class="city">{{ r.label }}</td>
-                <td v-for="(c, i) in r.cells" :key="i"><span class="tile" :style="tileStyle(c.v)" :title="`${r.label} · ${titles[i]}: ${c.n}/${c.d} orders`">{{ c.d ? fmtPct(c.v) : '–' }}</span></td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </template>
-      <template v-else>
-        <SlaChart :labels="labels" :tooltip-titles="titles" :datasets="otherSfxSeries" format="pct" :y-min="0" :partial-last="partialLast" />
-        <div class="sla-deltas">
-          <div v-for="c in deltaCells(otherSfxSeries, fmtPct, true)" :key="c.label" class="sla-delta-cell">
-            <span class="name"><span class="swatch" :style="{ background: `var(${c.color})` }"></span>{{ c.label }}</span>
-            <span class="row"><span class="v">{{ c.value }}</span><span class="delta" :class="c.cls">{{ c.deltaText }}</span></span>
-          </div>
-        </div>
-      </template>
     </section>
 
     <p class="sla-foot">

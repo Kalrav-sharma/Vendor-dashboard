@@ -14,11 +14,11 @@ const POLL_INTERVAL_MS = 60 * 1000;
 const WEEKS_SHOWN = 16;
 
 export const WH_CITIES = [
-  { key: "city_delhi_v2", label: "Delhi", lsp: "DTDC Raftaar" },
-  { key: "city_bangalore_v2", label: "Bangalore", lsp: "DTDC Raftaar" },
-  { key: "city_kolkata_v2", label: "Kolkata", lsp: "DTDC Raftaar" },
-  { key: "city_mumbai_v2", label: "Mumbai", lsp: "SFX Dark Store" },
-  { key: "city_hyderabad_v2", label: "Hyderabad", lsp: "SFX Dark Store" },
+  { key: "city_delhi_v2", label: "Delhi" },
+  { key: "city_bangalore_v2", label: "Bangalore" },
+  { key: "city_kolkata_v2", label: "Kolkata" },
+  { key: "city_mumbai_v2", label: "Mumbai" },
+  { key: "city_hyderabad_v2", label: "Hyderabad" },
 ];
 // Same 9-city MFC list as /late-delivery-rca's MFC_CITIES, so both show identical numbers.
 export const MFC_CITIES = [
