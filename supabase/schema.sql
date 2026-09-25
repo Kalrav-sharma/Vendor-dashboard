@@ -2143,3 +2143,29 @@ do $$ begin
   end if;
 end $$;
 -- ---------------------------------------------------------------------
+
+-- Logistics Health Card › Delayed Orders -- added 2026-09-25.
+-- One row per (product, order week). product: 'spares' (Jarvis 558955
+-- modified_spares_v2) | 'refresh' (579905 Refresh Kit Delivery RCA). d3/d5/
+-- d10/d15 are MUTUALLY EXCLUSIVE bands of days past promise (4-5, 6-10,
+-- 11-15, 16+), counting distinct orders; open orders past promise count
+-- (delay measured to today); cancelled/undelivered (RTO) orders excluded.
+-- Written only from the VPN-side sync (~/.claude/scripts/sla_portal/).
+create table if not exists public.health_delay_weekly (
+  id bigserial primary key,
+  product text not null,
+  week_start date not null,
+  week_no int,
+  orders int not null default 0,
+  d3 int not null default 0,
+  d5 int not null default 0,
+  d10 int not null default 0,
+  d15 int not null default 0,
+  synced_at timestamptz not null default now(),
+  unique (product, week_start)
+);
+alter table public.health_delay_weekly enable row level security;
+drop policy if exists health_delay_weekly_select on public.health_delay_weekly;
+create policy health_delay_weekly_select on public.health_delay_weekly
+  for select using (public.is_internal_staff());
+-- ---------------------------------------------------------------------

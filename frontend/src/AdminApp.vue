@@ -267,7 +267,7 @@ async function signOut() {
           <div>
             <h1>{{ pageTitle }}</h1>
             <div class="scope">
-              <template v-if="activeNav === 'health'">One-glance health of inventory and delivery across the network.</template>
+              <template v-if="activeNav === 'health'"></template>
               <template v-else-if="activeNav === 'po-tracking'">{{ scopeLine }}</template>
               <template v-else-if="activeNav === 'sku-data'">SKUs with at least one open purchase order not yet fully supplied, highest pending quantity first, across all vendors. Click a SKU for the PO-level breakdown.</template>
               <template v-else-if="activeNav === 'dispatch-planning'">Estimated dispatch date and quantity per SKU awaiting dispatch, plus live Bluedart status for every shipment already confirmed -- across all vendors. Click a PO to see its details.</template>

@@ -1,8 +1,6 @@
 <script setup>
-// Health Card › 02 SLA & Demand Share. One table per product (RO / Locks toggle).
-// Rows: next week (once it has orders), the current week, then the 4 previous weeks.
-// Columns: Pan India, Top 5, Next 4 and Other cities, each with SLA (avg days to deliver)
-// and Demand Share (the tier's share of Pan India orders).
+// Health Card › SLA & Demand Share: two tables side by side, driven by one RO | Locks toggle.
+// Rows: next week (once it starts), the current week, then the 4 previous weeks.
 import { ref, computed } from "vue";
 import { TIERS } from "../../composables/useHealthSlaData.js";
 
@@ -12,6 +10,7 @@ const props = defineProps({
 });
 const product = ref("ro");
 const weeks = computed(() => (product.value === "ro" ? props.ro : props.locks));
+const SHARE_TIERS = TIERS.filter(t => t.key !== "pan");
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const range = ws => {
@@ -20,79 +19,53 @@ const range = ws => {
 };
 const days = v => (v == null ? "–" : `${v.toFixed(2)}d`);
 const pct = v => (v == null ? "–" : `${(v * 100).toFixed(1)}%`);
-
-// change vs the week below (the previous one): up = slower = bad
 function delta(i, tier) {
   const cur = weeks.value[i]?.tiers[tier].sla, prev = weeks.value[i + 1]?.tiers[tier].sla;
-  if (cur == null || prev == null) return null;
-  const d = cur - prev;
-  if (Math.abs(d) < 0.005) return { cls: "flat", t: "flat" };
-  return { cls: d > 0 ? "up" : "down", t: `${d > 0 ? "▲" : "▼"} ${Math.abs(d).toFixed(2)}` };
+  if (cur == null || prev == null || Math.abs(cur - prev) < 0.005) return null;
+  return { cls: cur > prev ? "up" : "down", t: cur > prev ? "▲" : "▼" };
 }
-// a tier noticeably slower or faster than Pan India that week
-function speed(w, tier) {
-  if (tier === "pan") return "";
-  const s = w.tiers[tier].sla, p = w.tiers.pan.sla;
-  if (s == null || p == null) return "";
-  return s > p * 1.25 ? "slow" : s < p * 0.8 ? "fast" : "";
-}
-const totalOrders = list => list.reduce((s, w) => s + w.tiers.pan.orders, 0);
+const shortTier = t => ({ pan: "Pan India", top5: "Top 5", next4: "Next 4", other: "Other" }[t.key]);
 </script>
 
 <template>
-  <div class="hc-view-head">
-    <div>
-      <div class="hc-step">02 · SLA &amp; Demand Share</div>
-      <h3>Delivery speed and where demand comes from</h3>
-      <p class="desc">SLA is the average number of days from order to delivery (lower is better). Demand share is each tier's share of Pan India delivered orders. Weeks are promised-delivery weeks.</p>
-    </div>
-    <div class="prod-toggle">
-      <button :class="{ active: product === 'ro' }" @click="product = 'ro'">RO <span class="n">{{ totalOrders(ro).toLocaleString('en-IN') }}</span></button>
-      <button :class="{ active: product === 'locks' }" @click="product = 'locks'">Locks <span class="n">{{ totalOrders(locks).toLocaleString('en-IN') }}</span></button>
+  <div class="hc-view">
+    <h3 class="hc-group-title">
+      SLA &amp; Demand Share
+      <span class="hc-toggle">
+        <button :class="{ active: product === 'ro' }" @click="product = 'ro'">RO</button>
+        <button :class="{ active: product === 'locks' }" @click="product = 'locks'">Locks</button>
+      </span>
+    </h3>
+    <div class="hc-pair">
+      <section class="table-card">
+        <h3 class="card-caption">SLA</h3>
+        <table class="hc-table">
+          <thead><tr><th>Week</th><th v-for="t in TIERS" :key="t.key" class="num" :title="t.hint">{{ shortTier(t) }}</th></tr></thead>
+          <tbody>
+            <tr v-for="(w, i) in weeks" :key="w.weekStart" :title="range(w.weekStart)">
+              <td class="lab">W{{ w.weekNo ?? '–' }}<span v-if="w.kind === 'current'" class="hc-live"></span><span v-if="w.kind === 'next'" class="hc-muted" style="font-size:.7rem;"> next</span></td>
+              <td v-for="t in TIERS" :key="t.key" class="num hc-num" :style="t.key === 'pan' ? 'font-weight:600' : ''">
+                {{ days(w.tiers[t.key].sla) }}<span v-if="delta(i, t.key)" class="hc-dd" :class="delta(i, t.key).cls">{{ delta(i, t.key).t }}</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+      <section class="table-card">
+        <h3 class="card-caption">Demand Share</h3>
+        <table class="hc-table">
+          <thead><tr><th>Week</th><th class="num">Orders</th><th v-for="t in SHARE_TIERS" :key="t.key" class="num" :title="t.hint">{{ shortTier(t) }}</th></tr></thead>
+          <tbody>
+            <tr v-for="w in weeks" :key="w.weekStart" :title="range(w.weekStart)">
+              <td class="lab">W{{ w.weekNo ?? '–' }}<span v-if="w.kind === 'current'" class="hc-live"></span><span v-if="w.kind === 'next'" class="hc-muted" style="font-size:.7rem;"> next</span></td>
+              <td class="num hc-num hc-muted">{{ w.tiers.pan.orders.toLocaleString('en-IN') }}</td>
+              <td v-for="t in SHARE_TIERS" :key="t.key" class="num">
+                <span class="hc-share hc-num">{{ pct(w.tiers[t.key].share) }}<span class="bar"><span :style="{ width: ((w.tiers[t.key].share || 0) * 100) + '%' }"></span></span></span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
     </div>
   </div>
-
-  <section class="hc-card">
-    <div v-if="!weeks.length || !totalOrders(weeks)" class="empty-state">No {{ product === 'ro' ? 'RO' : 'Locks' }} delivery data yet. It appears after the next SLA sync.</div>
-    <div v-else class="table-scroll">
-      <table class="sd-table">
-        <thead>
-          <tr class="grp">
-            <th rowspan="2" style="text-align:left; vertical-align:bottom; padding-bottom:9px;">Week</th>
-            <th v-for="t in TIERS" :key="t.key" colspan="2">{{ t.label }}<small v-if="t.hint">{{ t.hint }}</small><small v-else>all cities</small></th>
-          </tr>
-          <tr class="sub">
-            <template v-for="t in TIERS" :key="t.key">
-              <th class="l">SLA</th><th>{{ t.key === 'pan' ? 'Orders' : 'Demand share' }}</th>
-            </template>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="(w, i) in weeks" :key="w.weekStart" :class="w.kind">
-            <td class="wk">
-              <span class="w">Week {{ w.weekNo ?? '–' }}</span>
-              <span v-if="w.kind === 'current'" class="tag live">in progress</span>
-              <span v-if="w.kind === 'next'" class="tag early">early</span>
-              <span class="r">{{ range(w.weekStart) }}</span>
-            </td>
-            <template v-for="t in TIERS" :key="t.key">
-              <td class="l">
-                <span class="sla-v" :class="speed(w, t.key)">{{ days(w.tiers[t.key].sla) }}</span>
-                <span v-if="delta(i, t.key)" class="dd" :class="delta(i, t.key).cls">{{ delta(i, t.key).t }}</span>
-              </td>
-              <td>
-                <template v-if="t.key === 'pan'">{{ w.tiers.pan.orders.toLocaleString('en-IN') }}</template>
-                <span v-else class="share">{{ pct(w.tiers[t.key].share) }}<span class="bar"><span :style="{ width: ((w.tiers[t.key].share || 0) * 100) + '%' }"></span></span></span>
-              </td>
-            </template>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-  </section>
-  <p class="hc-foot">
-    ▲/▼ is the change in days vs the week below; ▲ (slower) is red. An SLA figure in orange runs 25%+ slower than Pan India that week; one in green runs 20%+ faster.
-    The current and next weeks are still maturing, because orders promised for them are still being delivered.
-    Locks = all UC-channel D2C orders that aren't RO, the same base as the Locks RCA.
-  </p>
 </template>
