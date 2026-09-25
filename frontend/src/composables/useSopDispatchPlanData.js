@@ -5,7 +5,9 @@ import { ref, onMounted, onUnmounted } from "vue";
 import { supabase } from "../supabaseClient.js";
 import { fetchAllRows } from "./sopPagedFetch.js";
 
-const POLL_INTERVAL_MS = 60 * 1000;
+// sync_sop_dispatch_plan.py runs 3x/day (0 3,9,15) -- 20 min is still far
+// ahead of the source without polling unchanged data (2026-09-25, Kalrav).
+const POLL_INTERVAL_MS = 20 * 60 * 1000;
 
 export function useSopDispatchPlanData() {
   const planRows = ref([]);

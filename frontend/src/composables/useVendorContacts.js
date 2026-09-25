@@ -9,7 +9,10 @@ import { ref, onMounted, onUnmounted } from "vue";
 import { supabase } from "../supabaseClient.js";
 import { resolveFunctionError } from "../functionError.js";
 
-const POLL_INTERVAL_MS = 60 * 1000;
+// No scheduled sync writes this -- only manual edits via the UI -- so
+// there's nothing to catch up on that fast; 5 min is plenty
+// (2026-09-25, Kalrav).
+const POLL_INTERVAL_MS = 5 * 60 * 1000;
 
 export function useVendorContacts() {
   const contacts = ref([]);

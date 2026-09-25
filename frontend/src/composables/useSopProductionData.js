@@ -9,7 +9,9 @@
 import { ref, onMounted, onUnmounted } from "vue";
 import { fetchAllRows } from "./sopPagedFetch.js";
 
-const POLL_INTERVAL_MS = 60 * 1000;
+// sync_sop_production.py runs every 30 min (4am-6pm) -- 5 min keeps this
+// feeling live without polling unchanged data (2026-09-25, Kalrav).
+const POLL_INTERVAL_MS = 5 * 60 * 1000;
 
 export function useSopProductionData() {
   const dailyRows = ref([]);

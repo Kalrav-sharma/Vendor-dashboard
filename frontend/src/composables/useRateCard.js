@@ -8,7 +8,9 @@
 import { ref, computed, onMounted, onUnmounted } from "vue";
 import { supabase } from "../supabaseClient.js";
 
-const POLL_INTERVAL_MS = 60 * 1000;
+// sync_mm_rate_card.py runs once/day -- 15 min is still far ahead of the
+// source without polling unchanged data (2026-09-25, Kalrav).
+const POLL_INTERVAL_MS = 15 * 60 * 1000;
 
 function normalize(s) {
   return String(s || "").trim().replace(/\s+/g, " ").toUpperCase();

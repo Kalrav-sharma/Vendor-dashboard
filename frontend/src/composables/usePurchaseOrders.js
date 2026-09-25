@@ -6,7 +6,10 @@ import { ref, onMounted, onUnmounted } from "vue";
 import { supabase } from "../supabaseClient.js";
 import { visiblePos, dedupeInvoiceNumbers } from "../format.js";
 
-const POLL_INTERVAL_MS = 60 * 1000;
+// Matches refresh.yml's own 5-min Uniware sync cadence -- polling faster
+// than the source can change just burned Supabase egress/log quota for
+// no fresher data (2026-09-25, Kalrav).
+const POLL_INTERVAL_MS = 5 * 60 * 1000;
 
 export function usePurchaseOrders() {
   const currentPos = ref([]);

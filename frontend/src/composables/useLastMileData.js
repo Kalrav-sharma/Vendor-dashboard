@@ -13,7 +13,10 @@
 import { ref, onMounted, onUnmounted } from "vue";
 import { supabase } from "../supabaseClient.js";
 
-const POLL_INTERVAL_MS = 60 * 1000;
+// sync-last-mile.yml's tracking leg runs hourly (10:30am-11:30pm) -- 10
+// min keeps this well ahead of the source without polling unchanged
+// data 60x per real update (2026-09-25, Kalrav).
+const POLL_INTERVAL_MS = 10 * 60 * 1000;
 
 // last_mile_open_shipments can hold 1,000+ rows per run (the whole live+
 // backlog population, not the curated alerts subset) -- past Supabase's

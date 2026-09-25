@@ -8,7 +8,10 @@
 import { ref, onMounted, onUnmounted } from "vue";
 import { supabase } from "../supabaseClient.js";
 
-const POLL_INTERVAL_MS = 60 * 1000;
+// The 3 courier tracking syncs (Bluedart/DTDC/Lets Transport) each run
+// every 30 min -- 5 min still feels responsive without re-polling
+// unchanged data 30x per real update (2026-09-25, Kalrav).
+const POLL_INTERVAL_MS = 5 * 60 * 1000;
 
 export function useShipmentTracking() {
   const rows = ref([]);

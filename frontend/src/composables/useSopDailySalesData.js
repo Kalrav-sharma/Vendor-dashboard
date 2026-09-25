@@ -4,7 +4,9 @@
 import { ref, onMounted, onUnmounted } from "vue";
 import { fetchAllRows } from "./sopPagedFetch.js";
 
-const POLL_INTERVAL_MS = 60 * 1000;
+// sync_sop_sales.py runs every 2 hrs (0 4-18/2) -- 15 min is still far
+// ahead of the source without polling unchanged data (2026-09-25, Kalrav).
+const POLL_INTERVAL_MS = 15 * 60 * 1000;
 
 export function useSopDailySalesData() {
   const rows = ref([]);
