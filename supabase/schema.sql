@@ -2129,3 +2129,17 @@ drop policy if exists sla_rca_run_select on public.sla_rca_run;
 create policy sla_rca_run_select on public.sla_rca_run
   for select using (public.is_internal_staff());
 -- ---------------------------------------------------------------------
+
+-- SLA trends: product split (RO vs Locks) -- added 2026-09-25 for the
+-- Logistics Health Card's "SLA & Demand Share" view. Existing rows are RO.
+-- Locks = query 559060's filter (customer_category_key not ro_purchase,
+-- order_type not D2C_RO). Safe to re-run.
+alter table public.sla_trend_weekly add column if not exists product text not null default 'ro';
+alter table public.sla_trend_weekly drop constraint if exists sla_trend_weekly_week_start_city_key_key;
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'sla_trend_weekly_product_week_city_key') then
+    alter table public.sla_trend_weekly
+      add constraint sla_trend_weekly_product_week_city_key unique (product, week_start, city_key);
+  end if;
+end $$;
+-- ---------------------------------------------------------------------

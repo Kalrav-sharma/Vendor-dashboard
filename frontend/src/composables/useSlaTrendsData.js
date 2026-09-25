@@ -51,7 +51,8 @@ export function useSlaTrendsData() {
   const lastSynced = ref(null);
 
   async function refresh() {
-    const { data, error } = await fetchAllRows("sla_trend_weekly");
+    // RO only: the table also holds Locks rows (product = 'locks') for the Health Card.
+    const { data, error } = await fetchAllRows("sla_trend_weekly", q => q.eq("product", "ro"));
     if (error) { loadError.value = error.message; return; }
     loadError.value = "";
     rows.value = data;

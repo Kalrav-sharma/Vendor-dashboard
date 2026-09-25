@@ -405,7 +405,7 @@ def compute_dark_store_drr_doi(uc_trackr_rows, dark_store_on_hand):
     """sop_facility_drr_doi DARK_STORE rows: same on_hand/DRR ratio as compute_facility_drr_doi, but
     a 15-day DRR lookback (not 10 -- per Anish, dark stores use a longer window than warehouses) and
     only for those dark stores that have their own UC sales trackr block. Stores without one
-    (PB-UC-DEL-JHILMIL and PB-UC-GGN-SOHNA, plus any newly opened store until its block is added)
+    (e.g. PB-UC-BLR-CHAMRAJPET, or any newly opened store until its block is added)
     get on-hand rows but no DRR/DOI row, and so simply don't appear on the DOI heatmap."""
     today = datetime.date.today()
     lookback_ymds = [(today - datetime.timedelta(days=d)).isoformat()

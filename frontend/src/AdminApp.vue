@@ -23,6 +23,7 @@ import RateFinder from "./components/RateFinder.vue";
 import SopSection from "./components/sop/SopSection.vue";
 import LastMileSection from "./components/lastmile/LastMileSection.vue";
 import SlaSection from "./components/sla/SlaSection.vue";
+import HealthCardSection from "./components/health/HealthCardSection.vue";
 import AppModal from "./components/AppModal.vue";
 import PoDetailModal from "./components/PoDetailModal.vue";
 import SkuDetailModal from "./components/SkuDetailModal.vue";
@@ -56,6 +57,8 @@ const canSeeSop = computed(() => ["admin", "management", "operations"].includes(
 const canSeeLastMile = computed(() => ["admin", "management", "operations"].includes(myRole.value));
 // Same gate as S&OP / Last Mile -- UC's delivery SLA performance and late-delivery RCA.
 const canSeeSla = computed(() => ["admin", "management", "operations"].includes(myRole.value));
+// Logistics Health Card -- the landing section (first in navItems, which login uses as the default).
+const canSeeHealth = computed(() => ["admin", "management", "operations"].includes(myRole.value));
 
 // Admin/Management only -- Kalrav's explicit call: the OCR match summary,
 // discrepancy details, and Re-check button in a PO's invoice section are
@@ -76,6 +79,7 @@ const ROLE_FALLBACK_NAME = { admin: "Admin", management: "Management", operation
 
 const navItems = computed(() => {
   const items = [];
+  if (canSeeHealth.value) items.push({ id: "health", label: "Logistics Health Card" });
   if (canSeePoTracking.value) items.push({ id: "po-tracking", label: "PO Tracking" });
   if (canSeeSkuData.value) items.push({ id: "sku-data", label: "SKU Level Data" });
   if (canSeeDispatchPlanning.value) items.push({ id: "dispatch-planning", label: "Dispatch Planning" });
@@ -90,6 +94,7 @@ const navItems = computed(() => {
 
 const activeNav = ref("po-tracking");
 const pageTitle = computed(() => ({
+  "health": "Logistics Health Card",
   "po-tracking": "PO Tracking",
   "sku-data": "SKU Level Data",
   "dispatch-planning": "Dispatch Planning",
@@ -262,7 +267,8 @@ async function signOut() {
           <div>
             <h1>{{ pageTitle }}</h1>
             <div class="scope">
-              <template v-if="activeNav === 'po-tracking'">{{ scopeLine }}</template>
+              <template v-if="activeNav === 'health'">One-glance health of inventory and delivery across the network.</template>
+              <template v-else-if="activeNav === 'po-tracking'">{{ scopeLine }}</template>
               <template v-else-if="activeNav === 'sku-data'">SKUs with at least one open purchase order not yet fully supplied, highest pending quantity first, across all vendors. Click a SKU for the PO-level breakdown.</template>
               <template v-else-if="activeNav === 'dispatch-planning'">Estimated dispatch date and quantity per SKU awaiting dispatch, plus live Bluedart status for every shipment already confirmed -- across all vendors. Click a PO to see its details.</template>
               <template v-else-if="activeNav === 'payment-dashboard'">Every invoice uploaded across all vendors, with its reconciliation and payment status. Click a PO to see its details.</template>
@@ -277,6 +283,10 @@ async function signOut() {
             <ProfileMenu :display-name="whoLine" :email="myEmail" :on-sign-out="signOut" />
           </div>
         </header>
+
+        <div v-if="canSeeHealth" v-show="activeNav === 'health'">
+          <HealthCardSection />
+        </div>
 
         <div v-if="canSeePoTracking" v-show="activeNav === 'po-tracking'">
           <PoTrackingTable

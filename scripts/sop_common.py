@@ -74,19 +74,18 @@ WAREHOUSE_FACILITY_CODES = {
 #
 # 2026-09-22: PB-UC-BLR-SARAKKI dropped (store gone non-functional) and
 # PB-UC-BLR-CHAMRAJPET added in its place; the 6 "SFX MFCs" facilities added as a
-# new sixth bucket.
+# new sixth bucket. 2026-09-25: PB-UC-DEL-JHILMIL and PB-UC-GGN-SOHNA dropped (not considered
+# dark stores any more, per Anish), leaving 19 dark stores + 6 MFCs.
 DARK_STORE_FACILITIES = {
     'PB-UC-BLR-NERALURU': 'DTDC Bangalore',
     'PB-UC-BLR-WHITEFIELD': 'DTDC Bangalore',
     'PB-UC-BLR-YELAHANKA': 'DTDC Bangalore',
     'PB-UC-BLR-BUMMANAHALLI': 'DTDC Bangalore',
     'PB-UC-BLR-CHAMRAJPET': 'DTDC Bangalore',
-    'PB-UC-DEL-JHILMIL': 'DTDC Gurgaon',
     'PB-UC-DEL-KAPASHERA': 'DTDC Gurgaon',
     'PB-UC-DEL-OKHLA': 'DTDC Gurgaon',
     'PB-UC-DEL-ROHINI': 'DTDC Gurgaon',
     'PB-UC-DEL-SHAHDARA': 'DTDC Gurgaon',
-    'PB-UC-GGN-SOHNA': 'DTDC Gurgaon',
     'PB-UC-KOL-AGARPARA': 'DTDC Kolkata',
     'PB-UC-KOL-CAMACSTREET': 'DTDC Kolkata',
     'PB-UC-KOL-TARATALA': 'DTDC Kolkata',
@@ -330,7 +329,7 @@ def find_trackr_title_cols(rows, codes):
     keeps the sheet the single source of truth for its own layout.
 
     A code with no block is left out rather than defaulted: some tracked stores genuinely have none
-    (PB-UC-DEL-JHILMIL, PB-UC-GGN-SOHNA), and a newly opened store won't until someone adds it.
+    (e.g. PB-UC-BLR-CHAMRAJPET), and a newly opened store won't until someone adds it.
     Both cases mean on-hand but no DRR/DOI, which is the intended behaviour, not an error."""
     header = rows[0] if rows else []
     by_code = {}
