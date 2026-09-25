@@ -30,17 +30,17 @@ const zero = () => Object.fromEntries(FIELDS.map(f => [f, 0]));
 const add = (acc, r) => { FIELDS.forEach(f => { acc[f] += Number(r[f]) || 0; }); return acc; };
 export const ratio = (n, d) => (d ? n / d : null);
 
-function mondayOf(date) {
+export function mondayOf(date) {
   const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
   d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
   return d.toISOString().slice(0, 10);
 }
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-function weekLabel(ws, weekNo) {
+export function weekLabel(ws, weekNo) {
   const [, m, d] = ws.split("-").map(Number);
   return { short: `W${weekNo}`, long: `Week ${weekNo} · ${d} ${MONTHS[m - 1]}` };
 }
-function monthLabel(ms) {
+export function monthLabel(ms) {
   const [y, m] = ms.split("-").map(Number);
   return { short: `${MONTHS[m - 1]} ${String(y).slice(2)}`, long: `${MONTHS[m - 1]} ${y}` };
 }
@@ -51,24 +51,25 @@ export function useSlaTrendsData() {
   const lastSynced = ref(null);
 
   async function refresh() {
-    // RO only: the table also holds Locks rows (product = 'locks') for the Health Card.
-    const { data, error } = await fetchAllRows("sla_trend_weekly", q => q.eq("product", "ro"));
+    // RO drives every view; Locks rows (product = 'locks') are used only by the On-Time
+    // Delivery view's product toggle (and, separately, by the Health Card).
+    const { data, error } = await fetchAllRows("sla_trend_weekly", q => q.in("product", ["ro", "locks"]));
     if (error) { loadError.value = error.message; return; }
     loadError.value = "";
     rows.value = data;
-    lastSynced.value = data.reduce((m, r) => (!m || r.synced_at > m ? r.synced_at : m), null);
+    lastSynced.value = data.filter(r => r.product === "ro").reduce((m, r) => (!m || r.synced_at > m ? r.synced_at : m), null);
   }
 
   // Builds the period series for "week" or "month" granularity. Each period gets:
   //   totals.{all,wh,mfc,other}: summed counts per city group
   //   city[city_key]: summed counts for that one city
   //   partial: the period hasn't finished yet (current week/month), so it's drawn dashed
-  function periods(grain) {
+  function periods(grain, product = "ro") {
     const thisMonday = mondayOf(new Date());
     const thisMonth = thisMonday.slice(0, 7) + "-01";
     // Rows keyed by a future promised-delivery week are orders already delivered early
     // against next week's promise. They're too thin to plot as a week of their own.
-    const usable = rows.value.filter(r => r.week_start <= thisMonday);
+    const usable = rows.value.filter(r => r.product === product && r.week_start <= thisMonday);
     const byKey = new Map();
     for (const r of usable) {
       const key = grain === "week" ? r.week_start : r.week_start.slice(0, 7) + "-01";
@@ -95,10 +96,12 @@ export function useSlaTrendsData() {
 
   const weekly = computed(() => periods("week"));
   const monthly = computed(() => periods("month"));
+  const weeklyLocks = computed(() => periods("week", "locks"));
+  const monthlyLocks = computed(() => periods("month", "locks"));
 
   let timer = null;
   onMounted(() => { refresh(); timer = setInterval(refresh, POLL_INTERVAL_MS); });
   onUnmounted(() => clearInterval(timer));
 
-  return { rows, weekly, monthly, loadError, lastSynced, refresh };
+  return { rows, weekly, monthly, weeklyLocks, monthlyLocks, loadError, lastSynced, refresh };
 }

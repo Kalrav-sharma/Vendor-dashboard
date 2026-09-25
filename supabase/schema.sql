@@ -2169,3 +2169,26 @@ drop policy if exists health_delay_weekly_select on public.health_delay_weekly;
 create policy health_delay_weekly_select on public.health_delay_weekly
   for select using (public.is_internal_staff());
 -- ---------------------------------------------------------------------
+
+-- SLA › Trends › On-Time Delivery for Spares / Refresh, by partner type -- added 2026-09-25.
+-- One row per (product, order week, partner). product: 'spares' (Jarvis 558955) |
+-- 'refresh' (579905). partner: 'uc' | 'sterling' | 'sterling_lite' (the queries'
+-- "Supply::multi-filter"; "Partner not assigned" is left out). delivered = distinct
+-- delivered orders; on_time = those delivered on/before the query's own promise.
+-- Cancelled/RTO excluded. Written only from the VPN-side sync.
+create table if not exists public.sla_partner_otd_weekly (
+  id bigserial primary key,
+  product text not null,
+  week_start date not null,
+  week_no int,
+  partner text not null,
+  delivered int not null default 0,
+  on_time int not null default 0,
+  synced_at timestamptz not null default now(),
+  unique (product, week_start, partner)
+);
+alter table public.sla_partner_otd_weekly enable row level security;
+drop policy if exists sla_partner_otd_weekly_select on public.sla_partner_otd_weekly;
+create policy sla_partner_otd_weekly_select on public.sla_partner_otd_weekly
+  for select using (public.is_internal_staff());
+-- ---------------------------------------------------------------------

@@ -14,9 +14,11 @@
 import { ref, computed } from "vue";
 import SlaChart from "./SlaChart.vue";
 import { useSlaTrendsData, WH_CITIES, MFC_CITIES, ratio } from "../../composables/useSlaTrendsData.js";
+import { usePartnerOtdData, PARTNERS } from "../../composables/usePartnerOtdData.js";
 
 const props = defineProps({ rcaRun: { type: Object, default: null } });
-const { weekly, monthly, loadError, lastSynced, rows } = useSlaTrendsData();
+const { weekly, monthly, weeklyLocks, monthlyLocks, loadError, lastSynced, rows } = useSlaTrendsData();
+const partnerOtd = usePartnerOtdData();
 
 const grain = ref("week");
 const view = ref("sla");
@@ -46,7 +48,25 @@ const tierOf = (p, k) => p.totals[k];
 const cityOf = (p, k) => p.city[k] || { orders: 0, tat_sum: 0, tat_n: 0, on_time: 0, ds_facility_orders: 0, sdd_lsp_orders: 0, sfx_mfc_orders: 0, sfx_orders: 0 };
 
 const slaSeries = computed(() => TIERS.map(t => ({ ...t, data: P.value.map(p => ratio(tierOf(p, t.key).tat_sum, tierOf(p, t.key).tat_n)) })));
-const otdSeries = computed(() => TIERS.map(t => ({ ...t, data: P.value.map(p => ratio(tierOf(p, t.key).on_time, tierOf(p, t.key).orders)) })));
+// On-Time Delivery has its own product toggle. RO and Locks split by city tier; Spares and
+// Refresh split by partner type (usePartnerOtdData.js). Each product has its own period list,
+// so labels, the dashed in-progress point and the deltas are all computed per product.
+const otdProduct = ref("ro");
+const OTD_PRODUCTS = [{ id: "ro", label: "RO" }, { id: "locks", label: "Locks" }, { id: "spares", label: "Spares" }, { id: "refresh", label: "Refresh" }];
+const PARTNER_COLORS = ["--sla-s1", "--sla-s2", "--sla-s3"];
+const otdP = computed(() => {
+  const g = grain.value;
+  if (otdProduct.value === "ro") return P.value;
+  if (otdProduct.value === "locks") return g === "week" ? weeklyLocks.value : monthlyLocks.value;
+  const src = otdProduct.value === "spares" ? partnerOtd.spares : partnerOtd.refreshKit;
+  return src[g].value;
+});
+const otdSeries = computed(() => (otdProduct.value === "ro" || otdProduct.value === "locks"
+  ? TIERS.map(t => ({ ...t, data: otdP.value.map(p => ratio(tierOf(p, t.key).on_time, tierOf(p, t.key).orders)) }))
+  : PARTNERS.map((pt, i) => ({ label: pt.label, color: PARTNER_COLORS[i], data: otdP.value.map(p => ratio(p.byPartner[pt.key].on_time, p.byPartner[pt.key].delivered)) }))));
+const otdLabels = computed(() => otdP.value.map(p => p.label.short));
+const otdTitles = computed(() => otdP.value.map(p => p.label.long));
+const otdPartial = computed(() => !!otdP.value.at(-1)?.partial);
 const mixSeries = computed(() => TIERS.slice(1).map(t => ({ ...t, data: P.value.map(p => ratio(tierOf(p, t.key).orders, p.totals.all.orders)) })));
 const sddDemandSeries = computed(() => WH_CITIES.map((c, i) => ({
   label: c.label, color: CITY_COLORS[i], data: P.value.map(p => ratio(cityOf(p, c.key).ds_facility_orders, cityOf(p, c.key).orders)),
@@ -63,9 +83,12 @@ const mfcMatrix = computed(() => MFC_CITIES.map(c => ({
 const mfcLive = computed(() => mfcMatrix.value.some(r => r.cells.some(c => c.n > 0)));
 
 // ---- deltas ----
-function deltaCells(series, fmt, higherIsGood) {
+function deltaCells(series, fmt, higherIsGood, periodList = null) {
+  // Default: the RO period list. Pass another list (e.g. otdP) when the series come from it.
+  const list = periodList || P.value;
+  const ic = list.length - (list.at(-1)?.partial ? 2 : 1), ip = ic - 1;
   return series.map(s => {
-    const cur = s.data[iCur.value], prev = s.data[iPrev.value];
+    const cur = s.data[ic], prev = s.data[ip];
     const d = cur != null && prev != null ? cur - prev : null;
     return { label: s.label, color: s.color, value: fmt(cur), delta: d, deltaText: deltaText(d, fmt === fmtDays), cls: deltaCls(d, higherIsGood) };
   });
@@ -249,17 +272,24 @@ const tileStyle = v => {
       <div class="sla-card-head">
         <div>
           <div class="sla-card-step">03 · On-time delivery</div>
-          <h3>On-time delivery rate</h3>
-          <p class="desc">Delivered on or before the promised date, as a share of delivered orders. Higher is better.</p>
+          <h3>On-time delivery rate · {{ OTD_PRODUCTS.find(x => x.id === otdProduct).label }}</h3>
+          <p class="desc" v-if="otdProduct === 'ro' || otdProduct === 'locks'">Delivered on or before the promised date, as a share of delivered orders, by city tier.</p>
+          <p class="desc" v-else>Delivered on or before the promised date, as a share of delivered orders, by partner type. Weeks are order weeks.</p>
+        </div>
+        <div class="seg sm">
+          <button v-for="o in OTD_PRODUCTS" :key="o.id" :class="{ active: otdProduct === o.id }" @click="otdProduct = o.id">{{ o.label }}</button>
         </div>
       </div>
-      <SlaChart :labels="labels" :tooltip-titles="titles" :datasets="otdSeries" format="pct" :partial-last="partialLast" />
-      <div class="sla-deltas">
-        <div v-for="c in deltaCells(otdSeries, fmtPct, true)" :key="c.label" class="sla-delta-cell">
-          <span class="name"><span class="swatch" :style="{ background: `var(${c.color})` }"></span>{{ c.label }}</span>
-          <span class="row"><span class="v">{{ c.value }}</span><span class="delta" :class="c.cls">{{ c.deltaText }}</span></span>
+      <div v-if="!otdP.length" class="empty-state">No {{ OTD_PRODUCTS.find(x => x.id === otdProduct).label }} data yet. It appears after the next SLA sync.</div>
+      <template v-else>
+        <SlaChart :labels="otdLabels" :tooltip-titles="otdTitles" :datasets="otdSeries" format="pct" :partial-last="otdPartial" />
+        <div class="sla-deltas">
+          <div v-for="c in deltaCells(otdSeries, fmtPct, true, otdP)" :key="c.label" class="sla-delta-cell">
+            <span class="name"><span class="swatch" :style="{ background: `var(${c.color})` }"></span>{{ c.label }}</span>
+            <span class="row"><span class="v">{{ c.value }}</span><span class="delta" :class="c.cls">{{ c.deltaText }}</span></span>
+          </div>
         </div>
-      </div>
+      </template>
     </section>
 
     <p class="sla-foot">
