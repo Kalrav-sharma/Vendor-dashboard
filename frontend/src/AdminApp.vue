@@ -22,6 +22,7 @@ import ManageAccess from "./components/ManageAccess.vue";
 import RateFinder from "./components/RateFinder.vue";
 import SopSection from "./components/sop/SopSection.vue";
 import LastMileSection from "./components/lastmile/LastMileSection.vue";
+import SlaSection from "./components/sla/SlaSection.vue";
 import AppModal from "./components/AppModal.vue";
 import PoDetailModal from "./components/PoDetailModal.vue";
 import SkuDetailModal from "./components/SkuDetailModal.vue";
@@ -53,6 +54,8 @@ const canSeeSop = computed(() => ["admin", "management", "operations"].includes(
 // Same gate as S&OP -- UC's own delivery-operations data, not something a
 // vendor (who only supplies TO Uniware, not to the end customer) sees.
 const canSeeLastMile = computed(() => ["admin", "management", "operations"].includes(myRole.value));
+// Same gate as S&OP / Last Mile -- UC's delivery SLA performance and late-delivery RCA.
+const canSeeSla = computed(() => ["admin", "management", "operations"].includes(myRole.value));
 
 // Admin/Management only -- Kalrav's explicit call: the OCR match summary,
 // discrepancy details, and Re-check button in a PO's invoice section are
@@ -81,6 +84,7 @@ const navItems = computed(() => {
   if (RATE_FINDER_LIVE && canSeeRateFinder.value) items.push({ id: "rate-finder", label: "Rate Finder" });
   if (canSeeSop.value) items.push({ id: "sop", label: "S&OP" });
   if (canSeeLastMile.value) items.push({ id: "last-mile", label: "Last Mile Tracking" });
+  if (canSeeSla.value) items.push({ id: "sla", label: "SLA" });
   return items;
 });
 
@@ -94,6 +98,7 @@ const pageTitle = computed(() => ({
   "rate-finder": "Rate Finder",
   "sop": "S&OP",
   "last-mile": "Last Mile Tracking",
+  "sla": "SLA",
 }[activeNav.value]));
 
 const { currentPos, grnsByPo, poItemsByPo, grnItemsByPoSku, grnByCode, lastUpdated, invoicesForItem, refresh: refreshPos } = usePurchaseOrders();
@@ -265,6 +270,7 @@ async function signOut() {
               <template v-else-if="activeNav === 'rate-finder'">Find the cheapest vendor for a lane, and send them the shipment intent on WhatsApp.</template>
               <template v-else-if="activeNav === 'sop'">Sales & Operations Planning -- inventory, sales, production, and dispatch across the network.</template>
               <template v-else-if="activeNav === 'last-mile'">Warehouse-to-customer delivery visibility -- every open shipment, plus curated alerts, carrier performance, and worst-performing lanes across Blue Dart, Delhivery, DTDC, Holisol and Shadowfax.</template>
+              <template v-else-if="activeNav === 'sla'">Delivery SLA across the network -- weekly/monthly trends by city tier, plus the week's late-delivery root-cause analysis.</template>
             </div>
           </div>
           <div class="who">
@@ -328,6 +334,10 @@ async function signOut() {
 
         <div v-if="canSeeLastMile" v-show="activeNav === 'last-mile'">
           <LastMileSection />
+        </div>
+
+        <div v-if="canSeeSla" v-show="activeNav === 'sla'">
+          <SlaSection />
         </div>
 
         <footer class="page-foot">Data refreshes automatically every ~5 minutes from Uniware. {{ lastCheckedText }}</footer>

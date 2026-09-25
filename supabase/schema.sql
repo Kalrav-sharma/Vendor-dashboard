@@ -2067,3 +2067,65 @@ drop policy if exists last_mile_sla_rules_select on public.last_mile_sla_rules;
 create policy last_mile_sla_rules_select on public.last_mile_sla_rules
   for select using (public.is_internal_staff());
 -- ---------------------------------------------------------------------
+
+-- =====================================================================
+-- SLA section (Trends + Week-N RCA) -- added 2026-09-24
+-- =====================================================================
+-- Source is Jarvis (Snowflake via Redash), which is IP-gated at
+-- Cloudflare to UC's VPN -- so, like last_mile_sla_rules above, these
+-- tables are written ONLY from a VPN-connected machine: Anish's Mac runs
+-- ~/.claude/scripts/sla_portal/sync_sla_portal.js on a launchd schedule
+-- (com.anish.sla-portal-sync) with the service-role key. No GitHub
+-- Actions workflow writes here.
+
+-- Trends tab: one row per (promised-delivery week, city_key). city_key is
+-- the raw Jarvis CITY slug for the 5 warehouse cities and the 9 MFC
+-- cities, and the literal 'other' for every other city combined.
+-- Only raw counts/sums are stored, never ratios, so the monthly view can
+-- sum weeks and re-derive every ratio correctly on the client.
+create table if not exists public.sla_trend_weekly (
+  id bigserial primary key,
+  week_start date not null,
+  week_no int,
+  city_key text not null,
+  city_group text not null,            -- 'wh' | 'mfc' | 'other'
+  orders int not null default 0,       -- delivered, net orders
+  tat_sum numeric not null default 0,  -- sum(actual_tat days)
+  tat_n int not null default 0,
+  on_time int not null default 0,
+  ds_facility_orders int not null default 0,  -- shipped from the city's own dark store (SDD demand)
+  sdd_lsp_orders int not null default 0,      -- carried by the city's SDD LSP (Raftaar / SFX DS)
+  sfx_mfc_orders int not null default 0,      -- shipped from a PB-UC-SFX-* MFC
+  sfx_orders int not null default 0,          -- any Shadowfax DSP code
+  synced_at timestamptz not null default now(),
+  unique (week_start, city_key)
+);
+create index if not exists idx_sla_trend_weekly_week on public.sla_trend_weekly (week_start);
+
+alter table public.sla_trend_weekly enable row level security;
+drop policy if exists sla_trend_weekly_select on public.sla_trend_weekly;
+create policy sla_trend_weekly_select on public.sla_trend_weekly
+  for select using (public.is_internal_staff());
+
+-- RCA tab: one row per sync run. payload is the full view model emitted
+-- by parse_late_delivery_rca.js --portal-json (Overview, RCA Breakdown +
+-- deep dive, SLA View's 7 cards, Open SLA Breaches) for the week chosen
+-- by the display rule: Wed-Sun -> current week, Mon/Tue -> previous week
+-- (the current week is too immature to analyse early in the week).
+-- The frontend reads only the newest row; the sync keeps the last 8.
+create table if not exists public.sla_rca_run (
+  id bigserial primary key,
+  generated_at timestamptz not null default now(),
+  week_no int not null,
+  week_start date not null,
+  shadowfax_map_as_of timestamptz,  -- mtime of the reused Shadowfax classification map (null = none)
+  payload jsonb not null,
+  synced_at timestamptz not null default now()
+);
+create index if not exists idx_sla_rca_run_generated on public.sla_rca_run (generated_at desc);
+
+alter table public.sla_rca_run enable row level security;
+drop policy if exists sla_rca_run_select on public.sla_rca_run;
+create policy sla_rca_run_select on public.sla_rca_run
+  for select using (public.is_internal_staff());
+-- ---------------------------------------------------------------------
