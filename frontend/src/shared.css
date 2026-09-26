@@ -1,10 +1,5 @@
 /* --- Brand type: Open Sauce Sans (self-hosted, see assets/fonts/OFL.txt) --- */
 @font-face {
-  font-family: "Syncopate";
-  src: url("./assets/fonts/Syncopate-Bold.woff2") format("woff2");
-  font-weight: 700; font-style: normal; font-display: swap;
-}
-@font-face {
   font-family: "Open Sauce Sans";
   src: url("./assets/fonts/OpenSauceSans-Regular.ttf") format("truetype");
   font-weight: 400; font-style: normal; font-display: swap;
@@ -101,17 +96,13 @@ a { color: var(--accent); }
 .sidebar .brand { padding: 0 20px 16px; border-bottom: 1px solid var(--line); margin-bottom: 10px; }
 .sidebar-logo { height: 18px; margin-bottom: 8px; }
 .sidebar-app-name { font-weight: 600; font-size: 0.92rem; }
-/* NATIVE / CONNECT lockup: brand text at the logo's cap height, in Syncopate
-   Bold (closest open match to the Native wordmark; 0.671 = its cap-height/em),
-   left edge on the "T" stem centre (x=325 of the 745x96 logo PNG). Shrunk to
-   12px so CONNECT still fits the 200px sidebar starting from the T. */
-.sidebar .brand.lockup { --lockup-h: 12px; }
+/* NATIVE / CONNECT lockup: CONNECT wordmark (connect-logo.png, 1113x96) at the
+   logo's height, left edge on the "T" stem centre (x=325 of the 745x96 logo
+   PNG). 11px tall + 12px right padding so CONNECT (~15x the height, T offset
+   included) still fits the 200px sidebar starting from the T. */
+.sidebar .brand.lockup { --lockup-h: 11px; padding-right: 12px; }
 .brand.lockup .sidebar-logo { height: var(--lockup-h); margin-bottom: calc(var(--lockup-h) * 0.6); }
-.brand.lockup .sidebar-app-name {
-  font-family: "Syncopate", "Open Sauce Sans", sans-serif; font-weight: 700; text-transform: uppercase;
-  font-size: calc(var(--lockup-h) / 0.671); line-height: 1; white-space: nowrap;
-  padding-left: calc(var(--lockup-h) * 325 / 96);
-}
+.brand.lockup .sidebar-wordmark { height: var(--lockup-h); margin-left: calc(var(--lockup-h) * 325 / 96); }
 .nav-item {
   display: block; width: 100%; text-align: left; padding: 10px 20px; background: none; border: none;
   color: var(--muted); font-size: 0.84rem; font-family: inherit; cursor: pointer; border-left: 3px solid transparent;

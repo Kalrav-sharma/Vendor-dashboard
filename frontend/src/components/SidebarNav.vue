@@ -15,7 +15,8 @@ defineEmits(["update:modelValue"]);
   <nav class="sidebar">
     <div class="brand" :class="{ lockup }">
       <BrandLogo brand="native" class="sidebar-logo" />
-      <div class="sidebar-app-name">{{ brand }}</div>
+      <BrandLogo v-if="lockup" brand="connect" class="sidebar-wordmark" />
+      <div v-else class="sidebar-app-name">{{ brand }}</div>
     </div>
     <button
       v-for="item in items" :key="item.id"
