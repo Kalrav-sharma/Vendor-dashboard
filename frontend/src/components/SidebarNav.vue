@@ -3,6 +3,8 @@ import BrandLogo from "./BrandLogo.vue";
 
 defineProps({
   brand: { type: String, required: true },
+  // Wordmark lockup: brand text starts under the Native logo's "T" stem.
+  lockup: { type: Boolean, default: false },
   items: { type: Array, required: true }, // [{ id, label }]
   modelValue: { type: String, required: true },
 });
@@ -11,9 +13,10 @@ defineEmits(["update:modelValue"]);
 
 <template>
   <nav class="sidebar">
-    <div class="brand">
+    <div class="brand" :class="{ lockup }">
       <BrandLogo brand="native" class="sidebar-logo" />
-      <div class="sidebar-app-name">{{ brand }}</div>
+      <BrandLogo v-if="lockup" brand="connect" class="sidebar-wordmark" />
+      <div v-else class="sidebar-app-name">{{ brand }}</div>
     </div>
     <button
       v-for="item in items" :key="item.id"

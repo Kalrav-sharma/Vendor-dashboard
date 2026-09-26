@@ -71,7 +71,7 @@ const canViewInvoiceMatchDetails = computed(() => ["admin", "management"].includ
 const RATE_FINDER_LIVE = true;
 
 const SIDEBAR_BRAND = {
-  admin: "Admin Console", management: "Management Console",
+  admin: "Admin Console", management: "Connect",
   operations: "Operations Portal", finance: "Finance Portal",
 };
 const sidebarBrand = computed(() => SIDEBAR_BRAND[myRole.value] || "Admin Console");
@@ -259,7 +259,7 @@ async function signOut() {
   </div>
 
   <div v-else-if="ready" class="app-shell">
-    <SidebarNav v-model="activeNav" :brand="sidebarBrand" :items="navItems" />
+    <SidebarNav v-model="activeNav" :brand="sidebarBrand" :lockup="myRole === 'management'" :items="navItems" />
 
     <div class="main-content">
       <div class="wrap">
