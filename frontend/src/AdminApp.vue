@@ -71,7 +71,7 @@ const canViewInvoiceMatchDetails = computed(() => ["admin", "management"].includ
 const RATE_FINDER_LIVE = true;
 
 const SIDEBAR_BRAND = {
-  admin: "Admin Console", management: "Management Console",
+  admin: "Admin Console", management: "Native Connect",
   operations: "Operations Portal", finance: "Finance Portal",
 };
 const sidebarBrand = computed(() => SIDEBAR_BRAND[myRole.value] || "Admin Console");
