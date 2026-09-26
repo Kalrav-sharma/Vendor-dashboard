@@ -96,11 +96,11 @@ a { color: var(--accent); }
 .sidebar .brand { padding: 0 20px 16px; border-bottom: 1px solid var(--line); margin-bottom: 10px; }
 .sidebar-logo { height: 18px; margin-bottom: 8px; }
 .sidebar-app-name { font-weight: 600; font-size: 0.92rem; }
-/* NATIVE / CONNECT lockup: CONNECT wordmark (connect-logo.png, 1113x96) at the
-   logo's height, left edge on the "T" stem centre (x=325 of the 745x96 logo
-   PNG). 11px tall + 12px right padding so CONNECT (~15x the height, T offset
-   included) still fits the 200px sidebar starting from the T. */
-.sidebar .brand.lockup { --lockup-h: 11px; padding-right: 12px; }
+/* NATIVE / CONNECT lockup: connect-logo.png is drawn to native-logo.png's
+   metrics (84px caps in a 96px canvas, same letter widths, spacing and stroke),
+   so both render at one height. CONNECT's left edge sits on the "T" stem
+   centre (x=325 of 745). 12px keeps T offset + CONNECT (953/96) inside 160px. */
+.sidebar .brand.lockup { --lockup-h: 12px; }
 .brand.lockup .sidebar-logo { height: var(--lockup-h); margin-bottom: calc(var(--lockup-h) * 0.6); }
 .brand.lockup .sidebar-wordmark { height: var(--lockup-h); margin-left: calc(var(--lockup-h) * 325 / 96); }
 .nav-item {
