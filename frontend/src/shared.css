@@ -96,6 +96,8 @@ a { color: var(--accent); }
 .sidebar .brand { padding: 0 20px 16px; border-bottom: 1px solid var(--line); margin-bottom: 10px; }
 .sidebar-logo { height: 18px; margin-bottom: 8px; }
 .sidebar-app-name { font-weight: 600; font-size: 0.92rem; }
+/* T stem centre is x=325 of the 745x96 logo PNG, scaled to the 18px logo height. */
+.sidebar-app-name.lockup { padding-left: calc(18px * 325 / 96); }
 .nav-item {
   display: block; width: 100%; text-align: left; padding: 10px 20px; background: none; border: none;
   color: var(--muted); font-size: 0.84rem; font-family: inherit; cursor: pointer; border-left: 3px solid transparent;
