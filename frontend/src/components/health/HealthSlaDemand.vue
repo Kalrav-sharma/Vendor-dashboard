@@ -17,11 +17,13 @@ const range = ws => {
   const s = new Date(`${ws}T00:00:00Z`), e = new Date(s.getTime() + 6 * 86400000);
   return `${s.getUTCDate()} ${MONTHS[s.getUTCMonth()]} – ${e.getUTCDate()} ${MONTHS[e.getUTCMonth()]}`;
 };
-const days = v => (v == null ? "–" : `${v.toFixed(2)}d`);
-const pct = v => (v == null ? "–" : `${(v * 100).toFixed(1)}%`);
+const days = v => (v == null ? "–" : `${v.toFixed(1)}d`);
+const pct = v => (v == null ? "–" : `${(v * 100).toFixed(0)}%`);
+// Arrow compares the values as displayed (1 dp), so equal-looking weeks show no arrow.
+const r1 = v => (v == null ? null : Math.round(v * 10) / 10);
 function delta(i, tier) {
-  const cur = weeks.value[i]?.tiers[tier].sla, prev = weeks.value[i + 1]?.tiers[tier].sla;
-  if (cur == null || prev == null || Math.abs(cur - prev) < 0.005) return null;
+  const cur = r1(weeks.value[i]?.tiers[tier].sla), prev = r1(weeks.value[i + 1]?.tiers[tier].sla);
+  if (cur == null || prev == null || cur === prev) return null;
   return { cls: cur > prev ? "up" : "down", t: cur > prev ? "▲" : "▼" };
 }
 const shortTier = t => ({ pan: "Pan India", top5: "Top 5", next4: "Next 4", other: "Other" }[t.key]);
@@ -59,9 +61,7 @@ const shortTier = t => ({ pan: "Pan India", top5: "Top 5", next4: "Next 4", othe
             <tr v-for="w in weeks" :key="w.weekStart" :title="range(w.weekStart)">
               <td class="lab">W{{ w.weekNo ?? '–' }}<span v-if="w.kind === 'current'" class="hc-live"></span><span v-if="w.kind === 'next'" class="hc-muted" style="font-size:.7rem;"> next</span></td>
               <td class="num hc-num hc-muted">{{ w.tiers.pan.orders.toLocaleString('en-IN') }}</td>
-              <td v-for="t in SHARE_TIERS" :key="t.key" class="num">
-                <span class="hc-share hc-num">{{ pct(w.tiers[t.key].share) }}<span class="bar"><span :style="{ width: ((w.tiers[t.key].share || 0) * 100) + '%' }"></span></span></span>
-              </td>
+              <td v-for="t in SHARE_TIERS" :key="t.key" class="num hc-num">{{ pct(w.tiers[t.key].share) }}</td>
             </tr>
           </tbody>
         </table>
