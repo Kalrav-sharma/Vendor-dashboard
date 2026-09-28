@@ -34,6 +34,13 @@ There is no UTR / payment-reference column in this export, so
 payment_ref is left null -- if Finance's export ever grows one, wire it
 up in row_payment_ref() below.
 
+If the same invoice number shows up on more than one row in one file
+(a partial payment split across lines, a correction, etc.), only the
+most recent/authoritative one is used -- see row_recency_key(). An
+upload already marked 'paid' from a previous run is also never reverted
+to 'pending' by a later run, in case an older file ever gets run out of
+order (see build_updates()).
+
 CREDENTIALS
   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
   (same as every other sync script here -- set as real environment
@@ -120,6 +127,19 @@ def row_payment_ref(row):
     return None  # no UTR/reference column in this export -- see module docstring
 
 
+def row_recency_key(row):
+    """Sort key for picking the most authoritative row when the same
+    invoice number appears more than once in one payout file (a partial
+    payment split across lines, a correction, etc.) -- higher sorts as
+    more recent/authoritative. 'paid' always outranks 'pending' (a
+    ledger's paid state doesn't get less true), and within a status, the
+    row with the latest date wins."""
+    status_rank = {"paid": 1, "pending": 0}.get(row_payment_status(row), -1)
+    pay_date = parse_date(row.get("Payment Date")) or ""
+    acct_date = parse_date(row.get("Invoice Accounting Date")) or ""
+    return (status_rank, pay_date, acct_date)
+
+
 def supabase_config():
     url = os.environ.get("SUPABASE_URL")
     key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
@@ -146,25 +166,29 @@ def fetch_vendor_map(supabase_url, key):
 
 
 def fetch_invoice_uploads(supabase_url, key):
-    """{(vendor_code, normalized invoice number): [upload id, ...]} --
-    only rows the AI match check actually got an invoice number out of."""
+    """({(vendor_code, normalized invoice number): [upload id, ...]},
+    {upload id: current payment_status}) -- only rows the AI match check
+    actually got an invoice number out of are in the first lookup; the
+    second covers every upload, used to guard against a stale re-run
+    silently downgrading an already-paid row (see build_updates)."""
     h = {"apikey": key, "Authorization": f"Bearer {key}"}
     r = requests.get(
         f"{supabase_url}/rest/v1/po_invoice_uploads", headers=h,
-        params={"select": "id,vendor_code,match_details", "limit": 10000},
+        params={"select": "id,vendor_code,match_details,payment_status", "limit": 10000},
         timeout=REQUEST_TIMEOUT,
     )
     r.raise_for_status()
     rows = r.json()
-    lookup, unmatched_uploads = {}, 0
+    lookup, current_status, unmatched_uploads = {}, {}, 0
     for row in rows:
+        current_status[row["id"]] = row.get("payment_status")
         inv = normalize_invoice_number((row.get("match_details") or {}).get("extracted", {}).get("invoice_number"))
         if not inv:
             unmatched_uploads += 1
             continue
         key_ = (row["vendor_code"], inv)
         lookup.setdefault(key_, []).append(row["id"])
-    return lookup, len(rows), unmatched_uploads
+    return lookup, current_status, len(rows), unmatched_uploads
 
 
 def read_payout_rows(path):
@@ -178,13 +202,24 @@ def read_payout_rows(path):
         yield dict(zip(header, values))
 
 
-def build_updates(payout_path, vendor_map, upload_lookup):
+def build_updates(payout_path, vendor_map, upload_lookup, current_status):
     """Returns (updates: {upload_id: {payment_status, payment_date,
-    payment_ref}}, stats dict)."""
-    updates = {}
+    payment_ref}}, stats dict).
+
+    Two safeguards around "which status is actually current":
+      - Same invoice number on more than one row IN THIS FILE (a partial
+        payment split across lines, a correction, etc.) -- only the most
+        recent/authoritative one (row_recency_key) is used, not just
+        whichever happened to come last while reading the sheet.
+      - An upload already marked 'paid' from a PREVIOUS run never gets
+        silently downgraded back to 'pending' by THIS run -- that would
+        only happen from a stale/out-of-order file (payout files are
+        cumulative, so a properly-ordered run never sees this), and
+        Oracle's paid state doesn't become less true later.
+    """
+    by_key = {}  # (vendor_code, invoice_number) -> payout row, most-recent so far
     stats = {"total_rows": 0, "portal_vendor_rows": 0, "matched_uploads": 0,
-              "unknown_status_rows": 0, "portal_vendors_seen": set()}
-    conflicts = {}  # upload_id -> set of statuses seen, for a same-run duplicate warning
+              "unknown_status_rows": 0, "portal_vendors_seen": set(), "duplicate_invoices": 0}
 
     for row in read_payout_rows(payout_path):
         stats["total_rows"] += 1
@@ -197,7 +232,16 @@ def build_updates(payout_path, vendor_map, upload_lookup):
         inv = normalize_invoice_number(row.get("Invoice Num"))
         if not inv:
             continue
-        upload_ids = upload_lookup.get((vendor_code, inv))
+        key_ = (vendor_code, inv)
+        if key_ in by_key:
+            stats["duplicate_invoices"] += 1
+            if row_recency_key(row) <= row_recency_key(by_key[key_]):
+                continue
+        by_key[key_] = row
+
+    updates, downgrades_skipped = {}, 0
+    for key_, row in by_key.items():
+        upload_ids = upload_lookup.get(key_)
         if not upload_ids:
             continue
 
@@ -212,12 +256,13 @@ def build_updates(payout_path, vendor_map, upload_lookup):
             "payment_ref": row_payment_ref(row),
         }
         for uid in upload_ids:
-            if uid in updates and updates[uid]["payment_status"] != status:
-                conflicts.setdefault(uid, set()).update({updates[uid]["payment_status"], status})
-            updates[uid] = payload  # last row for this invoice number wins
+            if status == "pending" and current_status.get(uid) == "paid":
+                downgrades_skipped += 1
+                continue
+            updates[uid] = payload
             stats["matched_uploads"] += 1
 
-    stats["conflicts"] = conflicts
+    stats["downgrades_skipped"] = downgrades_skipped
     return updates, stats
 
 
@@ -259,9 +304,10 @@ def main():
     if not vendor_map:
         sys.exit("No vendor logins found in profiles (role='vendor') -- aborting.")
 
-    upload_lookup, total_uploads, uploads_without_extracted_invoice = fetch_invoice_uploads(supabase_url, supabase_key)
+    upload_lookup, current_status, total_uploads, uploads_without_extracted_invoice = \
+        fetch_invoice_uploads(supabase_url, supabase_key)
 
-    updates, stats = build_updates(payout_path, vendor_map, upload_lookup)
+    updates, stats = build_updates(payout_path, vendor_map, upload_lookup, current_status)
     applied = apply_updates(supabase_url, supabase_key, updates, dry_run)
 
     print(f"{'[DRY RUN] ' if dry_run else ''}Payout file: {payout_path}")
@@ -270,14 +316,15 @@ def main():
     print(f"  {total_uploads} po_invoice_uploads row(s) total "
           f"({uploads_without_extracted_invoice} with no AI-extracted invoice number yet -- can't be matched)")
     print(f"  {applied} po_invoice_uploads row(s) updated with a payment status")
+    if stats["duplicate_invoices"]:
+        print(f"  {stats['duplicate_invoices']} invoice number(s) appeared on more than one row in this file -- "
+              f"used the most recent/authoritative one for each")
     if stats["unknown_status_rows"]:
         print(f"  {stats['unknown_status_rows']} matched row(s) had neither Unpaid Amount nor "
               f"Invoice Amount Paid -- left untouched")
-    if stats["conflicts"]:
-        print(f"  WARNING: {len(stats['conflicts'])} upload(s) matched more than one payout row with "
-              f"conflicting status within this same file -- kept the last one encountered:")
-        for uid, seen in stats["conflicts"].items():
-            print(f"    upload {uid}: saw {sorted(seen)}")
+    if stats["downgrades_skipped"]:
+        print(f"  {stats['downgrades_skipped']} upload(s) already marked 'paid' were NOT reverted to 'pending' "
+              f"by this file -- likely a stale/out-of-order payout file; re-check if unexpected")
 
 
 if __name__ == "__main__":
