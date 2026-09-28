@@ -19,6 +19,9 @@ const ADH_COLS = [
   { key: "other", label: "Other", hint: "All orders not carried by Raftaar or SFX DS" },
 ];
 const adhRate = c => (c && c.total ? (c.onTime / c.total) * 100 : null);
+// Days mode needs tatSum/tatN (payloads from 2026-09-28 on); older runs show "–".
+const adhDays = c => (c && c.tatN ? c.tatSum / c.tatN : null);
+const m1 = ref("days");
 
 // share-cell tint: accent, stronger with share
 const tint = share => (share ? { background: `color-mix(in srgb, var(--accent) ${Math.round(6 + share * 55)}%, var(--surface))`, color: share > 0.55 ? "#fff" : "var(--ink)" } : {});
@@ -70,14 +73,19 @@ const svcTotals = computed(() => {
 <template>
   <!-- 1 -->
   <section v-if="v.weeklySlaAdherence" class="sla-card">
-    <div class="sla-card-head"><div><div class="sla-card-step">01</div><h3>SLA adherence</h3><p class="desc">On-time delivery % by promised-delivery week, split by the LSP that carried the order.</p></div></div>
+    <div class="sla-card-head">
+      <div><div class="sla-card-step">01</div><h3>SLA adherence</h3><p class="desc">Average days to deliver or on-time %, by promised-delivery week, split by the LSP that carried the order.</p></div>
+      <div class="tbl-tools">
+        <div class="seg sm"><button :class="{ active: m1 === 'days' }" @click="m1 = 'days'">Days</button><button :class="{ active: m1 === 'pct' }" @click="m1 = 'pct'">%</button></div>
+      </div>
+    </div>
     <div class="table-scroll">
       <table style="min-width:560px;">
         <thead><tr><th>Week</th><th v-for="c in ADH_COLS" :key="c.key" class="num" :title="c.hint">{{ c.label }}</th></tr></thead>
         <tbody>
           <tr v-for="w in v.weeklySlaAdherence" :key="w.week" :class="{ 'row-total': w.week === p.week }">
             <td class="mono">Week {{ w.week }}<span v-if="w.week === p.week" class="chip chip-info" style="margin-left:6px;">this RCA</span><span v-if="w.isPartial" class="chip chip-open" style="margin-left:6px;">live</span></td>
-            <td v-for="c in ADH_COLS" :key="c.key" class="num mono" :class="otdCls(adhRate(w[c.key]))" :title="w[c.key]?.total ? `${w[c.key].onTime}/${w[c.key].total} on time` : ''">{{ pct(adhRate(w[c.key])) }}</td>
+            <td v-for="c in ADH_COLS" :key="c.key" class="num mono" :class="m1 === 'pct' ? otdCls(adhRate(w[c.key])) : ''" :title="w[c.key]?.total ? `${w[c.key].onTime}/${w[c.key].total} on time` : ''">{{ m1 === 'days' ? days(adhDays(w[c.key])) : pct(adhRate(w[c.key])) }}</td>
           </tr>
         </tbody>
       </table>

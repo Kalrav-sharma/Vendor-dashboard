@@ -2179,6 +2179,11 @@ alter table public.sla_trend_weekly add column if not exists raftaar_orders int 
 alter table public.sla_trend_weekly add column if not exists raftaar_on_time int not null default 0;
 alter table public.sla_trend_weekly add column if not exists sfx_ds_orders int not null default 0;
 alter table public.sla_trend_weekly add column if not exists sfx_ds_on_time int not null default 0;
+-- Days mode of the same view: ACTUAL_TAT sum/count per LSP (average SLA = sum / n).
+alter table public.sla_trend_weekly add column if not exists raftaar_tat_sum numeric not null default 0;
+alter table public.sla_trend_weekly add column if not exists raftaar_tat_n int not null default 0;
+alter table public.sla_trend_weekly add column if not exists sfx_ds_tat_sum numeric not null default 0;
+alter table public.sla_trend_weekly add column if not exists sfx_ds_tat_n int not null default 0;
 -- ---------------------------------------------------------------------
 
 -- Logistics Health Card › Delayed Orders -- added 2026-09-25.

@@ -61,12 +61,15 @@ export function useHealthSlaData() {
     return wanted.map(ws => {
       const rs = rows.value.filter(r => r.product === product && r.week_start === ws);
       const acc = Object.fromEntries(TIERS.map(t => [t.key, { orders: 0, tat_sum: 0, tat_n: 0 }]));
-      const adh = Object.fromEntries(ADH_LSPS.map(l => [l.key, { onTime: 0, total: 0 }]));
+      const adh = Object.fromEntries(ADH_LSPS.map(l => [l.key, { onTime: 0, total: 0, tatSum: 0, tatN: 0 }]));
       rs.forEach(r => {
         const n = k => Number(r[k]) || 0;
         adh.pan.total += n("orders"); adh.pan.onTime += n("on_time");
+        adh.pan.tatSum += n("tat_sum"); adh.pan.tatN += n("tat_n");
         adh.raftaar.total += n("raftaar_orders"); adh.raftaar.onTime += n("raftaar_on_time");
+        adh.raftaar.tatSum += n("raftaar_tat_sum"); adh.raftaar.tatN += n("raftaar_tat_n");
         adh.sfxDs.total += n("sfx_ds_orders"); adh.sfxDs.onTime += n("sfx_ds_on_time");
+        adh.sfxDs.tatSum += n("sfx_ds_tat_sum"); adh.sfxDs.tatN += n("sfx_ds_tat_n");
         for (const k of ["pan", tierOf(r.city_key)]) {
           acc[k].orders += Number(r.orders) || 0;
           acc[k].tat_sum += Number(r.tat_sum) || 0;
@@ -85,7 +88,12 @@ export function useHealthSlaData() {
         tiers,
         adh: {
           ...adh,
-          other: { total: adh.pan.total - adh.raftaar.total - adh.sfxDs.total, onTime: adh.pan.onTime - adh.raftaar.onTime - adh.sfxDs.onTime },
+          other: {
+            total: adh.pan.total - adh.raftaar.total - adh.sfxDs.total,
+            onTime: adh.pan.onTime - adh.raftaar.onTime - adh.sfxDs.onTime,
+            tatSum: adh.pan.tatSum - adh.raftaar.tatSum - adh.sfxDs.tatSum,
+            tatN: adh.pan.tatN - adh.raftaar.tatN - adh.sfxDs.tatN,
+          },
         },
       };
     }).filter(w => w.kind !== "next" || w.tiers.pan.orders >= NEXT_WEEK_MIN_ORDERS);
