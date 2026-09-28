@@ -42,8 +42,11 @@
   --info: #0F766E;
   --info-soft: #D6F1EE;
 }
+/* Dark applies via the OS preference (unless explicitly forced to light by
+   the Profile > Appearance setting, theme.js) or via that setting's explicit
+   "Dark" choice regardless of OS -- same variable values either way. */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --paper: #17151E;
     --surface: #211D2C;
     --ink: #F1EEF7;
@@ -61,6 +64,23 @@
     --info-soft: #12302D;
   }
 }
+:root[data-theme="dark"] {
+  --paper: #17151E;
+  --surface: #211D2C;
+  --ink: #F1EEF7;
+  --muted: #A6A1B3;
+  --line: #332E42;
+  --accent: #9A7CF2;
+  --accent-soft: #322A48;
+  --good: #5FD08A;
+  --good-soft: #1E3327;
+  --open: #E3B15C;
+  --open-soft: #3A2E12;
+  --critical: #F08585;
+  --critical-soft: #3B1D1D;
+  --info: #5EC7BC;
+  --info-soft: #12302D;
+}
 
 * { box-sizing: border-box; }
 body {
@@ -77,7 +97,8 @@ a { color: var(--accent); }
 /* --- Any monochrome black-on-transparent icon (download, etc.) -- same
    invert-for-dark-mode treatment as the brand logos above. --- */
 .icon-mono { display: block; height: 17px; width: auto; }
-@media (prefers-color-scheme: dark) { .brand-logo, .icon-mono { filter: invert(1); } }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .brand-logo, :root:not([data-theme="light"]) .icon-mono { filter: invert(1); } }
+:root[data-theme="dark"] .brand-logo, :root[data-theme="dark"] .icon-mono { filter: invert(1); }
 
 .icon-btn {
   background: none; border: none; padding: 5px; margin: -5px; border-radius: 6px; cursor: pointer;
@@ -192,6 +213,9 @@ button.link-btn {
 .profile-settings-row { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 12px; font-size: 0.84rem; }
 .profile-settings-row > span { color: var(--muted); }
 .profile-settings-row strong { font-weight: 500; overflow-wrap: anywhere; }
+.profile-settings-appearance { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line); }
+.profile-settings-appearance h2 { margin: 0 0 12px; font-size: 0.92rem; }
+.profile-settings-appearance .subtabs { margin-bottom: 0; }
 .profile-settings-password { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line); }
 .profile-settings-password h2 { margin: 0 0 12px; font-size: 0.92rem; }
 .profile-settings-change {

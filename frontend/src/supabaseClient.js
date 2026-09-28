@@ -11,6 +11,12 @@
 // Function secret.
 
 import { createClient } from "@supabase/supabase-js";
+import { initTheme } from "./theme.js";
+
+// Every page imports this module, so this is the one place that's
+// guaranteed to run early on all of them -- see theme.js for why that
+// matters (avoiding a flash of the wrong theme).
+initTheme();
 
 const SUPABASE_URL = "https://jfxfzulufaxrmopnvpqa.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_LNoy7fE1VMV1V7ygcUhCaQ_J9Atuk1q";

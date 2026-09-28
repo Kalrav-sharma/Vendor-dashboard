@@ -1,11 +1,18 @@
 <script setup>
 import { ref } from "vue";
 import SetNewPasswordForm from "./SetNewPasswordForm.vue";
+import { getTheme, setTheme } from "../theme.js";
 
 defineProps({
   displayName: { type: String, required: true },
   email: { type: String, default: "" },
 });
+
+const theme = ref(getTheme());
+function chooseTheme(value) {
+  theme.value = value;
+  setTheme(value);
+}
 
 const changingPassword = ref(false);
 const passwordUpdated = ref(false);
@@ -28,6 +35,15 @@ function handlePasswordUpdated() {
         <strong>{{ email }}</strong>
       </div>
     </div>
+
+    <section class="profile-settings-appearance">
+      <h2>Appearance</h2>
+      <div class="subtabs">
+        <button type="button" class="subtab-item" :class="{ active: theme === 'system' }" @click="chooseTheme('system')">System</button>
+        <button type="button" class="subtab-item" :class="{ active: theme === 'light' }" @click="chooseTheme('light')">Light</button>
+        <button type="button" class="subtab-item" :class="{ active: theme === 'dark' }" @click="chooseTheme('dark')">Dark</button>
+      </div>
+    </section>
 
     <section class="profile-settings-password">
       <h2>Password</h2>

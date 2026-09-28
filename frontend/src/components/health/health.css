@@ -2,7 +2,8 @@
    .card-caption / table defaults, small inset pills. No violet anywhere: neutral ink for
    active controls, teal (--info) for bars, and the portal's cell-* status tints. */
 :root { --warn: #8A6D00; --warn-soft: #FBF3D2; }
-@media (prefers-color-scheme: dark) { :root { --warn: #E6C766; --warn-soft: #332B10; } }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --warn: #E6C766; --warn-soft: #332B10; } }
+:root[data-theme="dark"] { --warn: #E6C766; --warn-soft: #332B10; }
 
 .hc-stamps { display: flex; justify-content: flex-end; gap: 12px; flex-wrap: wrap; margin: -6px 0 12px; font-size: 0.72rem; color: var(--muted); }
 .hc-stamps span::before { content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--good); margin-right: 5px; vertical-align: 1px; }
