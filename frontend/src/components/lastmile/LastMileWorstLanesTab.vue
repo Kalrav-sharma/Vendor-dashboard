@@ -44,10 +44,6 @@ const kpiTiles = computed(() => {
   </div>
 
   <template v-else>
-    <p class="field-hint" style="margin: 0 0 12px;">
-      Run {{ run.run_id }} · trailing {{ run.window_days }} days · lanes below the sync's minimum graded volume are not shown. "Graded" counts only shipments with a real promise date that have actually resolved on-time or late -- in-flight and assumed-promise shipments cannot be graded.
-    </p>
-
     <div class="table-card"><div class="table-scroll">
       <table>
         <thead>

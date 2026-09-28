@@ -20,13 +20,11 @@
 import { ref } from "vue";
 import LastMileOpenTab from "./LastMileOpenTab.vue";
 import LastMileAlertsTab from "./LastMileAlertsTab.vue";
-import LastMileCarrierTab from "./LastMileCarrierTab.vue";
 import LastMileWorstLanesTab from "./LastMileWorstLanesTab.vue";
 
 const SUBTABS = [
   { id: "open", label: "Open Shipments" },
   { id: "alerts", label: "Alerts" },
-  { id: "carrier", label: "Carrier Performance" },
   { id: "lanes", label: "Worst Lanes" },
 ];
 
@@ -44,6 +42,5 @@ const activeSubTab = ref(SUBTABS[0].id);
 
   <div v-show="activeSubTab === 'open'"><LastMileOpenTab /></div>
   <div v-show="activeSubTab === 'alerts'"><LastMileAlertsTab /></div>
-  <div v-show="activeSubTab === 'carrier'"><LastMileCarrierTab /></div>
   <div v-show="activeSubTab === 'lanes'"><LastMileWorstLanesTab /></div>
 </template>

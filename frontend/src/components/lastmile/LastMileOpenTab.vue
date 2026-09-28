@@ -33,11 +33,6 @@ const kpiTiles = computed(() => {
   </div>
 
   <template v-else>
-    <p class="field-hint" style="margin: 0 0 12px;">
-      Run {{ run.run_id }} · every shipment not yet delivered, cancelled, returned or excluded --
-      the full population Alerts is drawn from, not just the ones currently flagged.
-    </p>
-
     <LastMileCarrierTab />
   </template>
 </template>

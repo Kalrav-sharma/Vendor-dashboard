@@ -117,11 +117,6 @@ const kpiTiles = computed(() => {
   </div>
 
   <template v-else>
-    <p class="field-hint" style="margin: 0 0 12px;">
-      Run {{ run.run_id }} · generated {{ new Date(run.generated_at).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) }}
-      · trailing {{ run.window_days }} days
-    </p>
-
     <div style="display: flex; align-items: flex-end; gap: 16px; margin-bottom: 14px; flex-wrap: wrap;">
       <div class="field" style="max-width: 340px; margin-bottom: 0;">
         <label for="lastmile-search">Search AWB, order, city, pincode…</label>

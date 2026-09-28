@@ -47,10 +47,6 @@ const kpiTiles = computed(() => {
   </div>
 
   <template v-else>
-    <p class="field-hint" style="margin: 0 0 12px;">
-      Run {{ run.run_id }} · trailing {{ run.window_days }} days
-    </p>
-
     <div class="table-card"><div class="table-scroll">
       <table>
         <thead>
