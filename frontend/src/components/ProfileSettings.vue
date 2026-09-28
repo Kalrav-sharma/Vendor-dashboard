@@ -9,7 +9,7 @@ const props = defineProps({
   displayName: { type: String, required: true },
   email: { type: String, default: "" },
   role: { type: String, default: "" }, // real DB role -- gates "Switch view" below to admins only
-  vendors: { type: Array, default: () => [] }, // [{code, label}], for the "preview as" picker
+  vendors: { type: Array, default: () => [] }, // [{code, label}] -- every vendor_code seen in real PO data, not just ones with a login account (see AdminApp.vue's poVendorOptions)
 });
 
 const theme = ref(getTheme());
@@ -96,7 +96,7 @@ function handlePasswordUpdated() {
           :options="vendors.map(v => ({ value: v.code, label: v.label }))"
           @update:model-value="goToVendor"
         />
-        <div v-else class="field-hint">No vendor login accounts exist yet.</div>
+        <div v-else class="field-hint">No vendor purchase orders exist yet.</div>
       </div>
     </section>
 

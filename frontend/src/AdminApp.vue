@@ -124,6 +124,20 @@ const vendorOptions = computed(() => {
   }
   return [...byCode.values()];
 });
+
+// Settings > Switch view's "Preview as" list -- deliberately sourced from
+// real PO data (every vendor_code seen in currentPos), not from vendorOptions
+// above. A vendor can have POs long before anyone creates a login account
+// for them (e.g. Accord), and previewing their view doesn't need one --
+// usePurchaseOrders(vendorCode)'s filter works off vendor_code alone.
+const poVendorOptions = computed(() => {
+  const byCode = new Map();
+  for (const po of currentPos.value) {
+    if (!po.vendor_code || byCode.has(po.vendor_code)) continue;
+    byCode.set(po.vendor_code, { code: po.vendor_code, label: po.vendor_name || po.vendor_code });
+  }
+  return [...byCode.values()].sort((a, b) => a.label.localeCompare(b.label));
+});
 const { filters: skuFilters, filteredSorted: skuFilteredSorted } = useSkuFilters(skuRows, vendorLabel);
 
 // Dispatch Planning shows the whole lifecycle of a SKU's dispatch, as one
@@ -265,7 +279,7 @@ async function signOut() {
   <div v-else-if="ready" class="app-shell">
     <SidebarNav v-model="activeNav" :brand="sidebarBrand" :lockup="myRole === 'management'" :items="navItems">
       <template #account>
-        <ProfileMenu :display-name="whoLine" :email="myEmail" :access="ROLE_LABELS[myRole] || myRole" :role="myRole" :vendors="vendorOptions" :on-sign-out="signOut" />
+        <ProfileMenu :display-name="whoLine" :email="myEmail" :access="ROLE_LABELS[myRole] || myRole" :role="myRole" :vendors="poVendorOptions" :on-sign-out="signOut" />
       </template>
     </SidebarNav>
 
