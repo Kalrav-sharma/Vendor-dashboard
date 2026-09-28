@@ -810,6 +810,46 @@ alter table public.po_invoice_uploads add column if not exists payment_synced_at
 create index if not exists po_invoice_uploads_payment_status_idx
   on public.po_invoice_uploads(payment_status);
 
+-- Credit note upload -- for the case where reconciliation (match_status =
+-- 'mismatch': Short/Excess GRN, PO/invoice number mismatch, exceeds PO)
+-- means Finance can't process payment as-is. The Payment Dashboard asks
+-- the vendor (or an internal user, on their behalf) to upload a credit
+-- note PDF for that invoice instead of showing a payment status -- see
+-- effectivePaymentStatus() in frontend/src/format.js. One credit note per
+-- upload row, same "just add columns to the row it's about" pattern as
+-- payment_status above rather than a separate table, since it's 1:1 with
+-- the invoice upload it corrects.
+alter table public.po_invoice_uploads add column if not exists credit_note_storage_path text;
+alter table public.po_invoice_uploads add column if not exists credit_note_file_name text;
+alter table public.po_invoice_uploads add column if not exists credit_note_file_size bigint;
+alter table public.po_invoice_uploads add column if not exists credit_note_uploaded_by uuid references auth.users(id) on delete set null;
+alter table public.po_invoice_uploads add column if not exists credit_note_uploaded_by_name text;
+alter table public.po_invoice_uploads add column if not exists credit_note_uploaded_at timestamptz;
+
+-- Column-level grant (layered under RLS below, which only controls ROWS)
+-- restricts this to just the credit-note columns -- same pattern as
+-- po_items' Dispatch Planning grant, so this can never be used to edit
+-- payment_status/match_status/etc even if a buggy or malicious client
+-- included those fields in its update payload. po_invoice_uploads had no
+-- update policy at all before this -- vendors only ever inserted/deleted
+-- their own uploads -- so this is the first one.
+grant update (
+  credit_note_storage_path, credit_note_file_name, credit_note_file_size,
+  credit_note_uploaded_by, credit_note_uploaded_by_name, credit_note_uploaded_at
+) on public.po_invoice_uploads to authenticated;
+
+drop policy if exists po_invoice_uploads_update_credit_note on public.po_invoice_uploads;
+create policy po_invoice_uploads_update_credit_note on public.po_invoice_uploads
+  for update
+  using (
+    public.is_internal_staff()
+    or vendor_code = (select p.vendor_code from public.profiles p where p.id = auth.uid())
+  )
+  with check (
+    public.is_internal_staff()
+    or vendor_code = (select p.vendor_code from public.profiles p where p.id = auth.uid())
+  );
+
 -- Superseded by the payment_* columns above. The Jarvis invoice-status
 -- sync idea (querying ORACLE_STATUS) was tried and then dropped entirely --
 -- nothing writes to these anymore, so dropping is a no-op on data. Kept as
@@ -901,6 +941,54 @@ create policy po_invoices_delete on storage.objects
   for delete
   using (
     bucket_id = 'po-invoices'
+    and (
+      public.is_internal_staff()
+      or (storage.foldername(name))[1] = (select p.vendor_code from public.profiles p where p.id = auth.uid())
+    )
+  );
+
+-- ---------------------------------------------------------------------
+-- Storage bucket "credit-notes" -- same private/PDF-only/path-scoped
+-- pattern as "po-invoices" above, for the credit-note upload attached to
+-- a mismatched po_invoice_uploads row (credit_note_storage_path etc.).
+-- ---------------------------------------------------------------------
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values (
+  'credit-notes', 'credit-notes', false, 15728640,
+  array['application/pdf']
+)
+on conflict (id) do update set
+  public = excluded.public,
+  file_size_limit = excluded.file_size_limit,
+  allowed_mime_types = excluded.allowed_mime_types;
+
+drop policy if exists credit_notes_insert on storage.objects;
+create policy credit_notes_insert on storage.objects
+  for insert
+  with check (
+    bucket_id = 'credit-notes'
+    and (
+      public.is_internal_staff()
+      or (storage.foldername(name))[1] = (select p.vendor_code from public.profiles p where p.id = auth.uid())
+    )
+  );
+
+drop policy if exists credit_notes_select on storage.objects;
+create policy credit_notes_select on storage.objects
+  for select
+  using (
+    bucket_id = 'credit-notes'
+    and (
+      public.is_internal_staff()
+      or (storage.foldername(name))[1] = (select p.vendor_code from public.profiles p where p.id = auth.uid())
+    )
+  );
+
+drop policy if exists credit_notes_delete on storage.objects;
+create policy credit_notes_delete on storage.objects
+  for delete
+  using (
+    bucket_id = 'credit-notes'
     and (
       public.is_internal_staff()
       or (storage.foldername(name))[1] = (select p.vendor_code from public.profiles p where p.id = auth.uid())
