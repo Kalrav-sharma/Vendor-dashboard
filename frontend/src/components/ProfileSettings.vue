@@ -1,17 +1,31 @@
 <script setup>
-import { ref } from "vue";
+import { ref, computed } from "vue";
 import SetNewPasswordForm from "./SetNewPasswordForm.vue";
 import { getTheme, setTheme } from "../theme.js";
+import { getViewOverride, setViewOverride } from "../viewOverride.js";
 
-defineProps({
+const props = defineProps({
   displayName: { type: String, required: true },
   email: { type: String, default: "" },
+  role: { type: String, default: "" }, // real DB role -- gates "Switch view" below to admins only
 });
 
 const theme = ref(getTheme());
 function chooseTheme(value) {
   theme.value = value;
   setTheme(value);
+}
+
+// Admin-only convenience so building/testing both the Vendor and Management
+// UIs doesn't need a second login. See viewOverride.js -- this never
+// changes what RLS actually returns, just which app shell an admin's own
+// session is currently pointed at.
+const isAdmin = computed(() => props.role === "admin");
+const currentView = ref(getViewOverride() === "vendor" ? "vendor" : "management");
+function chooseView(view) {
+  if (view === currentView.value) return;
+  setViewOverride(view === "vendor" ? "vendor" : null);
+  window.location.href = view === "vendor" ? "vendor.html" : "admin.html";
 }
 
 const changingPassword = ref(false);
@@ -35,6 +49,20 @@ function handlePasswordUpdated() {
         <strong>{{ email }}</strong>
       </div>
     </div>
+
+    <section v-if="isAdmin" class="profile-settings-appearance">
+      <h2>Switch view</h2>
+      <div class="appearance-picker cols-2" role="group" aria-label="App view">
+        <button type="button" class="appearance-option" :class="{ active: currentView === 'management' }" :aria-pressed="currentView === 'management'" @click="chooseView('management')">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2.5 16 5v5c0 4-2.5 6.5-6 7.5-3.5-1-6-3.5-6-7.5V5l6-2.5Z" /></svg>
+          <span>Management</span>
+        </button>
+        <button type="button" class="appearance-option" :class="{ active: currentView === 'vendor' }" :aria-pressed="currentView === 'vendor'" @click="chooseView('vendor')">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 6.5 10 3l7 3.5-7 3.5-7-3.5Z" /><path d="M3 6.5v7L10 17l7-3.5v-7" /><path d="M10 10v7" /></svg>
+          <span>Vendor</span>
+        </button>
+      </div>
+    </section>
 
     <section class="profile-settings-appearance">
       <h2>Appearance</h2>

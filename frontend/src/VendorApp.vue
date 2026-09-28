@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, onMounted } from "vue";
 import { supabase, requireSession, ROLE_LABELS } from "./supabaseClient.js";
+import { getViewOverride } from "./viewOverride.js";
 import { usePurchaseOrders } from "./composables/usePurchaseOrders.js";
 import { usePoFilters } from "./composables/usePoFilters.js";
 import { useSkuAggregates } from "./composables/useSkuAggregates.js";
@@ -27,6 +28,7 @@ const ready = ref(false);
 const mustChangePassword = ref(false); // gates the whole dashboard until cleared
 const myDisplayName = ref("Vendor"); // recorded on any invoice this login uploads
 const myEmail = ref("");
+const myRole = ref("vendor"); // real DB role -- stays "admin" even while previewing this view
 const activeNav = ref("po-tracking");
 const pageTitle = computed(() => ({
   "po-tracking": "PO Tracking",
@@ -96,10 +98,14 @@ function openSkuDetailModal(key) {
 onMounted(async () => {
   const ctx = await requireSession();
   if (!ctx) return;
-  if (ctx.profile.role !== "vendor") {
+  // An admin previewing this view (Profile > Switch view) is the one
+  // exception to "vendor role only" -- everyone else still gets bounced.
+  const previewingAsAdmin = ctx.profile.role === "admin" && getViewOverride() === "vendor";
+  if (ctx.profile.role !== "vendor" && !previewingAsAdmin) {
     window.location.href = "admin.html";
     return;
   }
+  myRole.value = ctx.profile.role;
   if (ctx.profile.must_change_password) {
     mustChangePassword.value = true;
     return;
@@ -116,6 +122,7 @@ async function handlePasswordChanged() {
   const ctx = await requireSession();
   if (!ctx) return;
   mustChangePassword.value = false;
+  myRole.value = ctx.profile.role;
   myDisplayName.value = ctx.profile.vendor_name || ctx.profile.email || "Vendor";
   myEmail.value = ctx.profile.email || "";
   ready.value = true;
@@ -149,7 +156,7 @@ async function signOut() {
       ]"
     >
       <template #account>
-        <ProfileMenu :display-name="myDisplayName" :email="myEmail" :access="ROLE_LABELS.vendor" :on-sign-out="signOut" />
+        <ProfileMenu :display-name="myDisplayName" :email="myEmail" :access="ROLE_LABELS[myRole] || ROLE_LABELS.vendor" :role="myRole" :on-sign-out="signOut" />
       </template>
     </SidebarNav>
 

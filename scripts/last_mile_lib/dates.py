@@ -17,6 +17,14 @@ IST = timezone(timedelta(hours=5, minutes=30))
 
 # Order matters: the most specific and most common come first.
 FORMATS: tuple[str, ...] = (
+    # last_mile_watchlist round-trips created_at_uniware/delivery_time through
+    # to_ist() before storage, which stamps them with an explicit +05:30
+    # offset (see to_row() in sync_last_mile_daily.py) -- these two formats
+    # are what let the hourly job re-parse that value instead of silently
+    # getting None back on every delivered shipment (measured bug, 2026-09-28:
+    # this is why last_mile_lsp_perf/last_mile_worst_lanes always graded 0).
+    "%Y-%m-%dT%H:%M:%S.%f%z",
+    "%Y-%m-%dT%H:%M:%S%z",
     "%Y-%m-%dT%H:%M:%S.%f",     # delhivery 2026-08-14T07:50:29.002000
     "%Y-%m-%dT%H:%M:%S",        # shadowfax 2026-07-13T09:43:46
     "%Y-%m-%d %H:%M:%S",        # uniware

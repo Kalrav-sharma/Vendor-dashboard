@@ -7,6 +7,7 @@ const props = defineProps({
   displayName: { type: String, required: true },
   email: { type: String, default: "" },
   access: { type: String, default: "" },
+  role: { type: String, default: "" },
   onSignOut: { type: Function, required: true },
 });
 
@@ -28,6 +29,7 @@ function showProfile() {
   openModal("Profile", ProfileSettings, {
     displayName: props.displayName,
     email: props.email,
+    role: props.role,
   }, null, "narrow");
 }
 onMounted(() => {

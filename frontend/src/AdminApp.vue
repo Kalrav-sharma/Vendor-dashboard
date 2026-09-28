@@ -261,7 +261,7 @@ async function signOut() {
   <div v-else-if="ready" class="app-shell">
     <SidebarNav v-model="activeNav" :brand="sidebarBrand" :lockup="myRole === 'management'" :items="navItems">
       <template #account>
-        <ProfileMenu :display-name="whoLine" :email="myEmail" :access="ROLE_LABELS[myRole] || myRole" :on-sign-out="signOut" />
+        <ProfileMenu :display-name="whoLine" :email="myEmail" :access="ROLE_LABELS[myRole] || myRole" :role="myRole" :on-sign-out="signOut" />
       </template>
     </SidebarNav>
 
