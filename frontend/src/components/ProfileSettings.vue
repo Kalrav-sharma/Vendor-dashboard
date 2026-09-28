@@ -28,7 +28,16 @@ const currentView = ref(getViewOverride() === "vendor" ? "vendor" : "management"
 // Shown as soon as "Vendor" is clicked, or already, if that's the view
 // this modal was opened from -- picking one is what actually navigates.
 const pickingVendor = ref(currentView.value === "vendor");
-const selectedVendorCode = ref(getPreviewVendorCode() || "");
+// Pre-selects Lexcru (Vendor-156) -- the project's original vendor account
+// and the one admin testing is normally done against -- so there's already
+// a sensible choice highlighted instead of a blank picker. This is only
+// ever the CustomSelect's initial display value; nothing is actually
+// stored or fetched until a vendor is explicitly clicked (goToVendor).
+const LEXCRU_VENDOR_CODE = "Vendor-156";
+const defaultVendorCode = props.vendors.some(v => v.code === LEXCRU_VENDOR_CODE)
+  ? LEXCRU_VENDOR_CODE
+  : props.vendors[0]?.code || "";
+const selectedVendorCode = ref(getPreviewVendorCode() || defaultVendorCode);
 
 function chooseView(view) {
   if (view === "management") {
