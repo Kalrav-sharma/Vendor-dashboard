@@ -6,6 +6,7 @@ import ProfileSettings from "./ProfileSettings.vue";
 const props = defineProps({
   displayName: { type: String, required: true },
   email: { type: String, default: "" },
+  access: { type: String, default: "" },
   onSignOut: { type: Function, required: true },
 });
 
@@ -53,6 +54,7 @@ onUnmounted(() => {
 
     <div v-if="open" class="profile-dropdown">
       <div class="profile-dropdown-name">{{ displayName }}</div>
+      <div v-if="access" class="profile-dropdown-access">{{ access }}</div>
       <div v-if="email" class="profile-dropdown-email mono">{{ email }}</div>
       <div class="profile-dropdown-actions">
         <button class="profile-dropdown-action" @click="showProfile">Profile</button>

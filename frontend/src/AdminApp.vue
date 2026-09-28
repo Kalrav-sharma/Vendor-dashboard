@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, onMounted } from "vue";
-import { supabase, requireSession, INTERNAL_ROLES } from "./supabaseClient.js";
+import { supabase, requireSession, INTERNAL_ROLES, ROLE_LABELS } from "./supabaseClient.js";
 import { usePurchaseOrders } from "./composables/usePurchaseOrders.js";
 import { usePoFilters } from "./composables/usePoFilters.js";
 import { useSkuAggregates } from "./composables/useSkuAggregates.js";
@@ -261,7 +261,7 @@ async function signOut() {
   <div v-else-if="ready" class="app-shell">
     <SidebarNav v-model="activeNav" :brand="sidebarBrand" :lockup="myRole === 'management'" :items="navItems">
       <template #account>
-        <ProfileMenu :display-name="whoLine" :email="myEmail" :on-sign-out="signOut" />
+        <ProfileMenu :display-name="whoLine" :email="myEmail" :access="ROLE_LABELS[myRole] || myRole" :on-sign-out="signOut" />
       </template>
     </SidebarNav>
 

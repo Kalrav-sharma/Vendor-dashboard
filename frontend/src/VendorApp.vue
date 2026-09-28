@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, onMounted } from "vue";
-import { supabase, requireSession } from "./supabaseClient.js";
+import { supabase, requireSession, ROLE_LABELS } from "./supabaseClient.js";
 import { usePurchaseOrders } from "./composables/usePurchaseOrders.js";
 import { usePoFilters } from "./composables/usePoFilters.js";
 import { useSkuAggregates } from "./composables/useSkuAggregates.js";
@@ -149,7 +149,7 @@ async function signOut() {
       ]"
     >
       <template #account>
-        <ProfileMenu :display-name="myDisplayName" :email="myEmail" :on-sign-out="signOut" />
+        <ProfileMenu :display-name="myDisplayName" :email="myEmail" :access="ROLE_LABELS.vendor" :on-sign-out="signOut" />
       </template>
     </SidebarNav>
 
