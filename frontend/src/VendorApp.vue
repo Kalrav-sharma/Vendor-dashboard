@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted } from "vue";
 import { supabase, requireSession, ROLE_LABELS } from "./supabaseClient.js";
-import { getViewOverride } from "./viewOverride.js";
+import { getViewOverride, getPreviewVendorCode, clearViewOverride } from "./viewOverride.js";
 import { usePurchaseOrders } from "./composables/usePurchaseOrders.js";
 import { usePoFilters } from "./composables/usePoFilters.js";
 import { useSkuAggregates } from "./composables/useSkuAggregates.js";
@@ -37,7 +37,13 @@ const pageTitle = computed(() => ({
   "payment-dashboard": "Payment Dashboard",
 }[activeNav.value]));
 
-const { currentPos, grnsByPo, poItemsByPo, grnItemsByPoSku, grnByCode, lastUpdated, invoicesForItem } = usePurchaseOrders();
+// Admin previewing a specific vendor (Profile > Switch view) -- a plain
+// synchronous read, since it only ever matters for that one admin-only
+// path; a real vendor login never has this set and RLS alone scopes them,
+// exactly as before this existed.
+const previewVendorCode = getPreviewVendorCode();
+
+const { currentPos, grnsByPo, poItemsByPo, grnItemsByPoSku, grnByCode, lastUpdated, invoicesForItem } = usePurchaseOrders(previewVendorCode);
 const { filters, filteredSorted, facilityOptions, statusOptions } = usePoFilters(currentPos, grnsByPo);
 const { sortedRows: skuRows } = useSkuAggregates(currentPos, poItemsByPo, { multiVendor: false });
 const { filters: skuFilters, filteredSorted: skuFilteredSorted } = useSkuFilters(skuRows);
@@ -59,7 +65,7 @@ const pendingDispatchRows = computed(() => {
   return rows;
 });
 
-const { rows: shipmentRows } = useShipmentTracking();
+const { rows: shipmentRows } = useShipmentTracking(previewVendorCode);
 const shippedDispatchRows = computed(() => shipmentRows.value.map((s) => {
   const item = (poItemsByPo.value[s.po_code] || []).find((it) => it.item_sku === s.item_sku);
   return { kind: "shipped", ...s, item_name: item?.item_name };
@@ -112,7 +118,7 @@ onMounted(async () => {
   }
   myDisplayName.value = ctx.profile.vendor_name || ctx.profile.email || "Vendor";
   myEmail.value = ctx.profile.email || "";
-  await fetchAllUploads();
+  await fetchAllUploads(previewVendorCode);
   ready.value = true;
 });
 
@@ -129,6 +135,9 @@ async function handlePasswordChanged() {
 }
 
 async function signOut() {
+  // So a leftover preview from this session can never affect whoever
+  // signs into this browser next.
+  clearViewOverride();
   await supabase.auth.signOut();
   window.location.href = "login.html";
 }

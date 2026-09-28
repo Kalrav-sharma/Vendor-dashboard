@@ -8,6 +8,7 @@ const props = defineProps({
   email: { type: String, default: "" },
   access: { type: String, default: "" },
   role: { type: String, default: "" },
+  vendors: { type: Array, default: () => [] }, // [{code, label}] -- admin-only, for Settings > Switch view
   onSignOut: { type: Function, required: true },
 });
 
@@ -26,10 +27,11 @@ function handleKeydown(e) {
 }
 function showProfile() {
   open.value = false;
-  openModal("Profile", ProfileSettings, {
+  openModal("Settings", ProfileSettings, {
     displayName: props.displayName,
     email: props.email,
     role: props.role,
+    vendors: props.vendors,
   }, null, "narrow");
 }
 onMounted(() => {
@@ -59,7 +61,7 @@ onUnmounted(() => {
       <div v-if="access" class="profile-dropdown-access">{{ access }}</div>
       <div v-if="email" class="profile-dropdown-email mono">{{ email }}</div>
       <div class="profile-dropdown-actions">
-        <button class="profile-dropdown-action" @click="showProfile">Profile</button>
+        <button class="profile-dropdown-action" @click="showProfile">Settings</button>
         <button class="profile-dropdown-action logout" @click="onSignOut">Log out</button>
       </div>
     </div>

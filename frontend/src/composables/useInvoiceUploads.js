@@ -45,9 +45,12 @@ export function useInvoiceUploads() {
   // Flat, unkeyed fetch for the Payment Dashboard -- every upload this
   // login can see (RLS scopes a vendor to their own, same as everywhere
   // else), independent of which PO's detail modal has been opened.
-  async function fetchAllUploads() {
-    const { data, error } = await supabase
-      .from("po_invoice_uploads").select("*").order("created_at", { ascending: false });
+  // `vendorCode`: admin-only "preview as vendor" support -- see the same
+  // note in usePurchaseOrders.js. A real vendor login never passes this.
+  async function fetchAllUploads(vendorCode = null) {
+    let query = supabase.from("po_invoice_uploads").select("*").order("created_at", { ascending: false });
+    if (vendorCode) query = query.eq("vendor_code", vendorCode);
+    const { data, error } = await query;
     if (!error) allUploads.value = data;
     return { data, error };
   }

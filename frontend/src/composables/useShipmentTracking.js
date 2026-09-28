@@ -13,14 +13,21 @@ import { supabase } from "../supabaseClient.js";
 // unchanged data 30x per real update (2026-09-25, Kalrav).
 const POLL_INTERVAL_MS = 5 * 60 * 1000;
 
-export function useShipmentTracking() {
+// `vendorCode`: admin-only "preview as vendor" support -- see the same note
+// in usePurchaseOrders.js.
+export function useShipmentTracking(vendorCode = null) {
   const rows = ref([]);
   const loadError = ref(null);
 
   async function refresh() {
+    let shipmentsQuery = supabase.from("po_item_shipments").select("*").order("confirmed_at", { ascending: false });
+    let trackingQuery = supabase.from("shipment_tracking").select("*");
+    if (vendorCode) {
+      shipmentsQuery = shipmentsQuery.eq("vendor_code", vendorCode);
+      trackingQuery = trackingQuery.eq("vendor_code", vendorCode);
+    }
     const [{ data: shipments, error: shipErr }, { data: tracking }] = await Promise.all([
-      supabase.from("po_item_shipments").select("*").order("confirmed_at", { ascending: false }),
-      supabase.from("shipment_tracking").select("*"),
+      shipmentsQuery, trackingQuery,
     ]);
 
     if (shipErr) {

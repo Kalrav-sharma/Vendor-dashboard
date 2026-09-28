@@ -1,13 +1,15 @@
 <script setup>
 import { ref, computed } from "vue";
 import SetNewPasswordForm from "./SetNewPasswordForm.vue";
+import CustomSelect from "./CustomSelect.vue";
 import { getTheme, setTheme } from "../theme.js";
-import { getViewOverride, setViewOverride } from "../viewOverride.js";
+import { getViewOverride, getPreviewVendorCode, setViewOverride, setPreviewVendorCode, clearViewOverride } from "../viewOverride.js";
 
 const props = defineProps({
   displayName: { type: String, required: true },
   email: { type: String, default: "" },
   role: { type: String, default: "" }, // real DB role -- gates "Switch view" below to admins only
+  vendors: { type: Array, default: () => [] }, // [{code, label}], for the "preview as" picker
 });
 
 const theme = ref(getTheme());
@@ -18,14 +20,29 @@ function chooseTheme(value) {
 
 // Admin-only convenience so building/testing both the Vendor and Management
 // UIs doesn't need a second login. See viewOverride.js -- this never
-// changes what RLS actually returns, just which app shell an admin's own
-// session is currently pointed at.
+// changes what RLS actually returns, just which app shell (and, once a
+// vendor is picked below, which vendor_code's rows) an admin's own session
+// is currently pointed at.
 const isAdmin = computed(() => props.role === "admin");
 const currentView = ref(getViewOverride() === "vendor" ? "vendor" : "management");
+// Shown as soon as "Vendor" is clicked, or already, if that's the view
+// this modal was opened from -- picking one is what actually navigates.
+const pickingVendor = ref(currentView.value === "vendor");
+const selectedVendorCode = ref(getPreviewVendorCode() || "");
+
 function chooseView(view) {
-  if (view === currentView.value) return;
-  setViewOverride(view === "vendor" ? "vendor" : null);
-  window.location.href = view === "vendor" ? "vendor.html" : "admin.html";
+  if (view === "management") {
+    clearViewOverride();
+    window.location.href = "admin.html";
+    return;
+  }
+  pickingVendor.value = true;
+}
+function goToVendor(code) {
+  selectedVendorCode.value = code;
+  setViewOverride("vendor");
+  setPreviewVendorCode(code);
+  window.location.href = "vendor.html";
 }
 
 const changingPassword = ref(false);
@@ -61,6 +78,16 @@ function handlePasswordUpdated() {
           <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 6.5 10 3l7 3.5-7 3.5-7-3.5Z" /><path d="M3 6.5v7L10 17l7-3.5v-7" /><path d="M10 10v7" /></svg>
           <span>Vendor</span>
         </button>
+      </div>
+      <div v-if="pickingVendor" class="field" style="margin-top: 10px;">
+        <label>Preview as</label>
+        <CustomSelect
+          v-if="vendors.length"
+          :model-value="selectedVendorCode"
+          :options="vendors.map(v => ({ value: v.code, label: v.label }))"
+          @update:model-value="goToVendor"
+        />
+        <div v-else class="field-hint">No vendor login accounts exist yet.</div>
       </div>
     </section>
 
