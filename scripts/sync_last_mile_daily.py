@@ -326,10 +326,23 @@ def refresh_sla_rules_csv(supabase_url, key):
     headers = {"apikey": key, "Authorization": f"Bearer {key}"}
     rows = []
     try:
-        r = requests.get(f"{supabase_url}/rest/v1/last_mile_sla_rules",
-                         headers=headers, params={"select": "*"}, timeout=REQUEST_TIMEOUT)
-        if r.ok:
-            rows = r.json()
+        # PostgREST caps an unpaginated select at its default max-rows (1,000)
+        # -- confirmed live 2026-09-28: a plain GET against 36,855 real rows
+        # silently came back truncated to 1,000, no error, no warning. Page
+        # with .range() until a page comes back short, same as
+        # sync_last_mile_hourly.py's load_watchlist()/load_poll_state().
+        page = 0
+        while True:
+            r = requests.get(f"{supabase_url}/rest/v1/last_mile_sla_rules",
+                             headers=headers, params={"select": "*", "limit": 1000, "offset": page * 1000},
+                             timeout=REQUEST_TIMEOUT)
+            if not r.ok:
+                break
+            batch = r.json()
+            rows.extend(batch)
+            if len(batch) < 1000:
+                break
+            page += 1
     except Exception as e:
         print(f"WARN: could not read last_mile_sla_rules ({e}) -- using ASSUMED promises.", file=sys.stderr)
 
