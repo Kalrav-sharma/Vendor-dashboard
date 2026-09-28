@@ -49,6 +49,7 @@
 .hc-live { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--info); margin-left: 5px; vertical-align: 2px; }
 .hc-dd { font-size: 0.68rem; margin-left: 4px; }
 .hc-dd.up { color: var(--critical); } .hc-dd.down { color: var(--good); }
+.hc-dd.good { color: var(--good); } .hc-dd.bad { color: var(--critical); }
 
 /* demand share bar */
 

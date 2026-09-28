@@ -2170,6 +2170,15 @@ do $$ begin
       add constraint sla_trend_weekly_product_week_city_key unique (product, week_start, city_key);
   end if;
 end $$;
+
+-- Logistics Health Card › SLA Adherence -- added 2026-09-28. Delivered orders
+-- and on-time counts by carrying LSP (not city-gated): DTDC Raftaar
+-- (dtdc_raftaar*) and SFX dark store (sfx* except sfx_ndd*). Other = orders /
+-- on_time minus these two.
+alter table public.sla_trend_weekly add column if not exists raftaar_orders int not null default 0;
+alter table public.sla_trend_weekly add column if not exists raftaar_on_time int not null default 0;
+alter table public.sla_trend_weekly add column if not exists sfx_ds_orders int not null default 0;
+alter table public.sla_trend_weekly add column if not exists sfx_ds_on_time int not null default 0;
 -- ---------------------------------------------------------------------
 
 -- Logistics Health Card › Delayed Orders -- added 2026-09-25.
