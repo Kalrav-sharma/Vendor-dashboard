@@ -159,6 +159,48 @@ export function paymentStatusClass(status) {
   return (PAYMENT_STATUS_META[status] || [null, "muted"])[1];
 }
 
+// The Payment Dashboard's actual displayed status for a po_invoice_uploads
+// row -- payment_status itself (from the payout-file sync, see
+// scripts/sync_payment_status_manual.py) is the source of truth once it's
+// set, but most invoices haven't reached a payout run yet, and a bare
+// "Pending integration" for all of them isn't useful. Before payment_status
+// exists, the reconciliation outcome (match_status, see reconciliation.js)
+// fills in something more specific:
+//   - reconciliation passed ('matched') -- the invoice just hasn't come up
+//     for payment yet, not stuck on anything -- "Not yet due".
+//   - reconciliation found a mismatch ('mismatch' -- Short/Excess GRN,
+//     PO/invoice number mismatch, exceeds PO) -- Finance can't process this
+//     until the vendor corrects it with a credit note, so the UI asks for
+//     one (needsCreditNote) instead of showing a status word at all.
+//   - GRN not yet raised ('needs_review') -- can't even be assessed yet,
+//     just "Pending".
+//   - reconciliation still running or failed ('pending'/'error') --
+//     genuinely unknown either way, keep the original "Pending integration".
+export function effectivePaymentStatus(row) {
+  if (row.payment_status) {
+    return { text: paymentStatusLabel(row.payment_status), cls: paymentStatusClass(row.payment_status), needsCreditNote: false };
+  }
+  if (row.match_status === "matched") {
+    return {
+      text: "Not yet due", cls: "muted", needsCreditNote: false,
+      title: "Reconciliation passed -- this invoice hasn't come up in a payout run yet.",
+    };
+  }
+  if (row.match_status === "mismatch") {
+    return { text: "Upload Credit note", cls: "critical", needsCreditNote: true };
+  }
+  if (row.match_status === "needs_review") {
+    return {
+      text: "Pending", cls: "open", needsCreditNote: false,
+      title: "GRN not yet raised -- payment can't be assessed until it is.",
+    };
+  }
+  return {
+    text: "Pending integration", cls: "muted", needsCreditNote: false,
+    title: "No payment record has synced for this invoice yet.",
+  };
+}
+
 // poCodesWithGrn is optional (existing callers that don't care about the
 // COMPLETE-with-no-GRN rule can omit it and get the old REJECTED/CREATED-
 // only behavior).

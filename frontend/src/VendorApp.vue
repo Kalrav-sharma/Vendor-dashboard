@@ -217,7 +217,7 @@ async function signOut() {
           <PaymentDashboardTable
             :rows="paymentFilteredSorted" :filters="paymentFilters" :reconciliation-options="reconciliationOptions"
             :payment-status-options="paymentStatusOptions"
-            :on-open-po="openPoDetailModal"
+            :on-open-po="openPoDetailModal" :uploader-label="myDisplayName"
           />
         </div>
 

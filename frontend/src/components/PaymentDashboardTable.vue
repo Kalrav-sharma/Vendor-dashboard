@@ -14,6 +14,7 @@ const props = defineProps({
   vendorOptions: { type: Array, default: null }, // [{code, label}] -- null hides the Vendor column entirely
   vendorLabel: { type: Function, default: null }, // (code) => string -- required when vendorOptions is set
   onOpenPo: { type: Function, required: true }, // (poCode) => void
+  uploaderLabel: { type: String, default: "" }, // current user's display name, recorded on an uploaded credit note
 });
 
 function invoiceNumber(row) { return row.match_details?.extracted?.invoice_number || "–"; }
@@ -116,7 +117,7 @@ const kpiTiles = computed(() => {
             >*</span>
           </td>
           <td><ReconciliationChip :row="row" /></td>
-          <td><PaymentStatusChip :status="row.payment_status" /></td>
+          <td><PaymentStatusChip :row="row" :uploader-label="uploaderLabel" /></td>
         </tr>
       </tbody>
     </table>

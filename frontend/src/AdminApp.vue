@@ -333,7 +333,7 @@ async function signOut() {
             :rows="paymentFilteredSorted" :filters="paymentFilters" :reconciliation-options="reconciliationOptions"
             :payment-status-options="paymentStatusOptions"
             :vendor-options="vendorOptions" :vendor-label="vendorLabel"
-            :on-open-po="openPoDetailModal"
+            :on-open-po="openPoDetailModal" :uploader-label="whoLine"
           />
         </div>
 
