@@ -8,6 +8,7 @@ supabase/.temp/
 # repo auto-commits/pushes at the end of every turn, and this file is the one
 # place real credentials (JARVIS_API_KEY, SUPABASE_SERVICE_ROLE_KEY, ...) live.
 scripts/.env
+scripts/.sla_rules_sync.log
 
 # Claude Code: per-turn commit subject, consumed and deleted by the Stop hook
 .claude/.commit-msg
