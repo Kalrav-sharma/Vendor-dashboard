@@ -7,6 +7,7 @@
 //   Top 5  = the 5 warehouse cities
 //   Next 4 = the rest of the Top 9 (Chennai, Pune, Ahmedabad, Lucknow)
 //   Other  = everything else
+// SLA Adherence = on_time / orders per carrying LSP (raftaar_*, sfx_ds_* columns).
 // Ratios are derived after summing, never averaged.
 import { ref, computed, onMounted, onUnmounted } from "vue";
 import { fetchAllRows } from "./sopPagedFetch.js";
@@ -22,6 +23,13 @@ export const TIERS = [
   { key: "top5", label: "Top 5 cities", hint: "Mumbai, Delhi, Bangalore, Hyderabad, Kolkata" },
   { key: "next4", label: "Next 4 cities", hint: "Chennai, Pune, Ahmedabad, Lucknow" },
   { key: "other", label: "Other cities", hint: "All remaining cities" },
+];
+// SLA Adherence splits by carrying LSP; Other = Pan India minus the two.
+export const ADH_LSPS = [
+  { key: "pan", label: "Pan India" },
+  { key: "raftaar", label: "Raftaar", hint: "Orders carried by DTDC Raftaar" },
+  { key: "sfxDs", label: "SFX DS", hint: "Orders carried by Shadowfax dark store (excl. sfx_ndd)" },
+  { key: "other", label: "Other", hint: "All orders not carried by Raftaar or SFX DS" },
 ];
 const tierOf = cityKey => (TOP5.has(cityKey) ? "top5" : NEXT4.has(cityKey) ? "next4" : "other");
 
@@ -53,7 +61,12 @@ export function useHealthSlaData() {
     return wanted.map(ws => {
       const rs = rows.value.filter(r => r.product === product && r.week_start === ws);
       const acc = Object.fromEntries(TIERS.map(t => [t.key, { orders: 0, tat_sum: 0, tat_n: 0 }]));
+      const adh = Object.fromEntries(ADH_LSPS.map(l => [l.key, { onTime: 0, total: 0 }]));
       rs.forEach(r => {
+        const n = k => Number(r[k]) || 0;
+        adh.pan.total += n("orders"); adh.pan.onTime += n("on_time");
+        adh.raftaar.total += n("raftaar_orders"); adh.raftaar.onTime += n("raftaar_on_time");
+        adh.sfxDs.total += n("sfx_ds_orders"); adh.sfxDs.onTime += n("sfx_ds_on_time");
         for (const k of ["pan", tierOf(r.city_key)]) {
           acc[k].orders += Number(r.orders) || 0;
           acc[k].tat_sum += Number(r.tat_sum) || 0;
@@ -70,6 +83,10 @@ export function useHealthSlaData() {
         weekNo: rs[0]?.week_no ?? null,
         kind: ws > cur ? "next" : ws === cur ? "current" : "past",
         tiers,
+        adh: {
+          ...adh,
+          other: { total: adh.pan.total - adh.raftaar.total - adh.sfxDs.total, onTime: adh.pan.onTime - adh.raftaar.onTime - adh.sfxDs.onTime },
+        },
       };
     }).filter(w => w.kind !== "next" || w.tiers.pan.orders >= NEXT_WEEK_MIN_ORDERS);
   }

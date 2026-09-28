@@ -110,7 +110,7 @@ a { color: var(--accent); }
 }
 .nav-item:hover { color: var(--ink); background: color-mix(in srgb, var(--accent) 6%, transparent); }
 .nav-item.active { color: var(--ink); font-weight: 600; border-left-color: var(--accent); background: var(--accent-soft); }
-.sidebar-account { margin-top: auto; padding: 16px 20px 4px; }
+.sidebar-account { margin-top: auto; padding: 16px 0 4px; }
 .main-content { flex: 1; min-width: 0; }
 
 @media (max-width: 700px) {
@@ -157,11 +157,12 @@ button.link-btn {
 /* --- Profile menu: sidebar trigger + account dropdown --- */
 .profile-menu { position: relative; }
 .profile-trigger {
-  width: 100%; display: flex; align-items: center; gap: 8px; padding: 7px 8px; border: none; border-radius: 4px;
-  background: transparent; color: var(--ink); font: inherit; font-size: 0.82rem; text-align: left; cursor: pointer;
+  /* Same box model as .nav-item -- same sidebar, same button language. */
+  width: 100%; display: flex; align-items: center; gap: 8px; padding: 10px 20px; border: none; border-left: 3px solid transparent;
+  background: none; color: var(--muted); font: inherit; font-size: 0.84rem; text-align: left; cursor: pointer;
 }
 .profile-trigger > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.profile-trigger:hover { background: var(--accent-soft); }
+.profile-trigger:hover { color: var(--ink); background: color-mix(in srgb, var(--accent) 6%, transparent); }
 .profile-trigger-icon {
   width: 18px; height: 18px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;
   border-radius: 50%; background: var(--paper); color: var(--muted);

@@ -4,10 +4,12 @@
 // component in the stack.
 //   Inventory Risk Monitor  S&OP stock/DOI tables        (useHealthInventoryRisk.js)
 //   SLA & Demand Share      sla_trend_weekly, RO + Locks (useHealthSlaData.js)
+//   SLA Adherence       sla_trend_weekly LSP split   (useHealthSlaData.js)
 //   Delayed Orders          health_delay_weekly          (useHealthDelayData.js)
 import "./health.css";
 import HealthInventoryRisk from "./HealthInventoryRisk.vue";
 import HealthSlaDemand from "./HealthSlaDemand.vue";
+import HealthSlaAdherence from "./HealthSlaAdherence.vue";
 import HealthDelayedOrders from "./HealthDelayedOrders.vue";
 import { useHealthInventoryRisk } from "../../composables/useHealthInventoryRisk.js";
 import { useHealthSlaData } from "../../composables/useHealthSlaData.js";
@@ -34,5 +36,6 @@ const stale = (t, h) => !t || (Date.now() - new Date(t).getTime()) / 3600000 > h
 
   <HealthInventoryRisk :groups="inv.groups.value" :totals="inv.totals.value" />
   <HealthSlaDemand :ro="sla.ro.value" :locks="sla.locks.value" />
+  <HealthSlaAdherence :ro="sla.ro.value" :locks="sla.locks.value" />
   <HealthDelayedOrders :spares="delay.spares.value" :refresh-kit="delay.refreshKit.value" />
 </template>
