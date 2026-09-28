@@ -193,6 +193,22 @@ export function dedupeInvoiceNumbers(numbers) {
   return [...seen.values()];
 }
 
+// Distinct vendor_code/vendor_name pairs out of any list of PO-like rows,
+// sorted by label -- used by both AdminApp.vue's own vendor filter (from
+// its already-fetched currentPos) and the admin-only "preview as vendor"
+// picker (from a dedicated unfiltered fetch in VendorApp.vue, since that
+// page's own currentPos is deliberately scoped to just the vendor being
+// previewed). Kept here rather than duplicated so the two lists can never
+// drift in how they dedupe/label a vendor.
+export function dedupeVendorOptions(rows) {
+  const byCode = new Map();
+  for (const row of rows) {
+    if (!row.vendor_code || byCode.has(row.vendor_code)) continue;
+    byCode.set(row.vendor_code, { code: row.vendor_code, label: row.vendor_name || row.vendor_code });
+  }
+  return [...byCode.values()].sort((a, b) => a.label.localeCompare(b.label));
+}
+
 // Open/approved POs before completed ones; within each of those two
 // groups, largest PO value first.
 export function poSortComparator(a, b) {

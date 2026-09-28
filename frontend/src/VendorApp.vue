@@ -11,7 +11,7 @@ import { useShipmentTracking } from "./composables/useShipmentTracking.js";
 import { useModal } from "./composables/useModal.js";
 import { useInvoiceUploads } from "./composables/useInvoiceUploads.js";
 import { usePaymentFilters } from "./composables/usePaymentFilters.js";
-import { dedupeInvoiceNumbers } from "./format.js";
+import { dedupeInvoiceNumbers, dedupeVendorOptions } from "./format.js";
 import SidebarNav from "./components/SidebarNav.vue";
 import PoTrackingTable from "./components/PoTrackingTable.vue";
 import SkuLevelTable from "./components/SkuLevelTable.vue";
@@ -42,6 +42,13 @@ const pageTitle = computed(() => ({
 // path; a real vendor login never has this set and RLS alone scopes them,
 // exactly as before this existed.
 const previewVendorCode = getPreviewVendorCode();
+// Populated only when actually previewing as admin (see onMounted) -- this
+// page's own currentPos below is deliberately scoped to just the vendor
+// being previewed, so it can't supply a full vendor list the way
+// AdminApp.vue's poVendorOptions does; this is a small separate unfiltered
+// fetch instead, so Settings > Switch view can jump straight to a
+// DIFFERENT vendor without detouring back through Management first.
+const previewVendorOptions = ref([]);
 
 const { currentPos, grnsByPo, poItemsByPo, grnItemsByPoSku, grnByCode, lastUpdated, invoicesForItem } = usePurchaseOrders(previewVendorCode);
 const { filters, filteredSorted, facilityOptions, statusOptions } = usePoFilters(currentPos, grnsByPo);
@@ -112,6 +119,12 @@ onMounted(async () => {
     return;
   }
   myRole.value = ctx.profile.role;
+  if (previewingAsAdmin) {
+    // Unfiltered on purpose -- this admin's RLS access already spans every
+    // vendor; it's just listing them, not reading anyone's PO details.
+    const { data } = await supabase.from("purchase_orders").select("vendor_code, vendor_name");
+    previewVendorOptions.value = dedupeVendorOptions(data || []);
+  }
   if (ctx.profile.must_change_password) {
     mustChangePassword.value = true;
     return;
@@ -165,7 +178,7 @@ async function signOut() {
       ]"
     >
       <template #account>
-        <ProfileMenu :display-name="myDisplayName" :email="myEmail" :access="ROLE_LABELS[myRole] || ROLE_LABELS.vendor" :role="myRole" :on-sign-out="signOut" />
+        <ProfileMenu :display-name="myDisplayName" :email="myEmail" :access="ROLE_LABELS[myRole] || ROLE_LABELS.vendor" :role="myRole" :vendors="previewVendorOptions" :on-sign-out="signOut" />
       </template>
     </SidebarNav>
 

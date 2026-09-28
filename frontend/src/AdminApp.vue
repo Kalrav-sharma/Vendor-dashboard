@@ -13,7 +13,7 @@ import { useTeam } from "./composables/useTeam.js";
 import { useModal } from "./composables/useModal.js";
 import { useInvoiceUploads } from "./composables/useInvoiceUploads.js";
 import { usePaymentFilters } from "./composables/usePaymentFilters.js";
-import { dedupeInvoiceNumbers } from "./format.js";
+import { dedupeInvoiceNumbers, dedupeVendorOptions } from "./format.js";
 import SidebarNav from "./components/SidebarNav.vue";
 import PoTrackingTable from "./components/PoTrackingTable.vue";
 import SkuLevelTable from "./components/SkuLevelTable.vue";
@@ -130,14 +130,7 @@ const vendorOptions = computed(() => {
 // above. A vendor can have POs long before anyone creates a login account
 // for them (e.g. Accord), and previewing their view doesn't need one --
 // usePurchaseOrders(vendorCode)'s filter works off vendor_code alone.
-const poVendorOptions = computed(() => {
-  const byCode = new Map();
-  for (const po of currentPos.value) {
-    if (!po.vendor_code || byCode.has(po.vendor_code)) continue;
-    byCode.set(po.vendor_code, { code: po.vendor_code, label: po.vendor_name || po.vendor_code });
-  }
-  return [...byCode.values()].sort((a, b) => a.label.localeCompare(b.label));
-});
+const poVendorOptions = computed(() => dedupeVendorOptions(currentPos.value));
 const { filters: skuFilters, filteredSorted: skuFilteredSorted } = useSkuFilters(skuRows, vendorLabel);
 
 // Dispatch Planning shows the whole lifecycle of a SKU's dispatch, as one
