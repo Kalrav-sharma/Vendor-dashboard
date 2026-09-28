@@ -259,7 +259,11 @@ async function signOut() {
   </div>
 
   <div v-else-if="ready" class="app-shell">
-    <SidebarNav v-model="activeNav" :brand="sidebarBrand" :lockup="myRole === 'management'" :items="navItems" />
+    <SidebarNav v-model="activeNav" :brand="sidebarBrand" :lockup="myRole === 'management'" :items="navItems">
+      <template #account>
+        <ProfileMenu :display-name="whoLine" :email="myEmail" :on-sign-out="signOut" />
+      </template>
+    </SidebarNav>
 
     <div class="main-content">
       <div class="wrap">
@@ -278,9 +282,6 @@ async function signOut() {
               <template v-else-if="activeNav === 'last-mile'">Warehouse-to-customer delivery visibility -- every open shipment, plus curated alerts, carrier performance, and worst-performing lanes across Blue Dart, Delhivery, DTDC, Holisol and Shadowfax.</template>
               <template v-else-if="activeNav === 'sla'">Delivery SLA across the network -- weekly/monthly trends by city tier, plus the week's late-delivery root-cause analysis.</template>
             </div>
-          </div>
-          <div class="who">
-            <ProfileMenu :display-name="whoLine" :email="myEmail" :on-sign-out="signOut" />
           </div>
         </header>
 

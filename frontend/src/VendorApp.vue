@@ -147,7 +147,11 @@ async function signOut() {
         { id: 'dispatch-planning', label: 'Dispatch Planning' },
         { id: 'payment-dashboard', label: 'Payment Dashboard' },
       ]"
-    />
+    >
+      <template #account>
+        <ProfileMenu :display-name="myDisplayName" :email="myEmail" :on-sign-out="signOut" />
+      </template>
+    </SidebarNav>
 
     <div class="main-content">
       <div class="wrap">
@@ -160,9 +164,6 @@ async function signOut() {
               <template v-else-if="activeNav === 'dispatch-planning'">Estimated dispatch date and quantity per SKU awaiting dispatch, plus live Bluedart status for every shipment you've already confirmed. Click a PO to see its details.</template>
               <template v-else-if="activeNav === 'payment-dashboard'">Every invoice you've uploaded, with its reconciliation and payment status. Click a PO to see its details.</template>
             </div>
-          </div>
-          <div class="who">
-            <ProfileMenu :display-name="myDisplayName" :email="myEmail" :on-sign-out="signOut" />
           </div>
         </header>
 

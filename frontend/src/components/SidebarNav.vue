@@ -25,5 +25,8 @@ defineEmits(["update:modelValue"]);
     >
       {{ item.label }}
     </button>
+    <div class="sidebar-account">
+      <slot name="account" />
+    </div>
   </nav>
 </template>
