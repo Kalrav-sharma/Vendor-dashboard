@@ -24,6 +24,7 @@ import RateFinder from "./components/RateFinder.vue";
 import SopSection from "./components/sop/SopSection.vue";
 import LastMileSection from "./components/lastmile/LastMileSection.vue";
 import SlaSection from "./components/sla/SlaSection.vue";
+import SparesSection from "./components/spares/SparesSection.vue";
 import HealthCardSection from "./components/health/HealthCardSection.vue";
 import AppModal from "./components/AppModal.vue";
 import PoDetailModal from "./components/PoDetailModal.vue";
@@ -58,6 +59,9 @@ const canSeeSop = computed(() => ["admin", "management", "operations"].includes(
 const canSeeLastMile = computed(() => ["admin", "management", "operations"].includes(myRole.value));
 // Same gate as S&OP / Last Mile -- UC's delivery SLA performance and late-delivery RCA.
 const canSeeSla = computed(() => ["admin", "management", "operations"].includes(myRole.value));
+// Spares planning (Summary / Spares Inventory / Warehouse stock / Appendix). Same internal roles;
+// all of them may edit Appendix status/vendor (RLS: is_internal_staff()).
+const canSeeSpares = computed(() => ["admin", "management", "operations"].includes(myRole.value));
 // Logistics Health Card -- the landing section (first in navItems, which login uses as the default).
 const canSeeHealth = computed(() => ["admin", "management", "operations"].includes(myRole.value));
 
@@ -90,6 +94,7 @@ const navItems = computed(() => {
   if (canSeeSop.value) items.push({ id: "sop", label: "S&OP" });
   if (canSeeLastMile.value) items.push({ id: "last-mile", label: "Last Mile Tracking" });
   if (canSeeSla.value) items.push({ id: "sla", label: "SLA" });
+  if (canSeeSpares.value) items.push({ id: "spares", label: "Spares" });
   return items;
 });
 
@@ -105,6 +110,7 @@ const pageTitle = computed(() => ({
   "sop": "S&OP",
   "last-mile": "Last Mile Tracking",
   "sla": "SLA",
+  "spares": "Spares",
 }[activeNav.value]));
 
 const { currentPos, grnsByPo, poItemsByPo, grnItemsByPoSku, grnByCode, lastUpdated, invoicesForItem, refresh: refreshPos } = usePurchaseOrders();
@@ -292,6 +298,7 @@ async function signOut() {
               <template v-else-if="activeNav === 'sop'">Sales & Operations Planning -- inventory, sales, production, and dispatch across the network.</template>
               <template v-else-if="activeNav === 'last-mile'">Warehouse-to-customer delivery visibility -- every open shipment, plus curated alerts, carrier performance, and worst-performing lanes across Blue Dart, Delhivery, DTDC and Shadowfax.</template>
               <template v-else-if="activeNav === 'sla'">Delivery SLA across the network -- weekly/monthly trends by city tier, plus the week's late-delivery root-cause analysis.</template>
+              <template v-else-if="activeNav === 'spares'"></template>
             </div>
           </div>
         </header>
@@ -360,6 +367,10 @@ async function signOut() {
 
         <div v-if="canSeeSla" v-show="activeNav === 'sla'">
           <SlaSection />
+        </div>
+
+        <div v-if="canSeeSpares" v-show="activeNav === 'spares'">
+          <SparesSection :editor-label="whoLine" />
         </div>
 
         <footer class="page-foot">Data refreshes automatically every ~5 minutes from Uniware. {{ lastCheckedText }}</footer>
