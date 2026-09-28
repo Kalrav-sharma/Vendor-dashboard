@@ -20,6 +20,8 @@
 
     { "match": "prefix", "value": "SFX_",             "adapter": "shadowfax" },
     { "match": "prefix", "value": "SHADOWFAX",        "adapter": "shadowfax" },
+    { "match": "exact",  "value": "SFX",              "adapter": "shadowfax",
+      "note": "Jarvis's SERVICEABILITYRULES_DP spells it bare 'Sfx', unlike Uniware's own SFX_* courier codes" },
     { "match": "prefix", "value": "BD_SMARTLOCKS_",   "adapter": "bluedart" },
     { "match": "prefix", "value": "DELHIVERY",        "adapter": "delhivery" },
     { "match": "prefix", "value": "HOLISOL",          "adapter": "holisol",

@@ -35,6 +35,7 @@ from pathlib import Path
 from typing import Any
 
 from .dates import IST, parse_dt
+from .lsp import registry
 
 NDD_CUTOFF_HOUR = 17   # general / next-day pickup cutoff: 5pm
 SDD_CUTOFF_HOUR = 14   # same-day pickup cutoff: 2pm
@@ -92,29 +93,31 @@ def effective_pickup_date(created: datetime, cutoff_hour: int):
 
 
 def lsp_matches(observed_lsp: str, rule_lsp: str) -> bool:
-    """Case-insensitive equality, plus two audited special cases.
+    """True when Uniware's `Shipping Courier` and Jarvis's `LSPPARTNER` name
+    the same real carrier, even though the two sources use unrelated naming
+    conventions.
 
-    Uniware collapses DTDC's 15 `DTDC_RAFTAAR_<location>` providers to a bare
-    `DTDC` courier, while the rules table keeps them specific. DTDC is the only
-    family with this generic/specific split.
+    MEASURED, 2026-09-28: a plain string-equality check (even case-insensitive,
+    even collapsing whitespace) matched DTDC and NOTHING else, because Uniware's
+    raw courier code almost always carries a service-tier/warehouse-lock
+    suffix Jarvis's bare LSPPARTNER never has -- BD_SMARTLOCKS_KOL,
+    BLUEDART_NATIVE_RO_HYD, DELHIVERY_SPARES, SFX_NDD, SFX_HYD_MANIKONDA vs.
+    Jarvis's "Bluedart"/"Delhivery"/"Sfx". DTDC only ever matched by
+    coincidence: its raw code happens to already be the bare string "DTDC".
+    Every Blue Dart, Delhivery and Shadowfax shipment fell through to ASSUMED
+    and was silently excluded from on-time/late grading as a result.
 
-    The second: Uniware's `Shipping Courier` reads `BLUEDART` (no space), but
-    a source can spell it `BLUE DART` -- user decision 2026-09-28: these are
-    the same carrier. Collapsing internal whitespace before comparing covers
-    that (and any future one-word/two-word spelling drift) without a
-    hardcoded alias list.
+    Resolving BOTH sides to an adapter id through the exact same
+    courier_map.json rules that already classify every Uniware courier
+    variant correctly sidesteps the naming mismatch entirely, instead of
+    hand-rolling a special case per LSP (which is how DTDC's one-off case
+    came to exist, and why it didn't generalise).
     """
-    a = (observed_lsp or "").strip().upper()
-    b = (rule_lsp or "").strip().upper()
-    if not a or not b:
+    a = registry.resolve(observed_lsp or "").adapter_id
+    b = registry.resolve(rule_lsp or "").adapter_id
+    if a == "unknown" or b == "unknown":
         return False
-    if a == b:
-        return True
-    if a == "DTDC" and b.startswith("DTDC"):
-        return True
-    if a.replace(" ", "") == b.replace(" ", ""):
-        return True
-    return False
+    return a == b
 
 
 @dataclass
