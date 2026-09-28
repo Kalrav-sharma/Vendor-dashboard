@@ -223,7 +223,22 @@ def fetch_facility(session, token, facility, window_days, retries=3):
                 raise RuntimeError(f"cloudfront download failed http={d.status_code}")
 
             reader = csv.DictReader(io.StringIO(d.text))
-            return facility, list(reader), None
+            out_rows = list(reader)
+            # ONE-TIME diagnostic (remove once confirmed): itemTypeName/skuName/
+            # skuCode are already requested in COLUMNS but never parsed anywhere
+            # in watchlist.py -- needed to add a real product-Category column to
+            # the Alerts tab (RO/Locks/Spares/Refresh), and the exact CSV header
+            # Uniware assigns them isn't derivable from the internal field name
+            # (e.g. "channel" -> "Channel Name", "SoiStatus" -> "Sale Order Item
+            # Status" -- not a mechanical transform). No PII in these fields.
+            if out_rows:
+                print(f"  [debug] {facility} CSV headers: {reader.fieldnames}")
+                for candidate in ("itemTypeName", "Item Type Name", "Item Type", "ItemTypeName",
+                                  "skuName", "Sku Name", "SKU Name", "skuCode", "Sku Code", "SKU Code"):
+                    if candidate in (reader.fieldnames or []):
+                        samples = sorted({(r.get(candidate) or "").strip() for r in out_rows if r.get(candidate)})[:15]
+                        print(f"  [debug] {facility} column {candidate!r} sample values: {samples}")
+            return facility, out_rows, None
         except Exception as e:
             last_err = f"{type(e).__name__}: {e}"
             print(f"  {facility} attempt {attempt}/{retries} failed: {last_err[:200]}", file=sys.stderr)
