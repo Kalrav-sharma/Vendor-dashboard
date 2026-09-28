@@ -22,14 +22,12 @@ import LastMileOpenTab from "./LastMileOpenTab.vue";
 import LastMileAlertsTab from "./LastMileAlertsTab.vue";
 import LastMileCarrierTab from "./LastMileCarrierTab.vue";
 import LastMileWorstLanesTab from "./LastMileWorstLanesTab.vue";
-import LastMileCoverageTab from "./LastMileCoverageTab.vue";
 
 const SUBTABS = [
   { id: "open", label: "Open Shipments" },
   { id: "alerts", label: "Alerts" },
   { id: "carrier", label: "Carrier Performance" },
   { id: "lanes", label: "Worst Lanes" },
-  { id: "coverage", label: "Coverage & Data Quality" },
 ];
 
 const activeSubTab = ref(SUBTABS[0].id);
@@ -48,5 +46,4 @@ const activeSubTab = ref(SUBTABS[0].id);
   <div v-show="activeSubTab === 'alerts'"><LastMileAlertsTab /></div>
   <div v-show="activeSubTab === 'carrier'"><LastMileCarrierTab /></div>
   <div v-show="activeSubTab === 'lanes'"><LastMileWorstLanesTab /></div>
-  <div v-show="activeSubTab === 'coverage'"><LastMileCoverageTab /></div>
 </template>
