@@ -348,7 +348,14 @@ def main():
             "bucket": alert.bucket if alert else None,
         })
 
-    print(f"alerts {len(al):,} { dict(by_bucket) } | scorecards {len(cards)} | lanes {len(lanes)} | open {len(open_rows):,}")
+    # delivered/graded surfaced here because a silent 0 across every LSP (as
+    # opposed to 0 scorecard/lane ROWS, which this line already showed) is
+    # exactly the failure mode that went undetected for weeks -- see dates.py
+    # FORMATS, 2026-09-28.
+    graded_total = sum(c.on_time + c.late for c in cards)
+    print(f"alerts {len(al):,} { dict(by_bucket) } | scorecards {len(cards)} "
+          f"(delivered={sum(c.delivered for c in cards):,}, graded={graded_total:,}) "
+          f"| lanes {len(lanes)} | open {len(open_rows):,}")
 
     if dry_run:
         print("[dry-run] nothing written.")
