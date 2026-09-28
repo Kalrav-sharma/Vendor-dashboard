@@ -142,6 +142,15 @@ class Alert:
     status_source: str = ""          # lsp | uniware | none
     status_at: str | None = None
     last_scan_location: str | None = None
+    # Parity with shipment_tracking (the AWB tracker's inbound counterpart):
+    # destination/expected_delivery_date/last_scan_text/raw all come straight
+    # off the LSP's own poll response (TrackingResult), same source those
+    # AWB-tracker columns are populated from -- just not carried through to
+    # this Alert until now. destination/expected_delivery_date are the
+    # CARRIER's own claim, distinct from promised_date below (our SLA-rule-
+    # derived promise) -- both are worth keeping since they can disagree.
+    destination: str | None = None
+    expected_delivery_date: str | None = None
     promised_date: str | None = None
     promise_source: str = ""
     days_overdue: int | None = None
@@ -149,6 +158,8 @@ class Alert:
     hours_since_scan: float | None = None
     attempts: int | None = None
     ndr_reason: str | None = None
+    last_scan_text: str | None = None
+    raw: Any | None = None
     notes: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -339,12 +350,21 @@ def evaluate(ship: Shipment, poll: TrackingResult | None = None,
         status_source=fused.source,
         status_at=fused.at.isoformat() if fused.at else None,
         last_scan_location=(poll.current_location if poll else None),
+        destination=(poll.destination if poll else None),
+        expected_delivery_date=(poll.expected_delivery.date().isoformat()
+                                 if poll and poll.expected_delivery else None),
         promised_date=ship.promised_date, promise_source=ship.promise_source,
         days_overdue=overdue, days_since_dispatch=ship.days_since_dispatch,
         hours_since_scan=(round(hours_since_scan, 1)
                           if hours_since_scan is not None else None),
         attempts=(poll.attempt_count if poll else None),
         ndr_reason=(poll.ndr_reason if poll else None),
+        # events[0] is the most recent scan (adapters build it newest-first --
+        # see e.g. bluedart.py's current_location=events[0].location), so its
+        # raw_status is the scan-level detail text, the last-mile equivalent
+        # of shipment_tracking.last_scan_text.
+        last_scan_text=(poll.events[0].raw_status if poll and poll.events else None),
+        raw=(poll.raw_payload if poll else None),
         notes=notes,
     )
 
