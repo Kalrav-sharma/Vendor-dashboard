@@ -3,15 +3,18 @@
 // it isn't Ongoing show "–" and are left out of the totals. DRR / in transit / delivery date /
 // next dispatch come from the sheet; DOI and Required qty are recomputed on clubbed Uniware
 // good stock (GGN+Pataudi, KOL+Panchla) -- the sheet's own figures ignore Pataudi/Panchla.
-import { ref, computed } from "vue";
+import { ref, computed, watch } from "vue";
 import { WAREHOUSES, DOI_TARGET } from "../../composables/useSparesData.js";
 
 const props = defineProps({ store: { type: Object, required: true } });
 const s = props.store;
 
 const q = ref("");
+const vendorFilter = ref("All");
 
-const rows = computed(() => {
+// Every Ongoing row before the vendor filter -- the filter's own options come from these, so a
+// vendor typed in Appendix (existing or brand new) shows up here as soon as it's saved.
+const ongoingRows = computed(() => {
   const needle = q.value.trim().toLowerCase();
   const out = [];
   for (const sku of s.allSkus.value) {
@@ -33,6 +36,15 @@ const rows = computed(() => {
   }
   return out;
 });
+
+const vendorChoices = computed(() => {
+  const set = new Set(ongoingRows.value.map((r) => r.vendor));
+  const hasNa = set.delete("NA");
+  return [...[...set].sort((a, b) => a.localeCompare(b)), ...(hasNa ? ["NA"] : [])];
+});
+watch(vendorChoices, (v) => { if (vendorFilter.value !== "All" && !v.includes(vendorFilter.value)) vendorFilter.value = "All"; });
+
+const rows = computed(() => (vendorFilter.value === "All" ? ongoingRows.value : ongoingRows.value.filter((r) => r.vendor === vendorFilter.value)));
 
 const doiClass = (c) => {
   if (!c || c.doi == null) return "";
@@ -57,6 +69,10 @@ const deliveryText = (c) => {
       <h3 class="card-caption" style="padding:0;border:none">Spares Inventory</h3>
       <span class="grow"></span>
       <span class="sp-count"><b>{{ rows.length }}</b> ongoing SKUs</span>
+      <select v-model="vendorFilter" class="sp-select">
+        <option value="All">All vendors</option>
+        <option v-for="v in vendorChoices" :key="v" :value="v">{{ v }}</option>
+      </select>
       <input v-model="q" class="sp-search" type="search" placeholder="Search SKU ID" />
     </div>
     <div class="table-scroll">
@@ -118,7 +134,7 @@ const deliveryText = (c) => {
             </td>
             <td class="num hc-num"><b>{{ fmt(r.totalRequired) }}</b></td>
           </tr>
-          <tr v-if="!rows.length"><td :colspan="30" class="dim">No Ongoing spares{{ q ? " match this search" : "" }}.</td></tr>
+          <tr v-if="!rows.length"><td :colspan="30" class="dim">No Ongoing spares{{ q || vendorFilter !== "All" ? " match these filters" : "" }}.</td></tr>
         </tbody>
       </table>
     </div>
