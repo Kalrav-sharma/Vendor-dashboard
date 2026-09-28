@@ -1968,6 +1968,22 @@ create index if not exists idx_last_mile_alerts_bucket on public.last_mile_alert
 -- so this line never needs to be removed once it has taken effect.
 alter table public.last_mile_alerts alter column severity type int using severity::int;
 
+-- Parity with shipment_tracking (the AWB tracker's inbound, vendor-to-UC
+-- counterpart -- see that table's comment above): destination,
+-- expected_delivery_date and last_scan_text are the carrier's OWN claims off
+-- the same LSP poll that already fills last_scan_location, and raw is the
+-- full parsed response, same "for fields not modeled above" purpose as
+-- shipment_tracking.raw. expected_delivery_date is the carrier's promise,
+-- distinct from promised_date (our own SLA-rule-derived promise) -- both are
+-- kept since they can disagree. last_mile_alerts already existed before
+-- these were added -- "create table if not exists" above won't retroactively
+-- add them on an already-deployed database; this does, and is a no-op if
+-- already there.
+alter table public.last_mile_alerts add column if not exists destination text;
+alter table public.last_mile_alerts add column if not exists expected_delivery_date date;
+alter table public.last_mile_alerts add column if not exists last_scan_text text;
+alter table public.last_mile_alerts add column if not exists raw jsonb;
+
 alter table public.last_mile_alerts enable row level security;
 drop policy if exists last_mile_alerts_select on public.last_mile_alerts;
 create policy last_mile_alerts_select on public.last_mile_alerts
@@ -2024,6 +2040,18 @@ create table if not exists public.last_mile_open_shipments (
 create index if not exists idx_last_mile_open_shipments_run on public.last_mile_open_shipments (run_id);
 create index if not exists idx_last_mile_open_shipments_cohort on public.last_mile_open_shipments (run_id, cohort);
 create index if not exists idx_last_mile_open_shipments_alert on public.last_mile_open_shipments (run_id, has_alert);
+
+-- Same shipment_tracking parity as last_mile_alerts above, extended here too
+-- so a shipment that hasn't (yet) tripped an alert gets the same quality of
+-- carrier detail as one that has -- this table's whole point is not being a
+-- downgraded view of the curated alerts subset. last_scan_location wasn't on
+-- this table at all before (only on last_mile_alerts); the other three are
+-- the same AWB-tracker-parity fields. No-op if already applied.
+alter table public.last_mile_open_shipments add column if not exists last_scan_location text;
+alter table public.last_mile_open_shipments add column if not exists destination text;
+alter table public.last_mile_open_shipments add column if not exists expected_delivery_date date;
+alter table public.last_mile_open_shipments add column if not exists last_scan_text text;
+alter table public.last_mile_open_shipments add column if not exists raw jsonb;
 
 alter table public.last_mile_open_shipments enable row level security;
 drop policy if exists last_mile_open_shipments_select on public.last_mile_open_shipments;

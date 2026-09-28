@@ -321,7 +321,8 @@ def main():
     alerts_by_awb = {a.awb: a for a in al}
     open_rows = []
     for s in open_ships:
-        fused = alerts_mod.fuse(s, polls.get(s.awb), now)
+        poll = polls.get(s.awb)
+        fused = alerts_mod.fuse(s, poll, now)
         alert = alerts_by_awb.get(s.awb)
         spec = registry.get_spec(s.adapter_id)
         open_rows.append({
@@ -331,6 +332,15 @@ def main():
             "payment_type": s.payment_type, "sale_order_codes": s.sale_order_codes[:5],
             "item_count": s.item_count, "status": fused.canonical.value, "raw_status": fused.raw,
             "status_source": fused.source, "status_at": fused.at.isoformat() if fused.at else None,
+            # Same shipment_tracking parity as last_mile_alerts below -- see
+            # that block's comment for why these four are worth carrying
+            # through for a shipment that hasn't (yet) tripped an alert too.
+            "last_scan_location": (poll.current_location if poll else None),
+            "destination": (poll.destination if poll else None),
+            "expected_delivery_date": (poll.expected_delivery.date().isoformat()
+                                        if poll and poll.expected_delivery else None),
+            "last_scan_text": (poll.events[0].raw_status if poll and poll.events else None),
+            "raw": (poll.raw_payload if poll else None),
             "promised_date": s.promised_date, "promise_source": s.promise_source,
             "days_overdue": days_overdue(s.promised_date, now),
             "days_since_dispatch": s.days_since_dispatch,
@@ -427,6 +437,11 @@ def main():
         "promise_source": a.promise_source, "days_overdue": a.days_overdue,
         "days_since_dispatch": a.days_since_dispatch, "hours_since_scan": a.hours_since_scan,
         "attempts": a.attempts, "ndr_reason": a.ndr_reason,
+        # shipment_tracking parity (the AWB tracker's inbound counterpart):
+        # destination/expected_delivery_date/last_scan_text/raw, straight off
+        # the same LSP poll that already fills last_scan_location above.
+        "destination": a.destination, "expected_delivery_date": a.expected_delivery_date,
+        "last_scan_text": a.last_scan_text, "raw": a.raw,
         "notes": "; ".join(a.notes) if a.notes else None,
     } for a in al], on_conflict="run_id,awb")
 

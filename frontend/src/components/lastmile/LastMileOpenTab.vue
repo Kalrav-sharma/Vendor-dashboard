@@ -74,8 +74,10 @@ const kpiTiles = computed(() => {
 // CSV of exactly what's currently filtered/visible.
 const CSV_COLUMNS = [
   ["awb", "AWB"], ["cohort", "Cohort"], ["lsp", "LSP"], ["city", "City"], ["pincode", "Pincode"],
-  ["payment_type", "Payment"], ["order", "Order"], ["status", "Status"], ["promised_date", "Promised"],
-  ["days_overdue", "Overdue (days)"], ["has_alert", "Alerted"], ["primary_flag", "Flag"],
+  ["payment_type", "Payment"], ["order", "Order"], ["status", "Status"], ["destination", "Destination"],
+  ["expected_delivery_date", "Carrier ETA"], ["promised_date", "Promised"],
+  ["days_overdue", "Overdue (days)"], ["last_scan_text", "Last scan"],
+  ["has_alert", "Alerted"], ["primary_flag", "Flag"],
 ];
 function csvCell(v) {
   const s = v == null ? "" : String(v);
@@ -85,8 +87,11 @@ function downloadCsv() {
   const rows = filteredSorted.value.map(s => ({
     awb: s.awb, cohort: COHORT_LABEL[s.cohort] || s.cohort, lsp: s.lsp || "", city: s.city || "",
     pincode: s.pincode || "", payment_type: fmtPayment(s.payment_type),
-    order: (s.sale_order_codes || [])[0] || "", status: fmtStatus(s), promised_date: fmtDate(s.promised_date),
-    days_overdue: s.days_overdue ?? "", has_alert: s.has_alert ? "Yes" : "No",
+    order: (s.sale_order_codes || [])[0] || "", status: fmtStatus(s),
+    destination: s.destination || "", expected_delivery_date: fmtDate(s.expected_delivery_date),
+    promised_date: fmtDate(s.promised_date),
+    days_overdue: s.days_overdue ?? "", last_scan_text: s.last_scan_text || "",
+    has_alert: s.has_alert ? "Yes" : "No",
     primary_flag: s.primary_flag ? fmtFlag(s.primary_flag) : "",
   }));
   const lines = [
@@ -137,7 +142,8 @@ function downloadCsv() {
         <thead>
           <tr>
             <th>AWB</th><th>Cohort</th><th>LSP</th><th>City / pincode</th><th>Payment</th>
-            <th>Order</th><th>Status</th><th>Promised</th><th class="num">Overdue</th><th>Alert</th>
+            <th>Order</th><th>Status</th><th>Destination</th><th>Carrier ETA</th>
+            <th>Promised</th><th class="num">Overdue</th><th>Last scan</th><th>Alert</th>
           </tr>
           <tr class="filter-row">
             <td></td>
@@ -159,12 +165,12 @@ function downloadCsv() {
                 <option v-for="c in cityOptions" :key="c" :value="c">{{ c }}</option>
               </select>
             </td>
-            <td></td><td></td><td></td><td></td><td></td><td></td>
+            <td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td>
           </tr>
         </thead>
         <tbody>
           <tr v-if="!filteredSorted.length">
-            <td colspan="10" class="empty-state">No open shipments match these filters.</td>
+            <td colspan="13" class="empty-state">No open shipments match these filters.</td>
           </tr>
           <tr v-for="s in filteredSorted" :key="s.id">
             <td class="mono">{{ s.awb }}</td>
@@ -174,8 +180,17 @@ function downloadCsv() {
             <td><span v-if="fmtPayment(s.payment_type) !== '–'" class="chip" :class="s.payment_type === 'COD' ? 'chip-open' : 'chip-muted'">{{ fmtPayment(s.payment_type) }}</span><span v-else>–</span></td>
             <td class="mono">{{ (s.sale_order_codes || [])[0] || "–" }}</td>
             <td :class="s.status === 'UNKNOWN' ? 'cell-empty' : ''">{{ fmtStatus(s) }}</td>
+            <td>{{ s.destination || "–" }}</td>
+            <td class="mono">{{ s.expected_delivery_date ? fmtDate(s.expected_delivery_date) : "–" }}</td>
             <td>{{ fmtDate(s.promised_date) }}</td>
             <td class="num mono" :class="s.days_overdue > 0 ? 'cell-critical' : ''">{{ fmtDays(s.days_overdue) }}</td>
+            <td>
+              <template v-if="s.last_scan_text">
+                {{ s.last_scan_text }}<br>
+                <span class="muted-text">{{ s.last_scan_location }}<template v-if="s.status_at"> · {{ fmtDate(s.status_at) }}</template></span>
+              </template>
+              <template v-else>–</template>
+            </td>
             <td>
               <span v-if="s.has_alert" class="chip" :class="`chip-${BUCKET_CLASS[s.bucket] || 'critical'}`">{{ fmtFlag(s.primary_flag) }}</span>
               <span v-else class="chip chip-good">OK</span>
