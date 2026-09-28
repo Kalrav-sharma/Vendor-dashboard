@@ -28,7 +28,7 @@ function showProfile() {
   openModal("Profile", ProfileSettings, {
     displayName: props.displayName,
     email: props.email,
-  });
+  }, null, "narrow");
 }
 onMounted(() => {
   document.addEventListener("click", handleDocClick);
