@@ -3,5 +3,11 @@ __pycache__/
 .DS_Store
 supabase/.temp/
 
+# Local-only secrets for scripts run by hand (e.g. sync_last_mile_sla_rules.py
+# on the VPN) -- see scripts/last_mile_lib/envfile.py. Never committed: this
+# repo auto-commits/pushes at the end of every turn, and this file is the one
+# place real credentials (JARVIS_API_KEY, SUPABASE_SERVICE_ROLE_KEY, ...) live.
+scripts/.env
+
 # Claude Code: per-turn commit subject, consumed and deleted by the Stop hook
 .claude/.commit-msg

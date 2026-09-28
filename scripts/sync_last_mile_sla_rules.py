@@ -36,6 +36,9 @@ import urllib.request
 
 import requests
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from last_mile_lib import envfile               # noqa: E402
+
 JARVIS_BASE = "https://jarvis.urbanclap.com"
 JARVIS_QUERY_ID = 562880
 REQUEST_TIMEOUT = 120
@@ -80,6 +83,10 @@ def to_row(r):
 
 def main():
     dry_run = "--dry-run" in sys.argv
+    # This script's whole reason to exist is being run BY HAND, on the VPN --
+    # unlike the other last-mile scripts, .env is its primary credential path,
+    # not a CI convenience. A real environment variable still always wins.
+    envfile.load_local_env()
     rows = fetch_jarvis_rows(env("JARVIS_API_KEY"))
     print(f"Jarvis query {JARVIS_QUERY_ID}: {len(rows)} row(s).")
 
