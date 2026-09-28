@@ -45,6 +45,13 @@ shipments keep whatever status Uniware recorded and are never counted as
 carrier-verified. The adapter module is present but this script does not
 call it -- see POLLED_ADAPTERS below.
 
+HOLISOL
+-------
+Not tracked at all, excluded at intake -- user decision 2026-09-28: Holisol
+is not an LSP UC actually uses. See last_mile_lib/config.json ->
+excluded_adapters. Its shipments never reach `open_ships`/`candidates`
+below, so it needs no POLLED_ADAPTERS entry.
+
 CREDENTIALS
 -----------
   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
@@ -89,8 +96,10 @@ WORST_LANES_MIN_VOLUME = 5
 WORST_LANES_LIMIT = 25
 
 # Adapters this job actually calls. Shadowfax is deliberately absent (see the
-# module docstring); not_trackable/porter/unknown have nothing to call.
-POLLED_ADAPTERS = frozenset({"bluedart", "delhivery", "dtdc", "holisol"})
+# module docstring); not_trackable/porter/unknown/holisol have nothing to
+# call -- holisol is excluded at intake entirely (config.json), never even
+# reaching the `candidates` filter below.
+POLLED_ADAPTERS = frozenset({"bluedart", "delhivery", "dtdc"})
 
 
 def env(name):

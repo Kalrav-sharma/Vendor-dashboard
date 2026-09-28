@@ -92,11 +92,17 @@ def effective_pickup_date(created: datetime, cutoff_hour: int):
 
 
 def lsp_matches(observed_lsp: str, rule_lsp: str) -> bool:
-    """Case-insensitive equality, plus the one audited special case.
+    """Case-insensitive equality, plus two audited special cases.
 
     Uniware collapses DTDC's 15 `DTDC_RAFTAAR_<location>` providers to a bare
     `DTDC` courier, while the rules table keeps them specific. DTDC is the only
     family with this generic/specific split.
+
+    The second: Uniware's `Shipping Courier` reads `BLUEDART` (no space), but
+    a source can spell it `BLUE DART` -- user decision 2026-09-28: these are
+    the same carrier. Collapsing internal whitespace before comparing covers
+    that (and any future one-word/two-word spelling drift) without a
+    hardcoded alias list.
     """
     a = (observed_lsp or "").strip().upper()
     b = (rule_lsp or "").strip().upper()
@@ -105,6 +111,8 @@ def lsp_matches(observed_lsp: str, rule_lsp: str) -> bool:
     if a == b:
         return True
     if a == "DTDC" and b.startswith("DTDC"):
+        return True
+    if a.replace(" ", "") == b.replace(" ", ""):
         return True
     return False
 

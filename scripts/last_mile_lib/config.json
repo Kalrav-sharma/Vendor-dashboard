@@ -58,12 +58,16 @@
    "coverage funnel, because a funnel that does not account for its own input",
    "would let the board claim coverage of a shrunken denominator.",
    "DTDC is deliberately NOT here: its volume is real and its performance is",
-   "still measurable from Uniware's own tracking columns."
+   "still measurable from Uniware's own tracking columns.",
+   "Holisol added 2026-09-28 -- user decision: Holisol is not an LSP UC",
+   "actually uses, so any courier code resolving to it (courier_map.json's",
+   "HOLISOL prefix rule) is excluded rather than tracked as a real carrier."
   ],
   "adapters": [
    "not_trackable",
    "porter",
-   "unknown"
+   "unknown",
+   "holisol"
   ]
  },
  "live_polled_adapters": {

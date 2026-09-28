@@ -1,8 +1,10 @@
 <script setup>
 // Last Mile Tracking -- warehouse-to-customer delivery visibility,
 // modelled on a working operational report ("Shipment Watch") that
-// already covers Blue Dart, Delhivery, DTDC, Holisol and Shadowfax
-// across Native's D2C/UC-App channels. Sub-tabbed inside AdminApp.vue,
+// already covers Blue Dart, Delhivery, DTDC and Shadowfax across
+// Native's D2C/UC-App channels. Holisol is deliberately excluded --
+// user decision 2026-09-28: it isn't an LSP UC actually uses. Sub-tabbed
+// inside AdminApp.vue,
 // same convention as S&OP (see SopSection.vue) -- each sub-tab is its
 // own component backed by the same useLastMileData.js composable
 // (Supabase-polling), fed by scripts/sync_last_mile.py.

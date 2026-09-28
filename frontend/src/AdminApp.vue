@@ -290,7 +290,7 @@ async function signOut() {
               <template v-else-if="activeNav === 'manage-access'">Create and manage every login on the portal -- vendors and internal Management/Operations/Finance access alike.</template>
               <template v-else-if="activeNav === 'rate-finder'">Find the cheapest vendor for a lane, and send them the shipment intent on WhatsApp.</template>
               <template v-else-if="activeNav === 'sop'">Sales & Operations Planning -- inventory, sales, production, and dispatch across the network.</template>
-              <template v-else-if="activeNav === 'last-mile'">Warehouse-to-customer delivery visibility -- every open shipment, plus curated alerts, carrier performance, and worst-performing lanes across Blue Dart, Delhivery, DTDC, Holisol and Shadowfax.</template>
+              <template v-else-if="activeNav === 'last-mile'">Warehouse-to-customer delivery visibility -- every open shipment, plus curated alerts, carrier performance, and worst-performing lanes across Blue Dart, Delhivery, DTDC and Shadowfax.</template>
               <template v-else-if="activeNav === 'sla'">Delivery SLA across the network -- weekly/monthly trends by city tier, plus the week's late-delivery root-cause analysis.</template>
             </div>
           </div>
