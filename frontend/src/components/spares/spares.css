@@ -1,0 +1,72 @@
+/* Spares section. Builds on health.css (hc-table / hc-pill / hc-toggle); dense, small type,
+   no violet -- neutral ink for active controls, the portal's cell-* tints for status. */
+.sp-alert { margin: 0 0 12px; padding: 8px 12px; border-radius: 8px; font-size: 0.8rem; background: var(--critical-soft); color: var(--critical); }
+
+.sp-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+.sp-toolbar .grow { flex: 1 1 auto; }
+.sp-search, .sp-select {
+  font-family: inherit; font-size: 0.78rem; padding: 5px 9px; border: 1px solid var(--line); border-radius: 7px;
+  background: var(--surface); color: var(--ink); min-width: 0;
+}
+.sp-search { width: 220px; max-width: 100%; }
+.sp-count { font-size: 0.74rem; color: var(--muted); white-space: nowrap; }
+.sp-count b { color: var(--ink); font-weight: 600; }
+
+/* chip multi-select (warehouses) */
+.sp-chips { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.sp-chips button {
+  border: 1px solid var(--line); background: var(--surface); color: var(--muted); border-radius: 999px;
+  padding: 3px 10px; font-family: inherit; font-size: 0.74rem; cursor: pointer;
+}
+.sp-chips button.on { background: var(--ink); color: var(--surface); border-color: var(--ink); font-weight: 600; }
+
+/* dense grid tables */
+.sp-table { min-width: 0; font-size: 0.78rem; }
+.sp-table th, .sp-table td { padding: 5px 8px; }
+.sp-table th { font-size: 0.64rem; }
+.sp-table th.grp { text-align: center; border-left: 1px solid var(--line); }
+.sp-table th.c, .sp-table td.c { text-align: center; }
+.sp-table td.gl, .sp-table th.gl { border-left: 1px solid var(--line); }
+.sp-table td.sku { font-family: "IBM Plex Mono", monospace; font-size: 0.74rem; white-space: nowrap; }
+.sp-table td.dim, .sp-table .dash { color: var(--muted); }
+.sp-table tbody tr:hover td { background: var(--paper); }
+.sp-table th.sortable { cursor: pointer; user-select: none; }
+.sp-table th.sortable:hover { color: var(--ink); }
+.sp-sticky { position: sticky; left: 0; background: var(--surface); z-index: 1; }
+thead .sp-sticky { background: var(--paper); z-index: 2; }
+.sp-wide { min-width: 1500px; }
+
+.sp-doi { display: inline-block; min-width: 34px; padding: 1px 6px; border-radius: 5px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.sp-doi.cell-warn { background: var(--warn-soft); color: var(--warn); }
+
+/* status tags */
+.sp-tag { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 0.7rem; font-weight: 600; white-space: nowrap; }
+.sp-tag.Ongoing { background: var(--good-soft); color: var(--good); }
+.sp-tag.Obsolete { background: var(--critical-soft); color: var(--critical); }
+.sp-tag.NA { background: var(--paper); color: var(--muted); border: 1px solid var(--line); }
+.sp-tag.grn { background: var(--warn-soft); color: var(--warn); }
+.sp-tag.transit { background: color-mix(in srgb, var(--info) 14%, transparent); color: var(--info); }
+.sp-tag.planned { background: var(--paper); color: var(--ink); border: 1px solid var(--line); }
+.sp-tag.none { color: var(--muted); font-weight: 400; }
+
+/* Appendix editors */
+.sp-status {
+  font-family: inherit; font-size: 0.72rem; font-weight: 600; border-radius: 6px; padding: 2px 4px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+}
+.sp-status.Ongoing { background: var(--good-soft); color: var(--good); border-color: transparent; }
+.sp-status.Obsolete { background: var(--critical-soft); color: var(--critical); border-color: transparent; }
+.sp-status.NA { background: var(--paper); color: var(--muted); }
+.sp-cell { display: flex; align-items: center; justify-content: center; gap: 3px; white-space: nowrap; }
+.sp-cell small { display: block; text-align: center; color: var(--muted); font-size: 0.66rem; font-variant-numeric: tabular-nums; }
+.sp-edited { width: 6px; height: 6px; border-radius: 50%; background: var(--info); flex: none; }
+.sp-reset { border: none; background: none; color: var(--muted); cursor: pointer; font-size: 0.78rem; padding: 0 2px; line-height: 1; }
+.sp-reset:hover { color: var(--ink); }
+.sp-vendor { font-family: inherit; font-size: 0.74rem; padding: 3px 7px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); width: 150px; }
+.sp-vendor.edited { border-color: var(--info); }
+.sp-legend { display: inline-flex; gap: 10px; align-items: center; font-size: 0.72rem; color: var(--muted); }
+.sp-legend .sp-edited { display: inline-block; margin-right: 4px; vertical-align: 1px; }
+
+@media (max-width: 700px) {
+  .sp-search { width: 100%; }
+}

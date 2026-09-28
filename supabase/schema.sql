@@ -2322,3 +2322,115 @@ drop policy if exists sla_partner_otd_weekly_select on public.sla_partner_otd_we
 create policy sla_partner_otd_weekly_select on public.sla_partner_otd_weekly
   for select using (public.is_internal_staff());
 -- ---------------------------------------------------------------------
+
+-- =======================================================================
+-- Spares section -- added 2026-09-28. Four views (Summary, Spares Inventory,
+-- Warehouse stock, Appendix) over the "Spare automations" sheet's
+-- "SKU list and uni data" tab plus a live Uniware good/bad snapshot.
+--
+-- spares_sku_master / spares_wh_inventory are synced (service_role only,
+-- scripts/sync_spares.py). spares_status_override / spares_vendor_override are
+-- the Appendix's manual edits and are the ONLY tables in this block the browser
+-- writes. Effective status is resolved in the frontend: override if present,
+-- else sheet category Discontinued -> Obsolete, else in sheet -> Ongoing, else NA.
+-- So a row nobody has edited keeps following the sheet; an edit wins for good
+-- (deleting the override = "reset to auto").
+-- =======================================================================
+
+-- One row per SKU in the sheet tab. Per-warehouse columns are the sheet's 5
+-- blocks (GGN, BLR, BOM, KOL, HYD); the sheet's own GGN/KOL exclude Pataudi/Panchla,
+-- which is why DOI is NOT stored here -- the frontend recomputes it on clubbed
+-- Uniware stock. delivery_* is text: a date ("24-Sep") or "GRN Pending".
+create table if not exists public.spares_sku_master (
+  sku text primary key,
+  category text,
+  sheet_vendor text,
+  total_drr numeric not null default 0,
+  drr_ggn numeric not null default 0,
+  drr_blr numeric not null default 0,
+  drr_bom numeric not null default 0,
+  drr_kol numeric not null default 0,
+  drr_hyd numeric not null default 0,
+  in_transit_ggn numeric not null default 0,
+  in_transit_blr numeric not null default 0,
+  in_transit_bom numeric not null default 0,
+  in_transit_kol numeric not null default 0,
+  in_transit_hyd numeric not null default 0,
+  delivery_ggn text,
+  delivery_blr text,
+  delivery_bom text,
+  delivery_kol text,
+  delivery_hyd text,
+  next_dispatch_date text,
+  next_dispatch_qty numeric,
+  sheet_order int,
+  synced_at timestamptz not null default now()
+);
+alter table public.spares_sku_master enable row level security;
+drop policy if exists spares_sku_master_select on public.spares_sku_master;
+create policy spares_sku_master_select on public.spares_sku_master
+  for select using (public.is_internal_staff());
+
+-- Uniware good (inventory) + bad (badInventory) per facility x SKU, for EVERY
+-- SKU stocked at the 7 warehouse facilities (Pataudi / Panchla kept separate --
+-- clubbing is a view concern). Wholesale-replaced each run.
+create table if not exists public.spares_wh_inventory (
+  id bigserial primary key,
+  facility text not null,
+  sku text not null,
+  good_qty numeric not null default 0,
+  bad_qty numeric not null default 0,
+  synced_at timestamptz not null default now(),
+  unique (facility, sku)
+);
+alter table public.spares_wh_inventory enable row level security;
+drop policy if exists spares_wh_inventory_select on public.spares_wh_inventory;
+create policy spares_wh_inventory_select on public.spares_wh_inventory
+  for select using (public.is_internal_staff());
+
+-- Appendix: manual status per SKU x facility (facility = Uniware code).
+create table if not exists public.spares_status_override (
+  sku text not null,
+  facility text not null,
+  status text not null check (status in ('Ongoing', 'Obsolete', 'NA')),
+  updated_by text,
+  updated_at timestamptz not null default now(),
+  primary key (sku, facility)
+);
+alter table public.spares_status_override enable row level security;
+drop policy if exists spares_status_override_select on public.spares_status_override;
+create policy spares_status_override_select on public.spares_status_override
+  for select using (public.is_internal_staff());
+drop policy if exists spares_status_override_insert on public.spares_status_override;
+create policy spares_status_override_insert on public.spares_status_override
+  for insert with check (public.is_internal_staff());
+drop policy if exists spares_status_override_update on public.spares_status_override;
+create policy spares_status_override_update on public.spares_status_override
+  for update using (public.is_internal_staff()) with check (public.is_internal_staff());
+drop policy if exists spares_status_override_delete on public.spares_status_override;
+create policy spares_status_override_delete on public.spares_status_override
+  for delete using (public.is_internal_staff());
+grant select, insert, update, delete on public.spares_status_override to authenticated;
+
+-- Appendix: manual vendor, one per SKU (applies at every warehouse).
+create table if not exists public.spares_vendor_override (
+  sku text primary key,
+  vendor text not null,
+  updated_by text,
+  updated_at timestamptz not null default now()
+);
+alter table public.spares_vendor_override enable row level security;
+drop policy if exists spares_vendor_override_select on public.spares_vendor_override;
+create policy spares_vendor_override_select on public.spares_vendor_override
+  for select using (public.is_internal_staff());
+drop policy if exists spares_vendor_override_insert on public.spares_vendor_override;
+create policy spares_vendor_override_insert on public.spares_vendor_override
+  for insert with check (public.is_internal_staff());
+drop policy if exists spares_vendor_override_update on public.spares_vendor_override;
+create policy spares_vendor_override_update on public.spares_vendor_override
+  for update using (public.is_internal_staff()) with check (public.is_internal_staff());
+drop policy if exists spares_vendor_override_delete on public.spares_vendor_override;
+create policy spares_vendor_override_delete on public.spares_vendor_override
+  for delete using (public.is_internal_staff());
+grant select, insert, update, delete on public.spares_vendor_override to authenticated;
+-- ---------------------------------------------------------------------
