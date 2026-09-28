@@ -145,7 +145,7 @@ export function letsTransportStatusClass(statusType) {
 // the dashboard reads exactly as it did before -- no column is quietly
 // asserting an unpaid status nobody actually confirmed.
 export const PAYMENT_STATUS_META = {
-  pending: ["Pending", "open"],
+  pending: ["Booked, Pending", "open"],
   paid: ["Paid", "good"],
 };
 
@@ -166,14 +166,18 @@ export function paymentStatusClass(status) {
 // "Pending integration" for all of them isn't useful. Before payment_status
 // exists, the reconciliation outcome (match_status, see reconciliation.js)
 // fills in something more specific:
+//   - Oracle has actually booked the invoice and confirms it's unpaid
+//     (payment_status = 'pending') -- "Booked, Pending", distinct from the
+//     cases below so "booked but unpaid" is never confused with "not even
+//     assessed yet".
 //   - reconciliation passed ('matched') -- the invoice just hasn't come up
-//     for payment yet, not stuck on anything -- "Not yet due".
+//     for payment yet, not stuck on anything -- "Pending".
 //   - reconciliation found a mismatch ('mismatch' -- Short/Excess GRN,
 //     PO/invoice number mismatch, exceeds PO) -- Finance can't process this
 //     until the vendor corrects it with a credit note, so the UI asks for
 //     one (needsCreditNote) instead of showing a status word at all.
 //   - GRN not yet raised ('needs_review') -- can't even be assessed yet,
-//     just "Pending".
+//     just "–" -- there's genuinely nothing to report.
 //   - reconciliation still running or failed ('pending'/'error') --
 //     genuinely unknown either way, keep the original "Pending integration".
 export function effectivePaymentStatus(row) {
@@ -182,7 +186,7 @@ export function effectivePaymentStatus(row) {
   }
   if (row.match_status === "matched") {
     return {
-      text: "Not yet due", cls: "muted", needsCreditNote: false,
+      text: "Pending", cls: "muted", needsCreditNote: false,
       title: "Reconciliation passed -- this invoice hasn't come up in a payout run yet.",
     };
   }
@@ -191,7 +195,7 @@ export function effectivePaymentStatus(row) {
   }
   if (row.match_status === "needs_review") {
     return {
-      text: "Pending", cls: "open", needsCreditNote: false,
+      text: "–", cls: "muted", needsCreditNote: false,
       title: "GRN not yet raised -- payment can't be assessed until it is.",
     };
   }
