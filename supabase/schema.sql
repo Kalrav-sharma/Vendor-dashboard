@@ -2344,6 +2344,52 @@ create policy sla_partner_otd_weekly_select on public.sla_partner_otd_weekly
   for select using (public.is_internal_staff());
 -- ---------------------------------------------------------------------
 
+-- SLA › SLA change alerts (2026-09-29). Pincodes of the RCA week whose delivered RO orders
+-- over the RCA week + 4 previous promised weeks number >= 5 and are < 88% on time. Written by
+-- sync_sla_portal.js step 1c (upsert, then this week's stale pincodes deleted).
+create table if not exists public.sla_pincode_alert (
+  week_start date not null,
+  pincode text not null,
+  city text,
+  orders int not null default 0,
+  late int not null default 0,
+  on_time_pct numeric,
+  avg_promised_tat numeric,
+  avg_actual_tat numeric,
+  synced_at timestamptz not null default now(),
+  primary key (week_start, pincode)
+);
+alter table public.sla_pincode_alert enable row level security;
+drop policy if exists sla_pincode_alert_select on public.sla_pincode_alert;
+create policy sla_pincode_alert_select on public.sla_pincode_alert
+  for select using (public.is_internal_staff());
+
+-- The "SLA revised" Yes/No toggle per pincode per RCA week (browser-written). Kept apart from
+-- sla_pincode_alert so a sync run never resets it.
+create table if not exists public.sla_pincode_revised (
+  week_start date not null,
+  pincode text not null,
+  revised boolean not null default false,
+  updated_by text,
+  updated_at timestamptz not null default now(),
+  primary key (week_start, pincode)
+);
+alter table public.sla_pincode_revised enable row level security;
+drop policy if exists sla_pincode_revised_select on public.sla_pincode_revised;
+create policy sla_pincode_revised_select on public.sla_pincode_revised
+  for select using (public.is_internal_staff());
+drop policy if exists sla_pincode_revised_insert on public.sla_pincode_revised;
+create policy sla_pincode_revised_insert on public.sla_pincode_revised
+  for insert with check (public.is_internal_staff());
+drop policy if exists sla_pincode_revised_update on public.sla_pincode_revised;
+create policy sla_pincode_revised_update on public.sla_pincode_revised
+  for update using (public.is_internal_staff()) with check (public.is_internal_staff());
+drop policy if exists sla_pincode_revised_delete on public.sla_pincode_revised;
+create policy sla_pincode_revised_delete on public.sla_pincode_revised
+  for delete using (public.is_internal_staff());
+grant select, insert, update, delete on public.sla_pincode_revised to authenticated;
+-- ---------------------------------------------------------------------
+
 -- =======================================================================
 -- Spares section -- added 2026-09-28. Four views (Summary, Spares Inventory,
 -- Warehouse stock, Appendix) over the "Spare automations" sheet's
