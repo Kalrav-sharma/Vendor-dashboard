@@ -91,6 +91,16 @@ MANUALLY_CLOSED_AWBS: frozenset[str] = frozenset({
     "SF3696142351URM", "SF3696142375URM", "SF3702564433URM", "SF3702564198URM",
     "SF3725396640URM", "SF3720249258URM", "SF3728820522URM", "SF3723470012URM",
     "SF3734260729URM", "SF3746033758URM", "SF3737517237URM", "SF3734260426URM",
+    # SF3778328724URM -- a DIFFERENT root cause from the batch above: this one
+    # WAS live-polled via the real Shadowfax API (2026-09-29) and still came
+    # back "new"/manifested, one scan only, since 2026-08-09 -- Shadowfax's
+    # own tracking timeline is missing the delivery scan entirely, even
+    # though Uniware independently confirms both order items on it delivered
+    # (checked by a human in Uniware's UI, not the export field). Proof a
+    # live poll can be wrong too, not just Uniware's export -- not a reason
+    # to distrust the Shadowfax integration generally (1 gap of 872 polled
+    # that same run), just this one shipment.
+    "SF3778328724URM",
 })
 
 BLANKS = {"", "-", "NA", "N/A", "0", "NULL", "NONE"}
