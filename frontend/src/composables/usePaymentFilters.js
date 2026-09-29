@@ -5,7 +5,7 @@
 // Vendor column/filter; omit it (vendor.html, already scoped to one
 // vendor) and vendor filtering/fields are simply not part of the mix.
 import { reactive, computed } from "vue";
-import { fmtMoney, fmtDateOnly, paymentStatusLabel } from "../format.js";
+import { fmtMoney, fmtDateOnly, effectivePaymentStatus } from "../format.js";
 import { reconciliationLabel } from "../reconciliation.js";
 
 export function usePaymentFilters(rows, resolveVendorLabel) {
@@ -23,7 +23,7 @@ export function usePaymentFilters(rows, resolveVendorLabel) {
       grnValue: fmtMoney(row.match_details?.grn_value ?? null),
       dueDate: fmtDateOnly(row.match_details?.invoice_due_date || null),
       reconciliation: reconciliationLabel(row).text,
-      paymentStatus: paymentStatusLabel(row.payment_status),
+      paymentStatus: effectivePaymentStatus(row).text,
     };
   }
 
@@ -60,7 +60,7 @@ export function usePaymentFilters(rows, resolveVendorLabel) {
     [...new Set(rows.value.map((r) => reconciliationLabel(r).text))].sort());
 
   const paymentStatusOptions = computed(() =>
-    [...new Set(rows.value.map((r) => paymentStatusLabel(r.payment_status)))].sort());
+    [...new Set(rows.value.map((r) => effectivePaymentStatus(r).text))].sort());
 
   return { filters, filteredSorted, reconciliationOptions, paymentStatusOptions };
 }

@@ -36,6 +36,22 @@ export function validateInvoiceFile(file) {
   return null;
 }
 
+// Credit note upload -- same PDF/size rule as an invoice copy, kept as a
+// separate function (rather than reusing validateInvoiceFile) so its error
+// text says "credit note" instead of "invoice copy".
+const CREDIT_NOTE_BUCKET = "credit-notes";
+export const MAX_CREDIT_NOTE_BYTES = 15 * 1024 * 1024;
+
+export function validateCreditNoteFile(file) {
+  if (file.type !== "application/pdf") {
+    return `"${file.name}" isn't a PDF -- only a PDF credit note can be uploaded.`;
+  }
+  if (file.size > MAX_CREDIT_NOTE_BYTES) {
+    return `"${file.name}" is larger than 15 MB -- please compress it or split it into parts.`;
+  }
+  return null;
+}
+
 const uploadsByPo = reactive({}); // po_code -> array of rows
 const allUploads = ref([]); // flat list of every upload this login can see -- for the Payment Dashboard
 const loadingPo = reactive(new Set()); // po_codes currently being (re)fetched
@@ -45,9 +61,12 @@ export function useInvoiceUploads() {
   // Flat, unkeyed fetch for the Payment Dashboard -- every upload this
   // login can see (RLS scopes a vendor to their own, same as everywhere
   // else), independent of which PO's detail modal has been opened.
-  async function fetchAllUploads() {
-    const { data, error } = await supabase
-      .from("po_invoice_uploads").select("*").order("created_at", { ascending: false });
+  // `vendorCode`: admin-only "preview as vendor" support -- see the same
+  // note in usePurchaseOrders.js. A real vendor login never passes this.
+  async function fetchAllUploads(vendorCode = null) {
+    let query = supabase.from("po_invoice_uploads").select("*").order("created_at", { ascending: false });
+    if (vendorCode) query = query.eq("vendor_code", vendorCode);
+    const { data, error } = await query;
     if (!error) allUploads.value = data;
     return { data, error };
   }
@@ -193,8 +212,66 @@ export function useInvoiceUploads() {
     a.remove();
   }
 
+  // Attaches a credit note to an already-uploaded invoice row -- shown on
+  // the Payment Dashboard when reconciliation found a mismatch (see
+  // effectivePaymentStatus() in format.js). Unlike uploadInvoice, this
+  // doesn't create a new po_invoice_uploads row -- it's an UPDATE on the
+  // existing one the credit note corrects (RLS: po_invoice_uploads_update_
+  // credit_note, column-scoped to just these fields).
+  async function uploadCreditNote(row, file, uploaderLabel) {
+    const key = `credit:${row.id}`;
+    workingIds.add(key);
+    try {
+      const safeName = file.name.replace(/[^A-Za-z0-9_.-]/g, "_");
+      const path = `${row.vendor_code}/${row.po_code}/${row.id}/${Date.now()}-${safeName}`;
+
+      const { error: uploadErr } = await supabase.storage.from(CREDIT_NOTE_BUCKET).upload(path, file);
+      if (uploadErr) return { ok: false, error: uploadErr.message };
+
+      const { data: { user } } = await supabase.auth.getUser();
+
+      const { error: updateErr } = await supabase
+        .from("po_invoice_uploads")
+        .update({
+          credit_note_storage_path: path,
+          credit_note_file_name: file.name,
+          credit_note_file_size: file.size,
+          credit_note_uploaded_by: user?.id || null,
+          credit_note_uploaded_by_name: uploaderLabel || null,
+          credit_note_uploaded_at: new Date().toISOString(),
+        })
+        .eq("id", row.id);
+      if (updateErr) {
+        // Don't leave an orphaned file with no metadata pointing at it.
+        await supabase.storage.from(CREDIT_NOTE_BUCKET).remove([path]);
+        return { ok: false, error: updateErr.message };
+      }
+
+      await fetchInvoices(row.po_code);
+      return { ok: true };
+    } finally {
+      workingIds.delete(key);
+    }
+  }
+
+  async function viewCreditNote(row) {
+    const { data, error } = await supabase.storage.from(CREDIT_NOTE_BUCKET).createSignedUrl(row.credit_note_storage_path, 120);
+    if (error || !data) {
+      alert(`Couldn't open file: ${error?.message || "unknown error"}`);
+      return;
+    }
+    const a = document.createElement("a");
+    a.href = data.signedUrl;
+    a.target = "_blank";
+    a.rel = "noopener";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+
   return {
     uploadsByPo, allUploads, loadingPo, workingIds,
     fetchInvoices, fetchUploadCounts, fetchAllUploads, uploadInvoice, deleteInvoice, viewInvoice, checkInvoiceMatch,
+    uploadCreditNote, viewCreditNote,
   };
 }

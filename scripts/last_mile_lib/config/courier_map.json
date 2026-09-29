@@ -20,13 +20,17 @@
 
     { "match": "prefix", "value": "SFX_",             "adapter": "shadowfax" },
     { "match": "prefix", "value": "SHADOWFAX",        "adapter": "shadowfax" },
+    { "match": "exact",  "value": "SFX",              "adapter": "shadowfax",
+      "note": "Jarvis's SERVICEABILITYRULES_DP spells it bare 'Sfx', unlike Uniware's own SFX_* courier codes" },
     { "match": "prefix", "value": "BD_SMARTLOCKS_",   "adapter": "bluedart" },
-    { "match": "prefix", "value": "BLUEDART",         "adapter": "bluedart" },
     { "match": "prefix", "value": "DELHIVERY",        "adapter": "delhivery" },
-    { "match": "prefix", "value": "HOLISOL",          "adapter": "holisol" },
+    { "match": "prefix", "value": "HOLISOL",          "adapter": "holisol",
+      "note": "resolved, but excluded_adapters in config.json keeps it off the dashboard -- not our LSP" },
     { "match": "exact",  "value": "PORTER",           "adapter": "porter" },
     { "match": "exact",  "value": "RIPPLR",           "adapter": "unknown", "reason": "b2b_only_no_public_tracking" },
     { "match": "regex",  "value": "^DTDC(_[A-Z0-9]+)*$", "adapter": "dtdc",
-      "note": "bare DTDC plus any DTDC_RAFTAAR_<location> variant" }
+      "note": "bare DTDC plus any DTDC_RAFTAAR_<location> variant" },
+    { "match": "regex",  "value": "^BLUE ?DART",      "adapter": "bluedart",
+      "note": "one-word BLUEDART and two-word BLUE DART are the same carrier -- user decision 2026-09-28" }
   ]
 }

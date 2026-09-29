@@ -133,6 +133,7 @@ class Alert:
     city: str = ""
     pincode: str = ""
     channel: str = ""
+    category: str = ""       # RO | Locks | Spares | Refresh -- see product_category.py
     payment_type: str = ""   # COD | Prepaid | "" -- a stuck COD parcel is a
                              # cash-recovery problem, not just a delivery one
     sale_order_codes: list[str] = field(default_factory=list)
@@ -142,6 +143,15 @@ class Alert:
     status_source: str = ""          # lsp | uniware | none
     status_at: str | None = None
     last_scan_location: str | None = None
+    # Parity with shipment_tracking (the AWB tracker's inbound counterpart):
+    # destination/expected_delivery_date/last_scan_text/raw all come straight
+    # off the LSP's own poll response (TrackingResult), same source those
+    # AWB-tracker columns are populated from -- just not carried through to
+    # this Alert until now. destination/expected_delivery_date are the
+    # CARRIER's own claim, distinct from promised_date below (our SLA-rule-
+    # derived promise) -- both are worth keeping since they can disagree.
+    destination: str | None = None
+    expected_delivery_date: str | None = None
     promised_date: str | None = None
     promise_source: str = ""
     days_overdue: int | None = None
@@ -149,6 +159,8 @@ class Alert:
     hours_since_scan: float | None = None
     attempts: int | None = None
     ndr_reason: str | None = None
+    last_scan_text: str | None = None
+    raw: Any | None = None
     notes: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -199,6 +211,24 @@ def fuse(ship: Shipment, poll: TrackingResult | None,
         return FusedStatus(canonical=C.AWB_NOT_FOUND, raw=poll.raw_status,
                            source="lsp", at=None, uniware_canonical=uni_canon)
 
+    # RTO/return is trusted from Uniware even for a carrier we poll ourselves
+    # -- user decision 2026-09-29 (AWB 77111296043): unlike the general
+    # status-agreement question the rule below was measured against, a
+    # return is a Uniware/warehouse-side event (is_return() at intake, same
+    # source), not carrier scan noise, so it doesn't carry the "Uniware
+    # disagreed 22/25 times" risk. Skipping this would leave a shipment
+    # re-alerting as BREACHED/STUCK/etc. every hourly run once the carrier
+    # poll itself goes quiet on it, even though Uniware already knows it's
+    # heading back. evaluate() drops all three of these already (RTO_INITIATED/
+    # RTO_IN_TRANSIT stay open for restock/refund chasing but never alert;
+    # RTO_DELIVERED is fully settled) -- this is what lets that exclusion
+    # actually fire instead of the fallthrough to UNKNOWN below.
+    if uni_canon in (C.RTO_INITIATED, C.RTO_IN_TRANSIT, C.RTO_DELIVERED):
+        return FusedStatus(canonical=uni_canon,
+                           raw=ship.uniware_courier_status or ship.uniware_tracking_status,
+                           source="uniware", at=uni_at, mapped=uni_mapped,
+                           uniware_canonical=uni_canon)
+
     # Uniware is NOT an acceptable answer for a carrier we poll ourselves.
     # Measured 2026-09-14: of 25 Blue Dart AWBs whose status came from Uniware,
     # 22 were already DELIVERED at the carrier and none agreed. Falling back
@@ -232,8 +262,13 @@ def evaluate(ship: Shipment, poll: TrackingResult | None = None,
     # `rto_completed` in the carrier scorecards, which is where a completed
     # return actually belongs.
     #
-    # A return still IN FLIGHT (RTO_INITIATED / RTO_IN_TRANSIT) stays, because
-    # its closure can still be chased for restock and refund.
+    # A return still IN FLIGHT (RTO_INITIATED / RTO_IN_TRANSIT) also leaves the
+    # board -- superseded by the 2026-09-09 decision recorded on BUCKET_ORDER
+    # above ("every return status is now terminal"; this line used to say
+    # in-flight returns "stay" for restock/refund chasing, but the code has
+    # excluded them since 2026-09-09 same as RTO_DELIVERED -- that older
+    # comment was simply never updated to match). All three keep counting in
+    # performance.build()'s rto_in_flight/rto_completed either way.
     if fused.canonical in (C.DELIVERED, C.CANCELLED,
                            C.RTO_INITIATED, C.RTO_IN_TRANSIT, C.RTO_DELIVERED):
         return None
@@ -260,7 +295,17 @@ def evaluate(ship: Shipment, poll: TrackingResult | None = None,
             notes.append("AWB never appeared at the carrier")
 
     # --- the promise ----------------------------------------------------------
-    if overdue is not None and overdue > 0:
+    # BREACHED requires an actual current status from somewhere (the carrier
+    # poll, or a trusted Uniware read) -- user decision 2026-09-29: a
+    # promise-date comparison alone is not evidence the shipment is still
+    # undelivered, only that we haven't confirmed otherwise. Without this
+    # gate, a shipment the carrier poll simply hasn't answered on yet (fused
+    # to UNKNOWN, status_source "none") showed BREACHED next to an unknown
+    # status -- a confident claim this module has no actual basis for. If
+    # BREACHED was the only reason this shipment would have alerted, it now
+    # drops off the board entirely rather than showing a stale claim; that
+    # is the intended effect of gating on real status, not a side effect.
+    if overdue is not None and overdue > 0 and fused.canonical != C.UNKNOWN:
         flags.append("BREACHED")
     elif overdue is not None and -AT_RISK_WITHIN_DAYS <= overdue <= 0 \
             and fused.canonical not in (C.OUT_FOR_DELIVERY, C.DELIVERED):
@@ -333,18 +378,28 @@ def evaluate(ship: Shipment, poll: TrackingResult | None = None,
         lsp=(spec.display_name if spec else ship.adapter_id),
         courier_code=ship.courier_code, facility_code=ship.facility_code,
         city=ship.city, pincode=ship.pincode, channel=ship.channel,
+        category=ship.category,
         payment_type=ship.payment_type,
         sale_order_codes=ship.sale_order_codes[:5], item_count=ship.item_count,
         status=fused.canonical.value, raw_status=fused.raw,
         status_source=fused.source,
         status_at=fused.at.isoformat() if fused.at else None,
         last_scan_location=(poll.current_location if poll else None),
+        destination=(poll.destination if poll else None),
+        expected_delivery_date=(poll.expected_delivery.date().isoformat()
+                                 if poll and poll.expected_delivery else None),
         promised_date=ship.promised_date, promise_source=ship.promise_source,
         days_overdue=overdue, days_since_dispatch=ship.days_since_dispatch,
         hours_since_scan=(round(hours_since_scan, 1)
                           if hours_since_scan is not None else None),
         attempts=(poll.attempt_count if poll else None),
         ndr_reason=(poll.ndr_reason if poll else None),
+        # events[0] is the most recent scan (adapters build it newest-first --
+        # see e.g. bluedart.py's current_location=events[0].location), so its
+        # raw_status is the scan-level detail text, the last-mile equivalent
+        # of shipment_tracking.last_scan_text.
+        last_scan_text=(poll.events[0].raw_status if poll and poll.events else None),
+        raw=(poll.raw_payload if poll else None),
         notes=notes,
     )
 

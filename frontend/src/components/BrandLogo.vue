@@ -5,13 +5,14 @@
 // white for dark backgrounds without needing a second asset.
 import nativeLogo from "../assets/logos/native-logo.png";
 import ucLogo from "../assets/logos/uc-logo.png";
+import connectLogo from "../assets/logos/connect-logo.png";
 
 const props = defineProps({
-  brand: { type: String, required: true }, // "native" | "uc"
+  brand: { type: String, required: true }, // "native" | "uc" | "connect"
 });
 
-const SRC = { native: nativeLogo, uc: ucLogo };
-const ALT = { native: "Native", uc: "Urban Company" };
+const SRC = { native: nativeLogo, uc: ucLogo, connect: connectLogo };
+const ALT = { native: "Native", uc: "Urban Company", connect: "Connect" };
 </script>
 
 <template>

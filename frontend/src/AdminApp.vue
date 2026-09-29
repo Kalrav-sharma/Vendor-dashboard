@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, onMounted } from "vue";
-import { supabase, requireSession, INTERNAL_ROLES } from "./supabaseClient.js";
+import { supabase, requireSession, INTERNAL_ROLES, ROLE_LABELS } from "./supabaseClient.js";
+import { clearViewOverride } from "./viewOverride.js";
 import { usePurchaseOrders } from "./composables/usePurchaseOrders.js";
 import { usePoFilters } from "./composables/usePoFilters.js";
 import { useSkuAggregates } from "./composables/useSkuAggregates.js";
@@ -12,7 +13,7 @@ import { useTeam } from "./composables/useTeam.js";
 import { useModal } from "./composables/useModal.js";
 import { useInvoiceUploads } from "./composables/useInvoiceUploads.js";
 import { usePaymentFilters } from "./composables/usePaymentFilters.js";
-import { dedupeInvoiceNumbers } from "./format.js";
+import { dedupeInvoiceNumbers, dedupeVendorOptions } from "./format.js";
 import SidebarNav from "./components/SidebarNav.vue";
 import PoTrackingTable from "./components/PoTrackingTable.vue";
 import SkuLevelTable from "./components/SkuLevelTable.vue";
@@ -23,6 +24,8 @@ import RateFinder from "./components/RateFinder.vue";
 import SopSection from "./components/sop/SopSection.vue";
 import LastMileSection from "./components/lastmile/LastMileSection.vue";
 import SlaSection from "./components/sla/SlaSection.vue";
+import SparesSection from "./components/spares/SparesSection.vue";
+import HealthCardSection from "./components/health/HealthCardSection.vue";
 import AppModal from "./components/AppModal.vue";
 import PoDetailModal from "./components/PoDetailModal.vue";
 import SkuDetailModal from "./components/SkuDetailModal.vue";
@@ -56,6 +59,11 @@ const canSeeSop = computed(() => ["admin", "management", "operations"].includes(
 const canSeeLastMile = computed(() => ["admin", "management", "operations"].includes(myRole.value));
 // Same gate as S&OP / Last Mile -- UC's delivery SLA performance and late-delivery RCA.
 const canSeeSla = computed(() => ["admin", "management", "operations"].includes(myRole.value));
+// Spares planning (Summary / Spares Inventory / Warehouse stock / Appendix). Same internal roles;
+// all of them may edit Appendix status/vendor (RLS: is_internal_staff()).
+const canSeeSpares = computed(() => ["admin", "management", "operations"].includes(myRole.value));
+// Logistics Health Card -- the landing section (first in navItems, which login uses as the default).
+const canSeeHealth = computed(() => ["admin", "management", "operations"].includes(myRole.value));
 
 // Admin/Management only -- Kalrav's explicit call: the OCR match summary,
 // discrepancy details, and Re-check button in a PO's invoice section are
@@ -68,7 +76,7 @@ const canViewInvoiceMatchDetails = computed(() => ["admin", "management"].includ
 const RATE_FINDER_LIVE = true;
 
 const SIDEBAR_BRAND = {
-  admin: "Admin Console", management: "Management Console",
+  admin: "Admin Console", management: "Connect",
   operations: "Operations Portal", finance: "Finance Portal",
 };
 const sidebarBrand = computed(() => SIDEBAR_BRAND[myRole.value] || "Admin Console");
@@ -76,6 +84,7 @@ const ROLE_FALLBACK_NAME = { admin: "Admin", management: "Management", operation
 
 const navItems = computed(() => {
   const items = [];
+  if (canSeeHealth.value) items.push({ id: "health", label: "Logistics Health Card" });
   if (canSeePoTracking.value) items.push({ id: "po-tracking", label: "PO Tracking" });
   if (canSeeSkuData.value) items.push({ id: "sku-data", label: "SKU Level Data" });
   if (canSeeDispatchPlanning.value) items.push({ id: "dispatch-planning", label: "Dispatch Planning" });
@@ -85,11 +94,13 @@ const navItems = computed(() => {
   if (canSeeSop.value) items.push({ id: "sop", label: "S&OP" });
   if (canSeeLastMile.value) items.push({ id: "last-mile", label: "Last Mile Tracking" });
   if (canSeeSla.value) items.push({ id: "sla", label: "SLA" });
+  if (canSeeSpares.value) items.push({ id: "spares", label: "Spares" });
   return items;
 });
 
 const activeNav = ref("po-tracking");
 const pageTitle = computed(() => ({
+  "health": "Logistics Health Card",
   "po-tracking": "PO Tracking",
   "sku-data": "SKU Level Data",
   "dispatch-planning": "Dispatch Planning",
@@ -99,6 +110,7 @@ const pageTitle = computed(() => ({
   "sop": "S&OP",
   "last-mile": "Last Mile Tracking",
   "sla": "SLA",
+  "spares": "Spares",
 }[activeNav.value]));
 
 const { currentPos, grnsByPo, poItemsByPo, grnItemsByPoSku, grnByCode, lastUpdated, invoicesForItem, refresh: refreshPos } = usePurchaseOrders();
@@ -118,6 +130,13 @@ const vendorOptions = computed(() => {
   }
   return [...byCode.values()];
 });
+
+// Settings > Switch view's "Preview as" list -- deliberately sourced from
+// real PO data (every vendor_code seen in currentPos), not from vendorOptions
+// above. A vendor can have POs long before anyone creates a login account
+// for them (e.g. Accord), and previewing their view doesn't need one --
+// usePurchaseOrders(vendorCode)'s filter works off vendor_code alone.
+const poVendorOptions = computed(() => dedupeVendorOptions(currentPos.value));
 const { filters: skuFilters, filteredSorted: skuFilteredSorted } = useSkuFilters(skuRows, vendorLabel);
 
 // Dispatch Planning shows the whole lifecycle of a SKU's dispatch, as one
@@ -238,6 +257,9 @@ async function handlePasswordChanged() {
 }
 
 async function signOut() {
+  // So a leftover Switch-view preview from this session can never affect
+  // whoever signs into this browser next.
+  clearViewOverride();
   await supabase.auth.signOut();
   window.location.href = "login.html";
 }
@@ -254,7 +276,11 @@ async function signOut() {
   </div>
 
   <div v-else-if="ready" class="app-shell">
-    <SidebarNav v-model="activeNav" :brand="sidebarBrand" :items="navItems" />
+    <SidebarNav v-model="activeNav" :brand="sidebarBrand" :lockup="myRole === 'management'" :items="navItems">
+      <template #account>
+        <ProfileMenu :display-name="whoLine" :email="myEmail" :access="ROLE_LABELS[myRole] || myRole" :role="myRole" :vendors="poVendorOptions" :on-sign-out="signOut" />
+      </template>
+    </SidebarNav>
 
     <div class="main-content">
       <div class="wrap">
@@ -262,21 +288,24 @@ async function signOut() {
           <div>
             <h1>{{ pageTitle }}</h1>
             <div class="scope">
-              <template v-if="activeNav === 'po-tracking'">{{ scopeLine }}</template>
+              <template v-if="activeNav === 'health'"></template>
+              <template v-else-if="activeNav === 'po-tracking'">{{ scopeLine }}</template>
               <template v-else-if="activeNav === 'sku-data'">SKUs with at least one open purchase order not yet fully supplied, highest pending quantity first, across all vendors. Click a SKU for the PO-level breakdown.</template>
               <template v-else-if="activeNav === 'dispatch-planning'">Estimated dispatch date and quantity per SKU awaiting dispatch, plus live Bluedart status for every shipment already confirmed -- across all vendors. Click a PO to see its details.</template>
               <template v-else-if="activeNav === 'payment-dashboard'">Every invoice uploaded across all vendors, with its reconciliation and payment status. Click a PO to see its details.</template>
               <template v-else-if="activeNav === 'manage-access'">Create and manage every login on the portal -- vendors and internal Management/Operations/Finance access alike.</template>
               <template v-else-if="activeNav === 'rate-finder'">Find the cheapest vendor for a lane, and send them the shipment intent on WhatsApp.</template>
               <template v-else-if="activeNav === 'sop'">Sales & Operations Planning -- inventory, sales, production, and dispatch across the network.</template>
-              <template v-else-if="activeNav === 'last-mile'">Warehouse-to-customer delivery visibility -- every open shipment, plus curated alerts, carrier performance, and worst-performing lanes across Blue Dart, Delhivery, DTDC, Holisol and Shadowfax.</template>
+              <template v-else-if="activeNav === 'last-mile'">Warehouse-to-customer delivery visibility -- every open shipment, plus curated alerts, carrier performance, and worst-performing lanes across Blue Dart, Delhivery, DTDC and Shadowfax.</template>
               <template v-else-if="activeNav === 'sla'">Delivery SLA across the network -- weekly/monthly trends by city tier, plus the week's late-delivery root-cause analysis.</template>
+              <template v-else-if="activeNav === 'spares'"></template>
             </div>
           </div>
-          <div class="who">
-            <ProfileMenu :display-name="whoLine" :email="myEmail" :on-sign-out="signOut" />
-          </div>
         </header>
+
+        <div v-if="canSeeHealth" v-show="activeNav === 'health'">
+          <HealthCardSection />
+        </div>
 
         <div v-if="canSeePoTracking" v-show="activeNav === 'po-tracking'">
           <PoTrackingTable
@@ -311,7 +340,7 @@ async function signOut() {
             :rows="paymentFilteredSorted" :filters="paymentFilters" :reconciliation-options="reconciliationOptions"
             :payment-status-options="paymentStatusOptions"
             :vendor-options="vendorOptions" :vendor-label="vendorLabel"
-            :on-open-po="openPoDetailModal"
+            :on-open-po="openPoDetailModal" :uploader-label="whoLine"
           />
         </div>
 
@@ -338,6 +367,10 @@ async function signOut() {
 
         <div v-if="canSeeSla" v-show="activeNav === 'sla'">
           <SlaSection />
+        </div>
+
+        <div v-if="canSeeSpares" v-show="activeNav === 'spares'">
+          <SparesSection :editor-label="whoLine" />
         </div>
 
         <footer class="page-foot">Data refreshes automatically every ~5 minutes from Uniware. {{ lastCheckedText }}</footer>

@@ -1,18 +1,29 @@
 <script setup>
 // Last Mile Tracking > Worst Lanes -- (pincode x LSP x facility) cells
-// clearing a minimum volume, worst on-time% first. Where Operations
-// should look first, not every lane in the network.
+// clearing a minimum volume. Selection (which lanes make this list at all,
+// and the cap at scripts/sync_last_mile_hourly.py's WORST_LANES_LIMIT)
+// stays worst-first server-side -- that's what keeps this "the lanes to
+// raise first" rather than every lane in the network. DISPLAY order is
+// separate: sorted highest-to-lowest on-time% here per user decision
+// 2026-09-29, purely cosmetic and does not change which lanes are included.
 import { computed } from "vue";
 import { useLastMileData } from "../../composables/useLastMileData.js";
 import SummaryKpis from "../SummaryKpis.vue";
 
 const { run, worstLanes, loadError } = useLastMileData();
 
+const sortedLanes = computed(() => [...worstLanes.value].sort(
+  (a, b) => (b.on_time_pct ?? -1) - (a.on_time_pct ?? -1)
+));
+
 function fmtPct(n) {
   return n == null ? "–" : `${(Math.round(n * 10) / 10).toLocaleString("en-IN")}%`;
 }
 function fmtDays(n) {
   return n == null ? "–" : `${Math.round(n * 10) / 10}d`;
+}
+function fmtTatDays(n) {
+  return n == null ? "–" : `${n}d`;
 }
 function pctClass(n) {
   if (n == null) return "";
@@ -22,10 +33,16 @@ function pctClass(n) {
 }
 
 const kpiTiles = computed(() => {
-  const critical = worstLanes.value.filter(l => (l.on_time_pct ?? 100) < 70).length;
+  const lanes = worstLanes.value;
+  const critical = lanes.filter(l => (l.on_time_pct ?? 100) < 70).length;
+  const gradedTotal = lanes.reduce((s, l) => s + (l.graded || 0), 0);
+  const onTimeTotal = lanes.reduce((s, l) => s + Math.max(0, (l.graded || 0) - (l.late || 0)), 0);
+  const avgOnTimePct = gradedTotal ? Math.round((onTimeTotal / gradedTotal) * 1000) / 10 : null;
   return [
-    { label: "Lanes flagged", value: worstLanes.value.length },
+    { label: "Total lanes", value: lanes.length },
     { label: "Below 70% on-time", value: critical, cls: critical > 0 ? "critical" : "" },
+    { label: "Average on-time % (all lanes)", value: avgOnTimePct == null ? "–" : `${avgOnTimePct}%`,
+      cls: avgOnTimePct != null && avgOnTimePct < 80 ? "critical" : "good" },
   ];
 });
 </script>
@@ -44,10 +61,6 @@ const kpiTiles = computed(() => {
   </div>
 
   <template v-else>
-    <p class="field-hint" style="margin: 0 0 12px;">
-      Run {{ run.run_id }} · trailing {{ run.window_days }} days · lanes below the sync's minimum graded volume are not shown. "Graded" counts only shipments with a real promise date that have actually resolved on-time or late -- in-flight and assumed-promise shipments cannot be graded.
-    </p>
-
     <div class="table-card"><div class="table-scroll">
       <table>
         <thead>
@@ -55,22 +68,24 @@ const kpiTiles = computed(() => {
             <th>LSP</th><th>City</th>
             <th class="num">Graded</th><th class="num">Late</th>
             <th class="num">On-time %</th>
-            <th class="num">Avg transit</th><th class="num">P85 transit</th>
+            <th class="num">Promised TAT</th>
+            <th class="num">Avg transit</th><th class="num">Suggested TAT</th>
             <th class="num">Active</th><th class="num">Breached</th>
           </tr>
         </thead>
         <tbody>
-          <tr v-if="!worstLanes.length">
-            <td colspan="9" class="empty-state">No lanes cleared the minimum graded volume for this run.</td>
+          <tr v-if="!sortedLanes.length">
+            <td colspan="10" class="empty-state">No lanes cleared the minimum graded volume for this run.</td>
           </tr>
-          <tr v-for="l in worstLanes" :key="l.id">
+          <tr v-for="l in sortedLanes" :key="l.id">
             <td><b>{{ l.lsp }}</b></td>
             <td>{{ l.city || "–" }}</td>
             <td class="num mono">{{ l.graded }}</td>
             <td class="num mono">{{ l.late }}</td>
             <td class="num mono" :class="pctClass(l.on_time_pct)">{{ fmtPct(l.on_time_pct) }}</td>
+            <td class="num mono">{{ fmtTatDays(l.promised_tat_days) }}</td>
             <td class="num mono">{{ fmtDays(l.avg_transit_days) }}</td>
-            <td class="num mono">{{ fmtDays(l.p85_transit_days) }}</td>
+            <td class="num mono" :class="l.p85_transit_days != null && l.promised_tat_days != null && l.p85_transit_days > l.promised_tat_days ? 'cell-critical' : ''">{{ fmtDays(l.p85_transit_days) }}</td>
             <td class="num mono">{{ l.active }}</td>
             <td class="num mono" :class="l.breached > 0 ? 'cell-critical' : ''">{{ l.breached }}</td>
           </tr>

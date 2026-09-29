@@ -86,8 +86,19 @@ REQUEST_TIMEOUT = 90
 AUTH_RETRY_ATTEMPTS = 3
 AUTH_RETRY_BACKOFF_SECONDS = 5
 
-DEFAULT_WINDOW_DAYS = 45  # matches awb_tracker's default -- wide enough to
-                          # catch anything still open; only addedOn is
+DEFAULT_WINDOW_DAYS = 75  # widened from 45 2026-09-29 (AWB 77111296043,
+                          # measured): the filter here is on addedOn (order
+                          # creation), but a shipment stays in the actively
+                          # alerted "backlog" cohort for up to
+                          # BACKLOG_HORIZON_DAYS=60 since DISPATCH -- since
+                          # dispatch trails creation, 45 days silently
+                          # stopped refreshing anything created 45-60+ days
+                          # ago while it was still being alerted hourly on
+                          # an ever-more-stale snapshot that could never
+                          # learn about a status change (that AWB's RTO
+                          # never reached us; last refreshed 11 days stale).
+                          # 75 = 60-day backlog horizon + 15-day margin for
+                          # the creation-to-dispatch lag. Only addedOn is
                           # filterable, so a rolling re-query + de-dupe on
                           # AWB (the upsert key) is how this stays correct.
 
@@ -256,6 +267,7 @@ def to_row(ship):
         "sale_order_item_codes": ship.sale_order_item_codes,
         "item_count": ship.item_count,
         "channel": ship.channel or None,
+        "category": ship.category or None,
         "payment_type": ship.payment_type or None,
         "facility_code": ship.facility_code or None,
         "city": ship.city or None,
@@ -326,10 +338,23 @@ def refresh_sla_rules_csv(supabase_url, key):
     headers = {"apikey": key, "Authorization": f"Bearer {key}"}
     rows = []
     try:
-        r = requests.get(f"{supabase_url}/rest/v1/last_mile_sla_rules",
-                         headers=headers, params={"select": "*"}, timeout=REQUEST_TIMEOUT)
-        if r.ok:
-            rows = r.json()
+        # PostgREST caps an unpaginated select at its default max-rows (1,000)
+        # -- confirmed live 2026-09-28: a plain GET against 36,855 real rows
+        # silently came back truncated to 1,000, no error, no warning. Page
+        # with .range() until a page comes back short, same as
+        # sync_last_mile_hourly.py's load_watchlist()/load_poll_state().
+        page = 0
+        while True:
+            r = requests.get(f"{supabase_url}/rest/v1/last_mile_sla_rules",
+                             headers=headers, params={"select": "*", "limit": 1000, "offset": page * 1000},
+                             timeout=REQUEST_TIMEOUT)
+            if not r.ok:
+                break
+            batch = r.json()
+            rows.extend(batch)
+            if len(batch) < 1000:
+                break
+            page += 1
     except Exception as e:
         print(f"WARN: could not read last_mile_sla_rules ({e}) -- using ASSUMED promises.", file=sys.stderr)
 

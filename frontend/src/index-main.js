@@ -1,7 +1,11 @@
 import "./shared.css";
-import { supabase, INTERNAL_ROLES } from "./supabaseClient.js";
+import { supabase, INTERNAL_ROLES, isRecoveryLink } from "./supabaseClient.js";
 
 (async () => {
+  if (isRecoveryLink()) {
+    window.location.href = "reset-password.html" + window.location.hash;
+    return;
+  }
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) {
     window.location.href = "login.html";

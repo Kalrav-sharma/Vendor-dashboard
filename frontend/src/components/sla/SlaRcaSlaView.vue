@@ -1,14 +1,27 @@
 <script setup>
-// RCA › SLA View: the skill's seven cards, in the same order.
-//   1 Week-on-week SLA  2 Demand share  3 City-wise SLA  4 City × LSP share
-//   5 City × LSP on-time  6 Serviceability coverage
+// RCA › SLA View: the skill's cards, in the same order.
+//   1 SLA adherence (on-time % by carrying LSP)  2 Week-on-week SLA  3 Demand share
+//   4 City-wise SLA  5 City × LSP share  6 City × LSP on-time  7 Serviceability coverage
 // (The skill's 7th card, Ideal SLA coverage, is deliberately not shown on the portal.)
-// "SLA" means average ACTUAL_TAT in days, not a compliance percentage, matching the skill.
+// Card 1 reads slaView.weeklySlaAdherence (added 2026-09-28); older payloads skip it.
+// Elsewhere "SLA" means average ACTUAL_TAT in days, not a compliance percentage, matching the skill.
 import { ref, computed } from "vue";
 import { CITY_FILTERS, matchGroup, pct, days, otdCls } from "./slaUtil.js";
 
 const props = defineProps({ p: { type: Object, required: true } });
 const v = computed(() => props.p.slaView);
+
+// 1 SLA adherence
+const ADH_COLS = [
+  { key: "pan", label: "Pan India" },
+  { key: "raftaar", label: "Raftaar", hint: "Orders carried by DTDC Raftaar" },
+  { key: "sfxDs", label: "SFX DS", hint: "Orders carried by Shadowfax dark store (excl. sfx_ndd)" },
+  { key: "other", label: "Other", hint: "All orders not carried by Raftaar or SFX DS" },
+];
+const adhRate = c => (c && c.total ? (c.onTime / c.total) * 100 : null);
+// Days mode needs tatSum/tatN (payloads from 2026-09-28 on); older runs show "–".
+const adhDays = c => (c && c.tatN ? c.tatSum / c.tatN : null);
+const m1 = ref("days");
 
 // share-cell tint: accent, stronger with share
 const tint = share => (share ? { background: `color-mix(in srgb, var(--accent) ${Math.round(6 + share * 55)}%, var(--surface))`, color: share > 0.55 ? "#fff" : "var(--ink)" } : {});
@@ -59,8 +72,29 @@ const svcTotals = computed(() => {
 
 <template>
   <!-- 1 -->
+  <section v-if="v.weeklySlaAdherence" class="sla-card">
+    <div class="sla-card-head">
+      <div><div class="sla-card-step">01</div><h3>SLA adherence</h3><p class="desc">Average days to deliver or on-time %, by promised-delivery week, split by the LSP that carried the order.</p></div>
+      <div class="tbl-tools">
+        <div class="seg sm"><button :class="{ active: m1 === 'days' }" @click="m1 = 'days'">Days</button><button :class="{ active: m1 === 'pct' }" @click="m1 = 'pct'">%</button></div>
+      </div>
+    </div>
+    <div class="table-scroll">
+      <table style="min-width:560px;">
+        <thead><tr><th>Week</th><th v-for="c in ADH_COLS" :key="c.key" class="num" :title="c.hint">{{ c.label }}</th></tr></thead>
+        <tbody>
+          <tr v-for="w in v.weeklySlaAdherence" :key="w.week" :class="{ 'row-total': w.week === p.week }">
+            <td class="mono">Week {{ w.week }}<span v-if="w.week === p.week" class="chip chip-info" style="margin-left:6px;">this RCA</span><span v-if="w.isPartial" class="chip chip-open" style="margin-left:6px;">live</span></td>
+            <td v-for="c in ADH_COLS" :key="c.key" class="num mono" :class="m1 === 'pct' ? otdCls(adhRate(w[c.key])) : ''" :title="w[c.key]?.total ? `${w[c.key].onTime}/${w[c.key].total} on time` : ''">{{ m1 === 'days' ? days(adhDays(w[c.key])) : pct(adhRate(w[c.key])) }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- 2 -->
   <section class="sla-card">
-    <div class="sla-card-head"><div><div class="sla-card-step">01</div><h3>Week-on-week SLA</h3><p class="desc">Average days to deliver, by promised-delivery week.</p></div></div>
+    <div class="sla-card-head"><div><div class="sla-card-step">02</div><h3>Week-on-week SLA</h3><p class="desc">Average days to deliver, by promised-delivery week.</p></div></div>
     <div class="table-scroll">
       <table style="min-width:720px;">
         <thead><tr><th>Week</th><th class="num">Average</th><th class="num">Warehouse cities</th><th class="num">Raftaar cities</th><th class="num">SFX_NDD cities</th><th class="num">MFC cities</th><th class="num">Other cities</th></tr></thead>
@@ -76,10 +110,10 @@ const svcTotals = computed(() => {
   </section>
 
   <div class="sla-grid-2">
-    <!-- 2 -->
+    <!-- 3 -->
     <section class="sla-card">
       <div class="sla-card-head">
-        <div><div class="sla-card-step">02</div><h3>Demand share · week {{ p.week }}</h3><p class="desc">{{ v.demandShare.total.toLocaleString("en-IN") }} delivered orders.</p></div>
+        <div><div class="sla-card-step">03</div><h3>Demand share · week {{ p.week }}</h3><p class="desc">{{ v.demandShare.total.toLocaleString("en-IN") }} delivered orders.</p></div>
         <div class="seg sm"><button :class="{ active: dsMetric === 'pct' }" @click="dsMetric = 'pct'">%</button><button :class="{ active: dsMetric === 'count' }" @click="dsMetric = 'count'">#</button></div>
       </div>
       <div style="display:flex; height:14px; border-radius:7px; overflow:hidden; gap:2px; margin-bottom:14px;">
@@ -92,10 +126,10 @@ const svcTotals = computed(() => {
       </div>
     </section>
 
-    <!-- 3 -->
+    <!-- 4 -->
     <section class="sla-card">
       <div class="sla-card-head">
-        <div><div class="sla-card-step">03</div><h3>City-wise SLA · week {{ p.week }}</h3></div>
+        <div><div class="sla-card-step">04</div><h3>City-wise SLA · week {{ p.week }}</h3></div>
         <div class="tbl-tools"><select v-model="f3"><option v-for="f in CITY_FILTERS" :key="f.id" :value="f.id">{{ f.label }}</option></select><span class="count">{{ citySla.length }} cities</span></div>
       </div>
       <div class="table-scroll scroll-y" style="max-height:300px;">
@@ -107,10 +141,10 @@ const svcTotals = computed(() => {
     </section>
   </div>
 
-  <!-- 4 -->
+  <!-- 5 -->
   <section class="table-card" style="margin-bottom:16px;">
     <div class="sla-card-head" style="padding:14px 16px 0;">
-      <div><div class="sla-card-step">04</div><h3>City × LSP share · week {{ p.week }}</h3><p class="desc">Share of each city's delivered orders by LSP group.</p></div>
+      <div><div class="sla-card-step">05</div><h3>City × LSP share · week {{ p.week }}</h3><p class="desc">Share of each city's delivered orders by LSP group.</p></div>
       <div class="tbl-tools"><select v-model="f4"><option v-for="f in CITY_FILTERS" :key="f.id" :value="f.id">{{ f.label }}</option></select><span class="count">{{ lspShare.length }} cities</span></div>
     </div>
     <div class="table-scroll scroll-y" style="margin-top:12px;">
@@ -127,10 +161,10 @@ const svcTotals = computed(() => {
     </div>
   </section>
 
-  <!-- 5 -->
+  <!-- 6 -->
   <section class="table-card" style="margin-bottom:16px;">
     <div class="sla-card-head" style="padding:14px 16px 0;">
-      <div><div class="sla-card-step">05</div><h3>City × LSP on-time delivery · week {{ p.week }}</h3><p class="desc">Red below 70%, green at 90% and above. Smart-locks, Porter and self-pickup are excluded.</p></div>
+      <div><div class="sla-card-step">06</div><h3>City × LSP on-time delivery · week {{ p.week }}</h3><p class="desc">Red below 70%, green at 90% and above. Smart-locks, Porter and self-pickup are excluded.</p></div>
       <div class="tbl-tools">
         <select v-model="f5"><option v-for="f in CITY_FILTERS" :key="f.id" :value="f.id">{{ f.label }}</option></select>
         <select v-model="f5Lsp"><option value="all">All LSPs</option><option v-for="l in v.cityLspOtd.lsps" :key="l" :value="l">{{ l }}</option></select>
@@ -151,10 +185,10 @@ const svcTotals = computed(() => {
     </div>
   </section>
 
-  <!-- 6 -->
+  <!-- 7 -->
   <section class="table-card" style="margin-bottom:16px;">
     <div class="sla-card-head" style="padding:14px 16px 0;">
-      <div><div class="sla-card-step">06</div><h3>Serviceability coverage · city × SLA code</h3><p class="desc">Active serviceability rules, live from the serviceability rulebook.</p></div>
+      <div><div class="sla-card-step">07</div><h3>Serviceability coverage · city × SLA code</h3><p class="desc">Active serviceability rules, live from the serviceability rulebook.</p></div>
       <div v-if="svc" class="tbl-tools">
         <select v-model="f6"><option v-for="f in CITY_FILTERS" :key="f.id" :value="f.id">{{ f.label }}</option></select>
         <select v-model="f6Lsp"><option value="all">All partners</option><option v-for="l in svc.lspValues" :key="l" :value="l">{{ l }}</option></select>

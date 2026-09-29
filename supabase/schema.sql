@@ -810,6 +810,46 @@ alter table public.po_invoice_uploads add column if not exists payment_synced_at
 create index if not exists po_invoice_uploads_payment_status_idx
   on public.po_invoice_uploads(payment_status);
 
+-- Credit note upload -- for the case where reconciliation (match_status =
+-- 'mismatch': Short/Excess GRN, PO/invoice number mismatch, exceeds PO)
+-- means Finance can't process payment as-is. The Payment Dashboard asks
+-- the vendor (or an internal user, on their behalf) to upload a credit
+-- note PDF for that invoice instead of showing a payment status -- see
+-- effectivePaymentStatus() in frontend/src/format.js. One credit note per
+-- upload row, same "just add columns to the row it's about" pattern as
+-- payment_status above rather than a separate table, since it's 1:1 with
+-- the invoice upload it corrects.
+alter table public.po_invoice_uploads add column if not exists credit_note_storage_path text;
+alter table public.po_invoice_uploads add column if not exists credit_note_file_name text;
+alter table public.po_invoice_uploads add column if not exists credit_note_file_size bigint;
+alter table public.po_invoice_uploads add column if not exists credit_note_uploaded_by uuid references auth.users(id) on delete set null;
+alter table public.po_invoice_uploads add column if not exists credit_note_uploaded_by_name text;
+alter table public.po_invoice_uploads add column if not exists credit_note_uploaded_at timestamptz;
+
+-- Column-level grant (layered under RLS below, which only controls ROWS)
+-- restricts this to just the credit-note columns -- same pattern as
+-- po_items' Dispatch Planning grant, so this can never be used to edit
+-- payment_status/match_status/etc even if a buggy or malicious client
+-- included those fields in its update payload. po_invoice_uploads had no
+-- update policy at all before this -- vendors only ever inserted/deleted
+-- their own uploads -- so this is the first one.
+grant update (
+  credit_note_storage_path, credit_note_file_name, credit_note_file_size,
+  credit_note_uploaded_by, credit_note_uploaded_by_name, credit_note_uploaded_at
+) on public.po_invoice_uploads to authenticated;
+
+drop policy if exists po_invoice_uploads_update_credit_note on public.po_invoice_uploads;
+create policy po_invoice_uploads_update_credit_note on public.po_invoice_uploads
+  for update
+  using (
+    public.is_internal_staff()
+    or vendor_code = (select p.vendor_code from public.profiles p where p.id = auth.uid())
+  )
+  with check (
+    public.is_internal_staff()
+    or vendor_code = (select p.vendor_code from public.profiles p where p.id = auth.uid())
+  );
+
 -- Superseded by the payment_* columns above. The Jarvis invoice-status
 -- sync idea (querying ORACLE_STATUS) was tried and then dropped entirely --
 -- nothing writes to these anymore, so dropping is a no-op on data. Kept as
@@ -901,6 +941,54 @@ create policy po_invoices_delete on storage.objects
   for delete
   using (
     bucket_id = 'po-invoices'
+    and (
+      public.is_internal_staff()
+      or (storage.foldername(name))[1] = (select p.vendor_code from public.profiles p where p.id = auth.uid())
+    )
+  );
+
+-- ---------------------------------------------------------------------
+-- Storage bucket "credit-notes" -- same private/PDF-only/path-scoped
+-- pattern as "po-invoices" above, for the credit-note upload attached to
+-- a mismatched po_invoice_uploads row (credit_note_storage_path etc.).
+-- ---------------------------------------------------------------------
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values (
+  'credit-notes', 'credit-notes', false, 15728640,
+  array['application/pdf']
+)
+on conflict (id) do update set
+  public = excluded.public,
+  file_size_limit = excluded.file_size_limit,
+  allowed_mime_types = excluded.allowed_mime_types;
+
+drop policy if exists credit_notes_insert on storage.objects;
+create policy credit_notes_insert on storage.objects
+  for insert
+  with check (
+    bucket_id = 'credit-notes'
+    and (
+      public.is_internal_staff()
+      or (storage.foldername(name))[1] = (select p.vendor_code from public.profiles p where p.id = auth.uid())
+    )
+  );
+
+drop policy if exists credit_notes_select on storage.objects;
+create policy credit_notes_select on storage.objects
+  for select
+  using (
+    bucket_id = 'credit-notes'
+    and (
+      public.is_internal_staff()
+      or (storage.foldername(name))[1] = (select p.vendor_code from public.profiles p where p.id = auth.uid())
+    )
+  );
+
+drop policy if exists credit_notes_delete on storage.objects;
+create policy credit_notes_delete on storage.objects
+  for delete
+  using (
+    bucket_id = 'credit-notes'
     and (
       public.is_internal_staff()
       or (storage.foldername(name))[1] = (select p.vendor_code from public.profiles p where p.id = auth.uid())
@@ -1669,6 +1757,7 @@ create table if not exists public.last_mile_watchlist (
   sale_order_item_codes text[] not null default '{}',
   item_count int not null default 0,
   channel text,
+  category text,                  -- RO | Locks | Spares | Refresh -- see scripts/last_mile_lib/product_category.py
   payment_type text,              -- COD | Prepaid | '' when the export predates the column
   facility_code text,
   city text,
@@ -1698,6 +1787,8 @@ create table if not exists public.last_mile_watchlist (
 -- retroactively add it on an already-deployed database; this does, and is
 -- a no-op if already there.
 alter table public.last_mile_watchlist add column if not exists days_since_dispatch numeric;
+-- Same reason, category added 2026-09-29 for the Alerts tab's Category column.
+alter table public.last_mile_watchlist add column if not exists category text;
 
 create index if not exists idx_last_mile_watchlist_cohort on public.last_mile_watchlist (cohort);
 create index if not exists idx_last_mile_watchlist_needs_poll on public.last_mile_watchlist (needs_lsp_poll) where needs_lsp_poll;
@@ -1897,6 +1988,10 @@ create table if not exists public.last_mile_worst_lanes (
   on_time_pct numeric,
   avg_transit_days numeric,
   p85_transit_days numeric,             -- the tail, which an average hides
+  promised_tat_days int,                -- SERVICEABILITYRULES_DP's promise for this
+                                         -- lane -- mode of promise_days among its
+                                         -- non-ASSUMED graded deliveries, null if
+                                         -- every delivery here was ASSUMED
   active int not null default 0,        -- still in flight on this lane
   breached int not null default 0,
   rto_in_flight int not null default 0,
@@ -1904,6 +1999,10 @@ create table if not exists public.last_mile_worst_lanes (
   synced_at timestamptz not null default now()
 );
 create index if not exists idx_last_mile_worst_lanes_run on public.last_mile_worst_lanes (run_id);
+-- promised_tat_days added 2026-09-29 for the Worst Lanes tab's Promised TAT
+-- column -- "create table if not exists" won't retroactively add it on an
+-- already-deployed database; this does, and is a no-op if already there.
+alter table public.last_mile_worst_lanes add column if not exists promised_tat_days int;
 
 alter table public.last_mile_worst_lanes enable row level security;
 drop policy if exists last_mile_worst_lanes_select on public.last_mile_worst_lanes;
@@ -1936,6 +2035,7 @@ create table if not exists public.last_mile_alerts (
   city text,
   pincode text,
   channel text,
+  category text,                  -- RO | Locks | Spares | Refresh -- see scripts/last_mile_lib/product_category.py
   payment_type text,
   sale_order_codes text[],
   item_count int,
@@ -1967,6 +2067,25 @@ create index if not exists idx_last_mile_alerts_bucket on public.last_mile_alert
 -- already-int column to int via `using severity::int` is a harmless no-op,
 -- so this line never needs to be removed once it has taken effect.
 alter table public.last_mile_alerts alter column severity type int using severity::int;
+
+-- Parity with shipment_tracking (the AWB tracker's inbound, vendor-to-UC
+-- counterpart -- see that table's comment above): destination,
+-- expected_delivery_date and last_scan_text are the carrier's OWN claims off
+-- the same LSP poll that already fills last_scan_location, and raw is the
+-- full parsed response, same "for fields not modeled above" purpose as
+-- shipment_tracking.raw. expected_delivery_date is the carrier's promise,
+-- distinct from promised_date (our own SLA-rule-derived promise) -- both are
+-- kept since they can disagree. last_mile_alerts already existed before
+-- these were added -- "create table if not exists" above won't retroactively
+-- add them on an already-deployed database; this does, and is a no-op if
+-- already there.
+alter table public.last_mile_alerts add column if not exists destination text;
+alter table public.last_mile_alerts add column if not exists expected_delivery_date date;
+alter table public.last_mile_alerts add column if not exists last_scan_text text;
+alter table public.last_mile_alerts add column if not exists raw jsonb;
+-- category added 2026-09-29 for the Alerts tab's Category column, same
+-- "create table if not exists is a no-op on an existing table" reason.
+alter table public.last_mile_alerts add column if not exists category text;
 
 alter table public.last_mile_alerts enable row level security;
 drop policy if exists last_mile_alerts_select on public.last_mile_alerts;
@@ -2024,6 +2143,18 @@ create table if not exists public.last_mile_open_shipments (
 create index if not exists idx_last_mile_open_shipments_run on public.last_mile_open_shipments (run_id);
 create index if not exists idx_last_mile_open_shipments_cohort on public.last_mile_open_shipments (run_id, cohort);
 create index if not exists idx_last_mile_open_shipments_alert on public.last_mile_open_shipments (run_id, has_alert);
+
+-- Same shipment_tracking parity as last_mile_alerts above, extended here too
+-- so a shipment that hasn't (yet) tripped an alert gets the same quality of
+-- carrier detail as one that has -- this table's whole point is not being a
+-- downgraded view of the curated alerts subset. last_scan_location wasn't on
+-- this table at all before (only on last_mile_alerts); the other three are
+-- the same AWB-tracker-parity fields. No-op if already applied.
+alter table public.last_mile_open_shipments add column if not exists last_scan_location text;
+alter table public.last_mile_open_shipments add column if not exists destination text;
+alter table public.last_mile_open_shipments add column if not exists expected_delivery_date date;
+alter table public.last_mile_open_shipments add column if not exists last_scan_text text;
+alter table public.last_mile_open_shipments add column if not exists raw jsonb;
 
 alter table public.last_mile_open_shipments enable row level security;
 drop policy if exists last_mile_open_shipments_select on public.last_mile_open_shipments;
@@ -2128,4 +2259,193 @@ alter table public.sla_rca_run enable row level security;
 drop policy if exists sla_rca_run_select on public.sla_rca_run;
 create policy sla_rca_run_select on public.sla_rca_run
   for select using (public.is_internal_staff());
+-- ---------------------------------------------------------------------
+
+-- SLA trends: product split (RO vs Locks) -- added 2026-09-25 for the
+-- Logistics Health Card's "SLA & Demand Share" view. Existing rows are RO.
+-- Locks = query 559060's filter (customer_category_key not ro_purchase,
+-- order_type not D2C_RO). Safe to re-run.
+alter table public.sla_trend_weekly add column if not exists product text not null default 'ro';
+alter table public.sla_trend_weekly drop constraint if exists sla_trend_weekly_week_start_city_key_key;
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'sla_trend_weekly_product_week_city_key') then
+    alter table public.sla_trend_weekly
+      add constraint sla_trend_weekly_product_week_city_key unique (product, week_start, city_key);
+  end if;
+end $$;
+
+-- Logistics Health Card › SLA Adherence -- added 2026-09-28. Delivered orders
+-- and on-time counts by carrying LSP (not city-gated): DTDC Raftaar
+-- (dtdc_raftaar*) and SFX dark store (sfx* except sfx_ndd*). Other = orders /
+-- on_time minus these two.
+alter table public.sla_trend_weekly add column if not exists raftaar_orders int not null default 0;
+alter table public.sla_trend_weekly add column if not exists raftaar_on_time int not null default 0;
+alter table public.sla_trend_weekly add column if not exists sfx_ds_orders int not null default 0;
+alter table public.sla_trend_weekly add column if not exists sfx_ds_on_time int not null default 0;
+-- Days mode of the same view: ACTUAL_TAT sum/count per LSP (average SLA = sum / n).
+alter table public.sla_trend_weekly add column if not exists raftaar_tat_sum numeric not null default 0;
+alter table public.sla_trend_weekly add column if not exists raftaar_tat_n int not null default 0;
+alter table public.sla_trend_weekly add column if not exists sfx_ds_tat_sum numeric not null default 0;
+alter table public.sla_trend_weekly add column if not exists sfx_ds_tat_n int not null default 0;
+-- ---------------------------------------------------------------------
+
+-- Logistics Health Card › Delayed Orders -- added 2026-09-25.
+-- One row per (product, order week). product: 'spares' (Jarvis 558955
+-- modified_spares_v2) | 'refresh' (579905 Refresh Kit Delivery RCA). d3/d5/
+-- d10/d15 are MUTUALLY EXCLUSIVE bands of days past promise (4-5, 6-10,
+-- 11-15, 16+), counting distinct orders; open orders past promise count
+-- (delay measured to today); cancelled/undelivered (RTO) orders excluded.
+-- Written only from the VPN-side sync (~/.claude/scripts/sla_portal/).
+create table if not exists public.health_delay_weekly (
+  id bigserial primary key,
+  product text not null,
+  week_start date not null,
+  week_no int,
+  orders int not null default 0,
+  d3 int not null default 0,
+  d5 int not null default 0,
+  d10 int not null default 0,
+  d15 int not null default 0,
+  synced_at timestamptz not null default now(),
+  unique (product, week_start)
+);
+alter table public.health_delay_weekly enable row level security;
+drop policy if exists health_delay_weekly_select on public.health_delay_weekly;
+create policy health_delay_weekly_select on public.health_delay_weekly
+  for select using (public.is_internal_staff());
+-- ---------------------------------------------------------------------
+
+-- SLA › Trends › On-Time Delivery for Spares / Refresh, by partner type -- added 2026-09-25.
+-- One row per (product, order week, partner). product: 'spares' (Jarvis 558955) |
+-- 'refresh' (579905). partner: 'uc' | 'sterling' | 'sterling_lite' (the queries'
+-- "Supply::multi-filter"; "Partner not assigned" is left out). delivered = distinct
+-- delivered orders; on_time = those delivered on/before the query's own promise.
+-- Cancelled/RTO excluded. Written only from the VPN-side sync.
+create table if not exists public.sla_partner_otd_weekly (
+  id bigserial primary key,
+  product text not null,
+  week_start date not null,
+  week_no int,
+  partner text not null,
+  delivered int not null default 0,
+  on_time int not null default 0,
+  synced_at timestamptz not null default now(),
+  unique (product, week_start, partner)
+);
+alter table public.sla_partner_otd_weekly enable row level security;
+drop policy if exists sla_partner_otd_weekly_select on public.sla_partner_otd_weekly;
+create policy sla_partner_otd_weekly_select on public.sla_partner_otd_weekly
+  for select using (public.is_internal_staff());
+-- ---------------------------------------------------------------------
+
+-- =======================================================================
+-- Spares section -- added 2026-09-28. Four views (Summary, Spares Inventory,
+-- Warehouse stock, Appendix) over the "Spare automations" sheet's
+-- "SKU list and uni data" tab plus a live Uniware good/bad snapshot.
+--
+-- spares_sku_master / spares_wh_inventory are synced (service_role only,
+-- scripts/sync_spares.py). spares_status_override / spares_vendor_override are
+-- the Appendix's manual edits and are the ONLY tables in this block the browser
+-- writes. Effective status is resolved in the frontend: override if present,
+-- else sheet category Discontinued -> Obsolete, else in sheet -> Ongoing, else NA.
+-- So a row nobody has edited keeps following the sheet; an edit wins for good
+-- (deleting the override = "reset to auto").
+-- =======================================================================
+
+-- One row per SKU in the sheet tab. Per-warehouse columns are the sheet's 5
+-- blocks (GGN, BLR, BOM, KOL, HYD); the sheet's own GGN/KOL exclude Pataudi/Panchla,
+-- which is why DOI is NOT stored here -- the frontend recomputes it on clubbed
+-- Uniware stock. delivery_* is text: a date ("24-Sep") or "GRN Pending".
+create table if not exists public.spares_sku_master (
+  sku text primary key,
+  category text,
+  sheet_vendor text,
+  total_drr numeric not null default 0,
+  drr_ggn numeric not null default 0,
+  drr_blr numeric not null default 0,
+  drr_bom numeric not null default 0,
+  drr_kol numeric not null default 0,
+  drr_hyd numeric not null default 0,
+  in_transit_ggn numeric not null default 0,
+  in_transit_blr numeric not null default 0,
+  in_transit_bom numeric not null default 0,
+  in_transit_kol numeric not null default 0,
+  in_transit_hyd numeric not null default 0,
+  delivery_ggn text,
+  delivery_blr text,
+  delivery_bom text,
+  delivery_kol text,
+  delivery_hyd text,
+  next_dispatch_date text,
+  next_dispatch_qty numeric,
+  sheet_order int,
+  synced_at timestamptz not null default now()
+);
+alter table public.spares_sku_master enable row level security;
+drop policy if exists spares_sku_master_select on public.spares_sku_master;
+create policy spares_sku_master_select on public.spares_sku_master
+  for select using (public.is_internal_staff());
+
+-- Uniware good (inventory) + bad (badInventory) per facility x SKU, for EVERY
+-- SKU stocked at the 7 warehouse facilities (Pataudi / Panchla kept separate --
+-- clubbing is a view concern). Wholesale-replaced each run.
+create table if not exists public.spares_wh_inventory (
+  id bigserial primary key,
+  facility text not null,
+  sku text not null,
+  good_qty numeric not null default 0,
+  bad_qty numeric not null default 0,
+  synced_at timestamptz not null default now(),
+  unique (facility, sku)
+);
+alter table public.spares_wh_inventory enable row level security;
+drop policy if exists spares_wh_inventory_select on public.spares_wh_inventory;
+create policy spares_wh_inventory_select on public.spares_wh_inventory
+  for select using (public.is_internal_staff());
+
+-- Appendix: manual status per SKU x facility (facility = Uniware code).
+create table if not exists public.spares_status_override (
+  sku text not null,
+  facility text not null,
+  status text not null check (status in ('Ongoing', 'Obsolete', 'NA')),
+  updated_by text,
+  updated_at timestamptz not null default now(),
+  primary key (sku, facility)
+);
+alter table public.spares_status_override enable row level security;
+drop policy if exists spares_status_override_select on public.spares_status_override;
+create policy spares_status_override_select on public.spares_status_override
+  for select using (public.is_internal_staff());
+drop policy if exists spares_status_override_insert on public.spares_status_override;
+create policy spares_status_override_insert on public.spares_status_override
+  for insert with check (public.is_internal_staff());
+drop policy if exists spares_status_override_update on public.spares_status_override;
+create policy spares_status_override_update on public.spares_status_override
+  for update using (public.is_internal_staff()) with check (public.is_internal_staff());
+drop policy if exists spares_status_override_delete on public.spares_status_override;
+create policy spares_status_override_delete on public.spares_status_override
+  for delete using (public.is_internal_staff());
+grant select, insert, update, delete on public.spares_status_override to authenticated;
+
+-- Appendix: manual vendor, one per SKU (applies at every warehouse).
+create table if not exists public.spares_vendor_override (
+  sku text primary key,
+  vendor text not null,
+  updated_by text,
+  updated_at timestamptz not null default now()
+);
+alter table public.spares_vendor_override enable row level security;
+drop policy if exists spares_vendor_override_select on public.spares_vendor_override;
+create policy spares_vendor_override_select on public.spares_vendor_override
+  for select using (public.is_internal_staff());
+drop policy if exists spares_vendor_override_insert on public.spares_vendor_override;
+create policy spares_vendor_override_insert on public.spares_vendor_override
+  for insert with check (public.is_internal_staff());
+drop policy if exists spares_vendor_override_update on public.spares_vendor_override;
+create policy spares_vendor_override_update on public.spares_vendor_override
+  for update using (public.is_internal_staff()) with check (public.is_internal_staff());
+drop policy if exists spares_vendor_override_delete on public.spares_vendor_override;
+create policy spares_vendor_override_delete on public.spares_vendor_override
+  for delete using (public.is_internal_staff());
+grant select, insert, update, delete on public.spares_vendor_override to authenticated;
 -- ---------------------------------------------------------------------

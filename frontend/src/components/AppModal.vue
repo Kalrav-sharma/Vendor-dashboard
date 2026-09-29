@@ -13,7 +13,7 @@ onUnmounted(() => document.removeEventListener("keydown", onKeydown));
 
 <template>
   <div v-if="state.component" class="modal-overlay" @click.self="close">
-    <div class="modal-box">
+    <div class="modal-box" :class="{ 'modal-box-narrow': state.size === 'narrow' }">
       <button class="modal-close-btn" aria-label="Close" @click="close">&times;</button>
       <div class="modal-title">
         {{ state.title }}

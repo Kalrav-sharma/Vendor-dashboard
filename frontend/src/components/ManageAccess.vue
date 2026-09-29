@@ -1,6 +1,6 @@
 <script setup>
 import { ref, reactive, computed } from "vue";
-import { supabase } from "../supabaseClient.js";
+import { supabase, ROLE_LABELS } from "../supabaseClient.js";
 import { fmtDate } from "../format.js";
 import { resolveFunctionError } from "../functionError.js";
 import CustomSelect from "./CustomSelect.vue";
@@ -21,8 +21,6 @@ const ACCESS_DESCRIPTIONS = {
   finance: "Payment Dashboard only, across all vendors.",
   admin: "Full portal access, including creating new logins and changing anyone else's access.",
 };
-const ROLE_LABELS = { vendor: "Vendor", management: "Management", operations: "Operations", finance: "Finance", admin: "Admin" };
-
 const props = defineProps({
   vendors: { type: Array, required: true },
   team: { type: Array, required: true },  // includes 'admin' rows too -- see useTeam.js

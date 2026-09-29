@@ -145,7 +145,7 @@ export function letsTransportStatusClass(statusType) {
 // the dashboard reads exactly as it did before -- no column is quietly
 // asserting an unpaid status nobody actually confirmed.
 export const PAYMENT_STATUS_META = {
-  pending: ["Pending", "open"],
+  pending: ["Booked, Pending", "open"],
   paid: ["Paid", "good"],
 };
 
@@ -157,6 +157,52 @@ export function paymentStatusLabel(status) {
 export function paymentStatusClass(status) {
   if (!status) return "muted";
   return (PAYMENT_STATUS_META[status] || [null, "muted"])[1];
+}
+
+// The Payment Dashboard's actual displayed status for a po_invoice_uploads
+// row -- payment_status itself (from the payout-file sync, see
+// scripts/sync_payment_status_manual.py) is the source of truth once it's
+// set, but most invoices haven't reached a payout run yet, and a bare
+// "Pending integration" for all of them isn't useful. Before payment_status
+// exists, the reconciliation outcome (match_status, see reconciliation.js)
+// fills in something more specific:
+//   - Oracle has actually booked the invoice and confirms it's unpaid
+//     (payment_status = 'pending') -- "Booked, Pending", distinct from the
+//     cases below so "booked but unpaid" is never confused with "not even
+//     assessed yet".
+//   - reconciliation passed ('matched') -- the invoice just hasn't come up
+//     for payment yet, not stuck on anything -- "Pending".
+//   - reconciliation found a mismatch ('mismatch' -- Short/Excess GRN,
+//     PO/invoice number mismatch, exceeds PO) -- Finance can't process this
+//     until the vendor corrects it with a credit note, so the UI asks for
+//     one (needsCreditNote) instead of showing a status word at all.
+//   - GRN not yet raised ('needs_review') -- can't even be assessed yet,
+//     just "–" -- there's genuinely nothing to report.
+//   - reconciliation still running or failed ('pending'/'error') --
+//     genuinely unknown either way, keep the original "Pending integration".
+export function effectivePaymentStatus(row) {
+  if (row.payment_status) {
+    return { text: paymentStatusLabel(row.payment_status), cls: paymentStatusClass(row.payment_status), needsCreditNote: false };
+  }
+  if (row.match_status === "matched") {
+    return {
+      text: "Pending", cls: "muted", needsCreditNote: false,
+      title: "Reconciliation passed -- this invoice hasn't come up in a payout run yet.",
+    };
+  }
+  if (row.match_status === "mismatch") {
+    return { text: "Upload Credit note", cls: "critical", needsCreditNote: true };
+  }
+  if (row.match_status === "needs_review") {
+    return {
+      text: "–", cls: "muted", needsCreditNote: false,
+      title: "GRN not yet raised -- payment can't be assessed until it is.",
+    };
+  }
+  return {
+    text: "Pending integration", cls: "muted", needsCreditNote: false,
+    title: "No payment record has synced for this invoice yet.",
+  };
 }
 
 // poCodesWithGrn is optional (existing callers that don't care about the
@@ -191,6 +237,22 @@ export function dedupeInvoiceNumbers(numbers) {
     if (!seen.has(key)) seen.set(key, trimmed);
   }
   return [...seen.values()];
+}
+
+// Distinct vendor_code/vendor_name pairs out of any list of PO-like rows,
+// sorted by label -- used by both AdminApp.vue's own vendor filter (from
+// its already-fetched currentPos) and the admin-only "preview as vendor"
+// picker (from a dedicated unfiltered fetch in VendorApp.vue, since that
+// page's own currentPos is deliberately scoped to just the vendor being
+// previewed). Kept here rather than duplicated so the two lists can never
+// drift in how they dedupe/label a vendor.
+export function dedupeVendorOptions(rows) {
+  const byCode = new Map();
+  for (const row of rows) {
+    if (!row.vendor_code || byCode.has(row.vendor_code)) continue;
+    byCode.set(row.vendor_code, { code: row.vendor_code, label: row.vendor_name || row.vendor_code });
+  }
+  return [...byCode.values()].sort((a, b) => a.label.localeCompare(b.label));
 }
 
 // Open/approved POs before completed ones; within each of those two

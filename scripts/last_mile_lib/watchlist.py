@@ -25,6 +25,7 @@ from typing import Any, Iterable
 from . import uniware_status
 from .dates import IST, now_ist, parse_dt
 from .lsp import registry
+from .product_category import classify as classify_category
 from .sla import SlaRules
 from .uniware_tz import to_ist
 
@@ -122,6 +123,7 @@ class Shipment:
     sale_order_item_codes: list[str] = field(default_factory=list)
     item_count: int = 0
     channel: str = ""
+    category: str = ""       # RO | Locks | Spares | Refresh -- see product_category.py
     payment_type: str = ""    # COD | Prepaid | "" when the export predates the column
     facility_code: str = ""
     city: str = ""
@@ -259,6 +261,7 @@ def build_shipments(rows: Iterable[dict[str, Any]], rules: SlaRules | None = Non
             sale_order_item_codes=sorted({_g(i, "Sale Order Item Code") for i in items if _g(i, "Sale Order Item Code")}),
             item_count=len(items),
             channel=_g(lead, "Channel Name"),
+            category=classify_category(_g(lead, "Item Type Name")),
             payment_type=payment_type_of(items),
             facility_code=_g(lead, "Facility Code"),
             city=_g(lead, "Shipping Address City"),

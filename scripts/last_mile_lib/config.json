@@ -8,13 +8,26 @@
   "Reads require UC VPN: off-VPN viewers get 403."
  ],
  "scope": {
+  "_comment": [
+   "Documentation only below this line, NOT live-loaded -- unlike",
+   "excluded_adapters/live_polled_adapters further down, which really are",
+   "read at runtime. The actual enforced values are hardcoded constants:",
+   "pull_window_days -> DEFAULT_WINDOW_DAYS in sync_last_mile_daily.py;",
+   "live_dispatch_horizon_days/backlog_horizon_days -> watchlist.py's",
+   "LIVE_DISPATCH_HORIZON_DAYS/BACKLOG_HORIZON_DAYS. Editing a number here",
+   "changes nothing; keep them in sync by hand (measured 2026-09-29:",
+   "pull_window_days was 45 here and in code while backlog_horizon_days",
+   "was 60 -- since the pull filters on addedOn but the horizon is",
+   "measured from dispatch, that 15-day gap let backlog shipments stop",
+   "refreshing while still being alerted hourly on a stale snapshot)."
+  ],
   "channels": [
    "CUSTOM_UC_APP",
    "CUSTOM_UC_D2C_RO",
    "CUSTOM_UC_MANUAL",
    "CUSTOM_UC_D2C_STORES"
   ],
-  "pull_window_days": 45,
+  "pull_window_days": 75,
   "live_dispatch_horizon_days": 15,
   "backlog_horizon_days": 60,
   "performance_window_days": 15
@@ -58,12 +71,16 @@
    "coverage funnel, because a funnel that does not account for its own input",
    "would let the board claim coverage of a shrunken denominator.",
    "DTDC is deliberately NOT here: its volume is real and its performance is",
-   "still measurable from Uniware's own tracking columns."
+   "still measurable from Uniware's own tracking columns.",
+   "Holisol added 2026-09-28 -- user decision: Holisol is not an LSP UC",
+   "actually uses, so any courier code resolving to it (courier_map.json's",
+   "HOLISOL prefix rule) is excluded rather than tracked as a real carrier."
   ],
   "adapters": [
    "not_trackable",
    "porter",
-   "unknown"
+   "unknown",
+   "holisol"
   ]
  },
  "live_polled_adapters": {

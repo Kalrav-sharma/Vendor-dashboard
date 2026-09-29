@@ -60,6 +60,11 @@ class Scorecard:
     on_time_pct: float | None = None
     #: Deliveries excluded from on_time_pct because the promise was assumed.
     excluded_assumed_promise: int = 0
+    #: The SERVICEABILITYRULES_DP promise for this lane, in days -- the most
+    #: common promise_days among this lane's non-ASSUMED (real-rule) graded
+    #: deliveries. None if every delivery here was ASSUMED (no rule covers
+    #: the lane at all).
+    promised_tat_days: int | None = None
 
     avg_transit_days: float | None = None
     p85_transit_days: float | None = None
@@ -117,14 +122,28 @@ def _finalise(sc: Scorecard) -> Scorecard:
 
 def build(shipments: Iterable[Shipment], now: datetime | None = None,
           window_days: int = PERF_WINDOW_DAYS,
-          grain: str = "lsp") -> list[Scorecard]:
-    """Aggregate shipments into scorecards at the requested grain."""
+          grain: str = "lsp", grade_assumed: bool = False) -> list[Scorecard]:
+    """Aggregate shipments into scorecards at the requested grain.
+
+    grade_assumed: user decision 2026-09-29, scoped to the LSP-grain Carrier
+    Performance view only (sync_last_mile_hourly.py passes True there,
+    leaving Worst Lanes' lsp_city grain at the default False). An
+    ASSUMED-promise delivery is graded against ASSUMED_SLA_DAYS (6 days from
+    effective pickup -- see sla.py's SlaRules.promise(), the exact same
+    value already computed into promised_date/promise_days for these
+    shipments) instead of being excluded outright. Worst Lanes keeps
+    ASSUMED excluded, because its whole point is comparing a lane's
+    performance against its REAL SERVICEABILITYRULES_DP promise; folding
+    in a generic 6-day guess there would blur exactly the distinction
+    Promised TAT exists to show.
+    """
     now = now or now_ist()
     cutoff = now - timedelta(days=window_days)
 
     buckets: dict[tuple[str, str], Scorecard] = {}
     transit: dict[tuple[str, str], list[float]] = defaultdict(list)
     couriers: dict[tuple[str, str], set[str]] = defaultdict(set)
+    promised_days_seen: dict[tuple[str, str], Counter] = defaultdict(Counter)
 
     def key_for(s: Shipment) -> tuple[str, str]:
         if grain == "lsp_city":
@@ -171,8 +190,10 @@ def build(shipments: Iterable[Shipment], now: datetime | None = None,
             td = _transit_days(s)
             if td is not None:
                 transit[key].append(td)
-            # Grade against the promise -- but only where the promise is real.
-            if s.promise_source == "ASSUMED":
+            # Grade against the promise -- real rules always; ASSUMED only
+            # when grade_assumed says this call site wants that (see build()'s
+            # docstring).
+            if s.promise_source == "ASSUMED" and not grade_assumed:
                 sc.excluded_assumed_promise += 1
             else:
                 overdue = days_overdue(s.promised_date, delivered_at)
@@ -182,6 +203,12 @@ def build(shipments: Iterable[Shipment], now: datetime | None = None,
                     sc.on_time += 1
                 else:
                     sc.late += 1
+                # Promised TAT stays the REAL rule's promise regardless of
+                # grade_assumed -- an ASSUMED shipment's 6-day default is not
+                # a SERVICEABILITYRULES_DP fact, so it must never enter the
+                # mode this feeds.
+                if s.promise_days is not None and s.promise_source != "ASSUMED":
+                    promised_days_seen[key][s.promise_days] += 1
             continue
 
         if canon == C.RTO_DELIVERED:
@@ -214,6 +241,11 @@ def build(shipments: Iterable[Shipment], now: datetime | None = None,
             sc.p85_transit_days = round(percentile(vals, 0.85) or 0, 2)
             sc.worst_transit_days = vals[-1]
         sc.courier_codes = sorted(c for c in couriers[key] if c)
+        if promised_days_seen[key]:
+            # Mode, not mean -- a lane's promise is a single rule value, not a
+            # continuous quantity, and this is robust to the occasional
+            # pincode-specific override skewing an average within the lane.
+            sc.promised_tat_days = promised_days_seen[key].most_common(1)[0][0]
         out.append(_finalise(sc))
 
     # Biggest carrier first -- that is where a percentage point matters most.
@@ -236,6 +268,7 @@ def worst_lanes(shipments: Iterable[Shipment], now: datetime | None = None,
         "lsp": c.lsp, "city": c.dimension, "graded": c.on_time + c.late,
         "on_time_pct": c.on_time_pct, "late": c.late,
         "avg_transit_days": c.avg_transit_days, "p85_transit_days": c.p85_transit_days,
+        "promised_tat_days": c.promised_tat_days,
         "active": c.active, "breached": c.breached,
         "rto_in_flight": c.rto_in_flight,
         "excluded_assumed_promise": c.excluded_assumed_promise,

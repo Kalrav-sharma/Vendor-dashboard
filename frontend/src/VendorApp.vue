@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, onMounted } from "vue";
-import { supabase, requireSession } from "./supabaseClient.js";
+import { supabase, requireSession, ROLE_LABELS } from "./supabaseClient.js";
+import { getViewOverride, getPreviewVendorCode, clearViewOverride } from "./viewOverride.js";
 import { usePurchaseOrders } from "./composables/usePurchaseOrders.js";
 import { usePoFilters } from "./composables/usePoFilters.js";
 import { useSkuAggregates } from "./composables/useSkuAggregates.js";
@@ -10,7 +11,7 @@ import { useShipmentTracking } from "./composables/useShipmentTracking.js";
 import { useModal } from "./composables/useModal.js";
 import { useInvoiceUploads } from "./composables/useInvoiceUploads.js";
 import { usePaymentFilters } from "./composables/usePaymentFilters.js";
-import { dedupeInvoiceNumbers } from "./format.js";
+import { dedupeInvoiceNumbers, dedupeVendorOptions } from "./format.js";
 import SidebarNav from "./components/SidebarNav.vue";
 import PoTrackingTable from "./components/PoTrackingTable.vue";
 import SkuLevelTable from "./components/SkuLevelTable.vue";
@@ -27,6 +28,7 @@ const ready = ref(false);
 const mustChangePassword = ref(false); // gates the whole dashboard until cleared
 const myDisplayName = ref("Vendor"); // recorded on any invoice this login uploads
 const myEmail = ref("");
+const myRole = ref("vendor"); // real DB role -- stays "admin" even while previewing this view
 const activeNav = ref("po-tracking");
 const pageTitle = computed(() => ({
   "po-tracking": "PO Tracking",
@@ -35,7 +37,20 @@ const pageTitle = computed(() => ({
   "payment-dashboard": "Payment Dashboard",
 }[activeNav.value]));
 
-const { currentPos, grnsByPo, poItemsByPo, grnItemsByPoSku, grnByCode, lastUpdated, invoicesForItem } = usePurchaseOrders();
+// Admin previewing a specific vendor (Profile > Switch view) -- a plain
+// synchronous read, since it only ever matters for that one admin-only
+// path; a real vendor login never has this set and RLS alone scopes them,
+// exactly as before this existed.
+const previewVendorCode = getPreviewVendorCode();
+// Populated only when actually previewing as admin (see onMounted) -- this
+// page's own currentPos below is deliberately scoped to just the vendor
+// being previewed, so it can't supply a full vendor list the way
+// AdminApp.vue's poVendorOptions does; this is a small separate unfiltered
+// fetch instead, so Settings > Switch view can jump straight to a
+// DIFFERENT vendor without detouring back through Management first.
+const previewVendorOptions = ref([]);
+
+const { currentPos, grnsByPo, poItemsByPo, grnItemsByPoSku, grnByCode, lastUpdated, invoicesForItem } = usePurchaseOrders(previewVendorCode);
 const { filters, filteredSorted, facilityOptions, statusOptions } = usePoFilters(currentPos, grnsByPo);
 const { sortedRows: skuRows } = useSkuAggregates(currentPos, poItemsByPo, { multiVendor: false });
 const { filters: skuFilters, filteredSorted: skuFilteredSorted } = useSkuFilters(skuRows);
@@ -57,7 +72,7 @@ const pendingDispatchRows = computed(() => {
   return rows;
 });
 
-const { rows: shipmentRows } = useShipmentTracking();
+const { rows: shipmentRows } = useShipmentTracking(previewVendorCode);
 const shippedDispatchRows = computed(() => shipmentRows.value.map((s) => {
   const item = (poItemsByPo.value[s.po_code] || []).find((it) => it.item_sku === s.item_sku);
   return { kind: "shipped", ...s, item_name: item?.item_name };
@@ -96,9 +111,19 @@ function openSkuDetailModal(key) {
 onMounted(async () => {
   const ctx = await requireSession();
   if (!ctx) return;
-  if (ctx.profile.role !== "vendor") {
+  // An admin previewing this view (Profile > Switch view) is the one
+  // exception to "vendor role only" -- everyone else still gets bounced.
+  const previewingAsAdmin = ctx.profile.role === "admin" && getViewOverride() === "vendor";
+  if (ctx.profile.role !== "vendor" && !previewingAsAdmin) {
     window.location.href = "admin.html";
     return;
+  }
+  myRole.value = ctx.profile.role;
+  if (previewingAsAdmin) {
+    // Unfiltered on purpose -- this admin's RLS access already spans every
+    // vendor; it's just listing them, not reading anyone's PO details.
+    const { data } = await supabase.from("purchase_orders").select("vendor_code, vendor_name");
+    previewVendorOptions.value = dedupeVendorOptions(data || []);
   }
   if (ctx.profile.must_change_password) {
     mustChangePassword.value = true;
@@ -106,7 +131,7 @@ onMounted(async () => {
   }
   myDisplayName.value = ctx.profile.vendor_name || ctx.profile.email || "Vendor";
   myEmail.value = ctx.profile.email || "";
-  await fetchAllUploads();
+  await fetchAllUploads(previewVendorCode);
   ready.value = true;
 });
 
@@ -116,12 +141,16 @@ async function handlePasswordChanged() {
   const ctx = await requireSession();
   if (!ctx) return;
   mustChangePassword.value = false;
+  myRole.value = ctx.profile.role;
   myDisplayName.value = ctx.profile.vendor_name || ctx.profile.email || "Vendor";
   myEmail.value = ctx.profile.email || "";
   ready.value = true;
 }
 
 async function signOut() {
+  // So a leftover preview from this session can never affect whoever
+  // signs into this browser next.
+  clearViewOverride();
   await supabase.auth.signOut();
   window.location.href = "login.html";
 }
@@ -147,7 +176,11 @@ async function signOut() {
         { id: 'dispatch-planning', label: 'Dispatch Planning' },
         { id: 'payment-dashboard', label: 'Payment Dashboard' },
       ]"
-    />
+    >
+      <template #account>
+        <ProfileMenu :display-name="myDisplayName" :email="myEmail" :access="ROLE_LABELS[myRole] || ROLE_LABELS.vendor" :role="myRole" :vendors="previewVendorOptions" :on-sign-out="signOut" />
+      </template>
+    </SidebarNav>
 
     <div class="main-content">
       <div class="wrap">
@@ -160,9 +193,6 @@ async function signOut() {
               <template v-else-if="activeNav === 'dispatch-planning'">Estimated dispatch date and quantity per SKU awaiting dispatch, plus live Bluedart status for every shipment you've already confirmed. Click a PO to see its details.</template>
               <template v-else-if="activeNav === 'payment-dashboard'">Every invoice you've uploaded, with its reconciliation and payment status. Click a PO to see its details.</template>
             </div>
-          </div>
-          <div class="who">
-            <ProfileMenu :display-name="myDisplayName" :email="myEmail" :on-sign-out="signOut" />
           </div>
         </header>
 
@@ -187,7 +217,7 @@ async function signOut() {
           <PaymentDashboardTable
             :rows="paymentFilteredSorted" :filters="paymentFilters" :reconciliation-options="reconciliationOptions"
             :payment-status-options="paymentStatusOptions"
-            :on-open-po="openPoDetailModal"
+            :on-open-po="openPoDetailModal" :uploader-label="myDisplayName"
           />
         </div>
 

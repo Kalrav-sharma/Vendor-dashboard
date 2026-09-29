@@ -20,7 +20,7 @@
   --sev-cx: #6b4c9a;       --sev-cx-bg: #efe7f5;
 }
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --sla-pan: #F1EEF7;
     --sla-s1: #3987e5; --sla-s2: #d95926; --sla-s3: #199e70; --sla-s4: #c98500; --sla-s5: #d55181;
     --sla-hero-a: #1B1330; --sla-hero-b: #3F2A86;
@@ -30,6 +30,16 @@
     --sev-nodata: #98a4b0;   --sev-nodata-bg: #212a32;
     --sev-cx: #b79ee0;       --sev-cx-bg: #2a2035;
   }
+}
+:root[data-theme="dark"] {
+  --sla-pan: #F1EEF7;
+  --sla-s1: #3987e5; --sla-s2: #d95926; --sla-s3: #199e70; --sla-s4: #c98500; --sla-s5: #d55181;
+  --sla-hero-a: #1B1330; --sla-hero-b: #3F2A86;
+  --sev-dispatch: #dd934c; --sev-dispatch-bg: #35281a;
+  --sev-transit: #7fb0e0;  --sev-transit-bg: #1b2836;
+  --sev-both: #e0817a;     --sev-both-bg: #35201f;
+  --sev-nodata: #98a4b0;   --sev-nodata-bg: #212a32;
+  --sev-cx: #b79ee0;       --sev-cx-bg: #2a2035;
 }
 
 /* ---- hero band ---- */

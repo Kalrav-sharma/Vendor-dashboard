@@ -1,0 +1,38 @@
+name: Sync Spares to Supabase
+
+# Spares section feed: the "Spare automations" sheet's "SKU list and uni data" tab
+# (-> spares_sku_master) and a live Uniware good/bad snapshot of every SKU at the 7
+# warehouse facilities (-> spares_wh_inventory). Appendix edits live in their own
+# tables and are never touched here.
+on:
+  schedule:
+    - cron: '15,45 3-18 * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-spares
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - run: pip install -r requirements.txt
+
+      - run: python scripts/sync_spares.py
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          UNIWARE_USERNAME: ${{ secrets.UNIWARE_USERNAME }}
+          UNIWARE_PASSWORD: ${{ secrets.UNIWARE_PASSWORD }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

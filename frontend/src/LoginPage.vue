@@ -1,6 +1,6 @@
 <script setup>
 import { ref, onMounted } from "vue";
-import { supabase, INTERNAL_ROLES } from "./supabaseClient.js";
+import { supabase, INTERNAL_ROLES, isRecoveryLink } from "./supabaseClient.js";
 import BrandLogo from "./components/BrandLogo.vue";
 
 const view = ref("login"); // "login" | "reset"
@@ -13,6 +13,11 @@ const signingIn = ref(false);
 const sendingReset = ref(false);
 
 onMounted(async () => {
+  // A misrouted reset-password link must not be treated as a normal login.
+  if (isRecoveryLink()) {
+    window.location.href = "reset-password.html" + window.location.hash;
+    return;
+  }
   // If already signed in, skip straight to the right dashboard.
   const { data: { session } } = await supabase.auth.getSession();
   if (session) await redirectByRole(session.user.id);

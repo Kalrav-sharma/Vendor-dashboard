@@ -12,14 +12,15 @@ import SummaryKpis from "../SummaryKpis.vue";
 
 const { run, alerts, loadError } = useLastMileData();
 
-const filters = reactive({ search: "", bucket: "", lsp: "", city: "" });
+const filters = reactive({ search: "", category: "", lsp: "", city: "" });
 
-const bucketOptions = computed(() => [...new Set(alerts.value.map(a => a.bucket))].sort());
+const categoryOptions = computed(() => [...new Set(alerts.value.map(a => a.category))].sort());
 const lspOptions = computed(() => [...new Set(alerts.value.map(a => a.lsp).filter(Boolean))].sort());
 const cityOptions = computed(() => [...new Set(alerts.value.map(a => a.city).filter(Boolean))].sort());
 
 const BUCKET_LABEL = { rescue: "Rescue", closed_failure: "Closed (failure)", data_quality: "Data quality" };
-const BUCKET_CLASS = { rescue: "critical", closed_failure: "muted", data_quality: "open" };
+// RO | Locks | Spares | Refresh -- see scripts/last_mile_lib/product_category.py
+const CATEGORY_CLASS = { RO: "open", Locks: "critical", Spares: "muted", Refresh: "good" };
 
 function fmtFlag(f) {
   return (f || "").replace(/_/g, " ").toLowerCase().replace(/^./, c => c.toUpperCase());
@@ -45,10 +46,10 @@ function fmtPayment(p) {
 // set -- so "download" always matches what's on screen, same principle as
 // every filter in this app already following what you're looking at.
 const CSV_COLUMNS = [
-  ["awb", "AWB"], ["primary_flag", "Flag"], ["bucket", "Bucket"], ["lsp", "LSP"],
-  ["city", "City"], ["pincode", "Pincode"], ["payment_type", "Payment"],
+  ["awb", "AWB"], ["primary_flag", "Flag"], ["category", "Category"], ["lsp", "LSP"],
+  ["facility_code", "Source WH"], ["city", "City"], ["pincode", "Pincode"], ["payment_type", "Payment"],
   ["order", "Order"], ["status", "Status"], ["promised_date", "Promised"],
-  ["days_overdue", "Overdue (days)"], ["notes", "Notes"],
+  ["days_overdue", "Overdue (days)"], ["last_scan_text", "Last scan"], ["notes", "Notes"],
 ];
 function csvCell(v) {
   const s = v == null ? "" : String(v);
@@ -56,11 +57,11 @@ function csvCell(v) {
 }
 function downloadCsv() {
   const rows = filteredSorted.value.map(a => ({
-    awb: a.awb, primary_flag: fmtFlag(a.primary_flag), bucket: BUCKET_LABEL[a.bucket] || a.bucket,
-    lsp: a.lsp || "", city: a.city || "", pincode: a.pincode || "", payment_type: fmtPayment(a.payment_type),
+    awb: a.awb, primary_flag: fmtFlag(a.primary_flag), category: a.category || "",
+    lsp: a.lsp || "", facility_code: a.facility_code || "", city: a.city || "", pincode: a.pincode || "", payment_type: fmtPayment(a.payment_type),
     order: (a.sale_order_codes || [])[0] || "", status: a.status || a.raw_status || "",
     promised_date: fmtDate(a.promised_date), days_overdue: a.days_overdue ?? "",
-    notes: a.ndr_reason || a.notes || "",
+    last_scan_text: a.last_scan_text || "", notes: a.ndr_reason || a.notes || "",
   }));
   const lines = [
     CSV_COLUMNS.map(([, label]) => csvCell(label)).join(","),
@@ -77,7 +78,7 @@ function downloadCsv() {
 }
 
 const filteredSorted = computed(() => alerts.value.filter(a => {
-  if (filters.bucket && a.bucket !== filters.bucket) return false;
+  if (filters.category && a.category !== filters.category) return false;
   if (filters.lsp && a.lsp !== filters.lsp) return false;
   if (filters.city && a.city !== filters.city) return false;
   if (filters.search) {
@@ -115,11 +116,6 @@ const kpiTiles = computed(() => {
   </div>
 
   <template v-else>
-    <p class="field-hint" style="margin: 0 0 12px;">
-      Run {{ run.run_id }} · generated {{ new Date(run.generated_at).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) }}
-      · trailing {{ run.window_days }} days
-    </p>
-
     <div style="display: flex; align-items: flex-end; gap: 16px; margin-bottom: 14px; flex-wrap: wrap;">
       <div class="field" style="max-width: 340px; margin-bottom: 0;">
         <label for="lastmile-search">Search AWB, order, city, pincode…</label>
@@ -135,15 +131,16 @@ const kpiTiles = computed(() => {
       <table>
         <thead>
           <tr>
-            <th>AWB</th><th>Flag</th><th>Bucket</th><th>LSP</th><th>City / pincode</th>
-            <th>Payment</th><th>Order</th><th>Status</th><th>Promised</th><th class="num">Overdue</th><th>Notes</th>
+            <th>AWB</th><th>Flag</th><th>Category</th><th>LSP</th><th>Source WH</th><th>City / pincode</th>
+            <th>Payment</th><th>Order</th><th>Status</th>
+            <th>Promised</th><th class="num">Overdue</th><th>Last scan</th><th>Notes</th>
           </tr>
           <tr class="filter-row">
             <td></td><td></td>
             <td>
-              <select v-model="filters.bucket">
+              <select v-model="filters.category">
                 <option value="">All</option>
-                <option v-for="b in bucketOptions" :key="b" :value="b">{{ BUCKET_LABEL[b] || b }}</option>
+                <option v-for="c in categoryOptions" :key="c" :value="c">{{ c }}</option>
               </select>
             </td>
             <td>
@@ -152,30 +149,39 @@ const kpiTiles = computed(() => {
                 <option v-for="l in lspOptions" :key="l" :value="l">{{ l }}</option>
               </select>
             </td>
+            <td></td>
             <td>
               <select v-model="filters.city">
                 <option value="">All</option>
                 <option v-for="c in cityOptions" :key="c" :value="c">{{ c }}</option>
               </select>
             </td>
-            <td></td><td></td><td></td><td></td><td></td><td></td>
+            <td></td><td></td><td></td><td></td><td></td><td></td><td></td>
           </tr>
         </thead>
         <tbody>
           <tr v-if="!filteredSorted.length">
-            <td colspan="11" class="empty-state">No alerts match these filters.</td>
+            <td colspan="13" class="empty-state">No alerts match these filters.</td>
           </tr>
           <tr v-for="a in filteredSorted" :key="a.id">
             <td class="mono">{{ a.awb }}</td>
             <td><span class="chip chip-critical">{{ fmtFlag(a.primary_flag) }}</span></td>
-            <td><span class="chip" :class="`chip-${BUCKET_CLASS[a.bucket]}`">{{ BUCKET_LABEL[a.bucket] || a.bucket }}</span></td>
+            <td><span class="chip" :class="`chip-${CATEGORY_CLASS[a.category] || 'muted'}`">{{ a.category || "–" }}</span></td>
             <td>{{ a.lsp || "–" }}</td>
+            <td class="mono">{{ a.facility_code || "–" }}</td>
             <td>{{ a.city || "–" }}<span v-if="a.pincode" class="mono" style="color: var(--muted);"> · {{ a.pincode }}</span></td>
             <td><span v-if="fmtPayment(a.payment_type) !== '–'" class="chip" :class="a.payment_type === 'COD' ? 'chip-open' : 'chip-muted'">{{ fmtPayment(a.payment_type) }}</span><span v-else>–</span></td>
             <td class="mono">{{ (a.sale_order_codes || [])[0] || "–" }}</td>
             <td>{{ a.status || a.raw_status || "–" }}</td>
             <td>{{ fmtDate(a.promised_date) }}</td>
             <td class="num mono" :class="a.days_overdue > 0 ? 'cell-critical' : ''">{{ fmtDays(a.days_overdue) }}</td>
+            <td>
+              <template v-if="a.last_scan_text">
+                {{ a.last_scan_text }}<br>
+                <span class="muted-text">{{ a.last_scan_location }}<template v-if="a.status_at"> · {{ fmtDate(a.status_at) }}</template></span>
+              </template>
+              <template v-else>–</template>
+            </td>
             <td>{{ a.ndr_reason || a.notes || "–" }}</td>
           </tr>
         </tbody>

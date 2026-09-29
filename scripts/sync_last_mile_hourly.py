@@ -45,6 +45,13 @@ shipments keep whatever status Uniware recorded and are never counted as
 carrier-verified. The adapter module is present but this script does not
 call it -- see POLLED_ADAPTERS below.
 
+HOLISOL
+-------
+Not tracked at all, excluded at intake -- user decision 2026-09-28: Holisol
+is not an LSP UC actually uses. See last_mile_lib/config.json ->
+excluded_adapters. Its shipments never reach `open_ships`/`candidates`
+below, so it needs no POLLED_ADAPTERS entry.
+
 CREDENTIALS
 -----------
   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
@@ -89,8 +96,10 @@ WORST_LANES_MIN_VOLUME = 5
 WORST_LANES_LIMIT = 25
 
 # Adapters this job actually calls. Shadowfax is deliberately absent (see the
-# module docstring); not_trackable/porter/unknown have nothing to call.
-POLLED_ADAPTERS = frozenset({"bluedart", "delhivery", "dtdc", "holisol"})
+# module docstring); not_trackable/porter/unknown/holisol have nothing to
+# call -- holisol is excluded at intake entirely (config.json), never even
+# reaching the `candidates` filter below.
+POLLED_ADAPTERS = frozenset({"bluedart", "delhivery", "dtdc"})
 
 
 def env(name):
@@ -302,7 +311,12 @@ def main():
 
     # ---- rebuild every rollup -------------------------------------------
     al = alerts_mod.evaluate_all(ships, polls=polls, now=now_ist())
-    cards = performance.build(ships, grain="lsp")
+    # grade_assumed=True here only -- user decision 2026-09-29: the Carrier
+    # Performance view (Open Shipments tab) grades an ASSUMED promise against
+    # its 6-day default rather than excluding it. worst_lanes() below is
+    # untouched (lsp_city grain, still excludes ASSUMED) -- see build()'s
+    # docstring for why that distinction matters there.
+    cards = performance.build(ships, grain="lsp", grade_assumed=True)
     lanes = performance.worst_lanes(ships, min_volume=WORST_LANES_MIN_VOLUME,
                                     limit=WORST_LANES_LIMIT)
     funnel = performance.coverage_funnel(ships)
@@ -321,7 +335,8 @@ def main():
     alerts_by_awb = {a.awb: a for a in al}
     open_rows = []
     for s in open_ships:
-        fused = alerts_mod.fuse(s, polls.get(s.awb), now)
+        poll = polls.get(s.awb)
+        fused = alerts_mod.fuse(s, poll, now)
         alert = alerts_by_awb.get(s.awb)
         spec = registry.get_spec(s.adapter_id)
         open_rows.append({
@@ -331,6 +346,15 @@ def main():
             "payment_type": s.payment_type, "sale_order_codes": s.sale_order_codes[:5],
             "item_count": s.item_count, "status": fused.canonical.value, "raw_status": fused.raw,
             "status_source": fused.source, "status_at": fused.at.isoformat() if fused.at else None,
+            # Same shipment_tracking parity as last_mile_alerts below -- see
+            # that block's comment for why these four are worth carrying
+            # through for a shipment that hasn't (yet) tripped an alert too.
+            "last_scan_location": (poll.current_location if poll else None),
+            "destination": (poll.destination if poll else None),
+            "expected_delivery_date": (poll.expected_delivery.date().isoformat()
+                                        if poll and poll.expected_delivery else None),
+            "last_scan_text": (poll.events[0].raw_status if poll and poll.events else None),
+            "raw": (poll.raw_payload if poll else None),
             "promised_date": s.promised_date, "promise_source": s.promise_source,
             "days_overdue": days_overdue(s.promised_date, now),
             "days_since_dispatch": s.days_since_dispatch,
@@ -338,7 +362,14 @@ def main():
             "bucket": alert.bucket if alert else None,
         })
 
-    print(f"alerts {len(al):,} { dict(by_bucket) } | scorecards {len(cards)} | lanes {len(lanes)} | open {len(open_rows):,}")
+    # delivered/graded surfaced here because a silent 0 across every LSP (as
+    # opposed to 0 scorecard/lane ROWS, which this line already showed) is
+    # exactly the failure mode that went undetected for weeks -- see dates.py
+    # FORMATS, 2026-09-28.
+    graded_total = sum(c.on_time + c.late for c in cards)
+    print(f"alerts {len(al):,} { dict(by_bucket) } | scorecards {len(cards)} "
+          f"(delivered={sum(c.delivered for c in cards):,}, graded={graded_total:,}) "
+          f"| lanes {len(lanes)} | open {len(open_rows):,}")
 
     if dry_run:
         print("[dry-run] nothing written.")
@@ -410,6 +441,7 @@ def main():
         "on_time_pct": l.get("on_time_pct"),
         "avg_transit_days": l.get("avg_transit_days"),
         "p85_transit_days": l.get("p85_transit_days"),
+        "promised_tat_days": l.get("promised_tat_days"),
         "active": l.get("active") or 0, "breached": l.get("breached") or 0,
         "rto_in_flight": l.get("rto_in_flight") or 0,
         "excluded_assumed_promise": l.get("excluded_assumed_promise") or 0,
@@ -420,6 +452,7 @@ def main():
         "bucket": a.bucket, "severity": a.severity, "lsp": a.lsp,
         "courier_code": a.courier_code, "facility_code": a.facility_code,
         "city": a.city, "pincode": a.pincode, "channel": a.channel,
+        "category": a.category,
         "payment_type": a.payment_type, "sale_order_codes": a.sale_order_codes,
         "item_count": a.item_count, "status": a.status, "raw_status": a.raw_status,
         "status_source": a.status_source, "status_at": a.status_at,
@@ -427,6 +460,11 @@ def main():
         "promise_source": a.promise_source, "days_overdue": a.days_overdue,
         "days_since_dispatch": a.days_since_dispatch, "hours_since_scan": a.hours_since_scan,
         "attempts": a.attempts, "ndr_reason": a.ndr_reason,
+        # shipment_tracking parity (the AWB tracker's inbound counterpart):
+        # destination/expected_delivery_date/last_scan_text/raw, straight off
+        # the same LSP poll that already fills last_scan_location above.
+        "destination": a.destination, "expected_delivery_date": a.expected_delivery_date,
+        "last_scan_text": a.last_scan_text, "raw": a.raw,
         "notes": "; ".join(a.notes) if a.notes else None,
     } for a in al], on_conflict="run_id,awb")
 

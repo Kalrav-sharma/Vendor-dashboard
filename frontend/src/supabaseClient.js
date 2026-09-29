@@ -11,20 +11,52 @@
 // Function secret.
 
 import { createClient } from "@supabase/supabase-js";
+import { initTheme } from "./theme.js";
+
+// Every page imports this module, so this is the one place that's
+// guaranteed to run early on all of them -- see theme.js for why that
+// matters (avoiding a flash of the wrong theme).
+initTheme();
 
 const SUPABASE_URL = "https://jfxfzulufaxrmopnvpqa.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_LNoy7fE1VMV1V7ygcUhCaQ_J9Atuk1q";
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+// A password-reset link lands here with `type=recovery` in the URL hash,
+// before the client consumes it to establish a session. Every page that
+// otherwise treats "a session exists" as "already logged in" must check
+// this FIRST -- else the reset link itself becomes a way straight into the
+// portal instead of the set-new-password form (real bug, seen 2026-09-28:
+// a redirect landing anywhere but reset-password.html silently logged the
+// user in).
+export function isRecoveryLink() {
+  return /(^|[#&])type=recovery(&|$)/.test(window.location.hash);
+}
+
+// Sends a recovery-link visitor to the real reset flow instead of wherever
+// they landed, preserving the hash so reset-password.html's own
+// PASSWORD_RECOVERY listener can still pick up the session from it.
+function redirectRecoveryLink() {
+  window.location.href = "reset-password.html" + window.location.hash;
+}
+
 // Any of these can sign into admin.html -- "internal UC staff", as opposed
 // to a vendor login (role='vendor'), which always uses vendor.html. See
 // AdminApp.vue for how each of the four maps to actual page/action access.
 export const INTERNAL_ROLES = new Set(["admin", "management", "operations", "finance"]);
 
+// Same label everywhere a role is shown -- the access dropdown, the team
+// table, and the profile menu.
+export const ROLE_LABELS = { vendor: "Vendor", management: "Management", operations: "Operations", finance: "Finance", admin: "Admin" };
+
 // Redirects to login.html if there's no active session; otherwise returns
 // {session, profile}. Call this at the top of every protected page.
 export async function requireSession() {
+  if (isRecoveryLink()) {
+    redirectRecoveryLink();
+    return null;
+  }
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) {
     window.location.href = "login.html";

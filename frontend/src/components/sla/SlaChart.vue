@@ -107,8 +107,15 @@ onMounted(() => {
   draw();
   mq = window.matchMedia("(prefers-color-scheme: dark)");
   mq.addEventListener("change", draw);
+  // Manual Light/Dark switch (Profile > Appearance, theme.js) doesn't touch
+  // the OS preference, so it doesn't fire the media query above.
+  window.addEventListener("themechange", draw);
 });
-onBeforeUnmount(() => { chart?.destroy(); mq?.removeEventListener("change", draw); });
+onBeforeUnmount(() => {
+  chart?.destroy();
+  mq?.removeEventListener("change", draw);
+  window.removeEventListener("themechange", draw);
+});
 </script>
 
 <template>

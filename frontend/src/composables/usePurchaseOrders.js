@@ -11,7 +11,12 @@ import { visiblePos, dedupeInvoiceNumbers } from "../format.js";
 // no fresher data (2026-09-25, Kalrav).
 const POLL_INTERVAL_MS = 5 * 60 * 1000;
 
-export function usePurchaseOrders() {
+// `vendorCode`: admin-only "preview as vendor" support (see viewOverride.js)
+// -- an admin's RLS access spans every vendor, so without this filter the
+// Vendor shell would show every vendor's rows mixed together instead of
+// one vendor's actual view. A real vendor login never passes this; RLS
+// alone already scopes them to their own vendor_code, exactly as before.
+export function usePurchaseOrders(vendorCode = null) {
   const currentPos = ref([]);
   const grnsByPo = ref({});
   const grnByCode = ref({});
@@ -21,11 +26,18 @@ export function usePurchaseOrders() {
   const loadError = ref(null);
 
   async function refresh() {
+    let posQuery = supabase.from("purchase_orders").select("*").order("created_at", { ascending: false });
+    let grnsQuery = supabase.from("grns").select("*");
+    let poItemsQuery = supabase.from("po_items").select("*");
+    let grnItemsQuery = supabase.from("grn_items").select("*");
+    if (vendorCode) {
+      posQuery = posQuery.eq("vendor_code", vendorCode);
+      grnsQuery = grnsQuery.eq("vendor_code", vendorCode);
+      poItemsQuery = poItemsQuery.eq("vendor_code", vendorCode);
+      grnItemsQuery = grnItemsQuery.eq("vendor_code", vendorCode);
+    }
     const [{ data: pos, error: poErr }, { data: grns }, { data: poItems }, { data: grnItems }] = await Promise.all([
-      supabase.from("purchase_orders").select("*").order("created_at", { ascending: false }),
-      supabase.from("grns").select("*"),
-      supabase.from("po_items").select("*"),
-      supabase.from("grn_items").select("*"),
+      posQuery, grnsQuery, poItemsQuery, grnItemsQuery,
     ]);
 
     if (poErr) {
