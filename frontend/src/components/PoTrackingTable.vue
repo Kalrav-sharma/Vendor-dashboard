@@ -17,6 +17,7 @@ const props = defineProps({
   grnsByPo: { type: Object, required: true },
   showKpis: { type: Boolean, default: false },   // vendor.html shows KPI cards; admin.html doesn't
   showKpiTiles: { type: Boolean, default: null }, // overrides showKpis for just the top number-tile row; null = follow showKpis
+  showBuckets: { type: Boolean, default: false }, // vendor.html shows the All/Invoice needed/Processing/PO complete tabs; admin.html doesn't
   vendorLabel: { type: Function, default: null }, // (code, rowName) => string -- required when vendorOptions is set
   onOpenPo: { type: Function, required: true },
   allowInvoiceUpload: { type: Boolean, default: false }, // lets a row upload without opening the PO detail modal
@@ -78,10 +79,45 @@ const statusPills = computed(() => {
   for (const p of props.rows) counts[p.status] = (counts[p.status] || 0) + 1;
   return Object.entries(counts).sort((a, b) => b[1] - a[1]);
 });
+
+// A PO's invoice PDF is "needed" the moment a GRN has named more invoice
+// numbers than the vendor has actually uploaded copies for -- same signal
+// as the per-row chip in the Invoice column, just rolled up into a bucket.
+// That check runs independent of status, so it wins over "PO complete":
+// a closed PO still missing its invoice copy stays actionable.
+const BUCKETS = [
+  { key: "all", label: "All" },
+  { key: "invoice_needed", label: "Invoice needed" },
+  { key: "processing", label: "Processing" },
+  { key: "complete", label: "PO complete" },
+];
+function poBucket(p) {
+  if (invoiceUploadStatus(p.po_code).pending) return "invoice_needed";
+  if (TERMINAL_STATUSES.has(p.status)) return "complete";
+  return "processing";
+}
+const activeBucket = ref("all");
+const bucketCounts = computed(() => {
+  const counts = { all: props.rows.length, invoice_needed: 0, processing: 0, complete: 0 };
+  for (const p of props.rows) counts[poBucket(p)]++;
+  return counts;
+});
+const bucketedRows = computed(() =>
+  activeBucket.value === "all" ? props.rows : props.rows.filter((p) => poBucket(p) === activeBucket.value));
 </script>
 
 <template>
   <SummaryKpis v-if="kpiTiles" :tiles="kpiTiles" />
+
+  <div v-if="showBuckets" class="bucket-tabs">
+    <button
+      v-for="b in BUCKETS" :key="b.key" type="button"
+      class="bucket-tab" :class="{ active: activeBucket === b.key }"
+      @click="activeBucket = b.key"
+    >
+      {{ b.label }} <span class="bucket-count">{{ bucketCounts[b.key] }}</span>
+    </button>
+  </div>
 
   <div v-if="showKpis" class="stat-pills">
     <div v-for="[status, count] in statusPills" :key="status" class="stat-pill">
@@ -132,10 +168,10 @@ const statusPills = computed(() => {
         </tr>
       </thead>
       <tbody>
-        <tr v-if="!rows.length">
+        <tr v-if="!bucketedRows.length">
           <td :colspan="vendorOptions ? 10 : 9" class="empty-state">No purchase orders match these filters.</td>
         </tr>
-        <tr v-for="p in rows" :key="p.po_code" class="clickable-row" @click="onOpenPo(p.po_code)">
+        <tr v-for="p in bucketedRows" :key="p.po_code" class="clickable-row" @click="onOpenPo(p.po_code)">
           <td v-if="vendorOptions">{{ vendorLabel(p.vendor_code, p.vendor_name) }}</td>
           <td class="fac-code">{{ p.facility }}</td>
           <td class="mono">{{ p.po_code }}</td>

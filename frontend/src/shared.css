@@ -252,6 +252,16 @@ button.link-btn {
 .stat-pill { display: flex; align-items: center; gap: 8px; background: var(--surface); border: 1px solid var(--line); border-radius: 999px; padding: 6px 12px 6px 6px; font-size: 0.8rem; }
 .stat-count { font-family: "IBM Plex Mono", monospace; font-weight: 600; }
 
+.bucket-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+.bucket-tab {
+  display: flex; align-items: center; gap: 8px; background: var(--surface); border: 1px solid var(--line);
+  border-radius: 8px; padding: 8px 14px; font: inherit; font-size: 0.82rem; font-weight: 500;
+  color: var(--ink); cursor: pointer; transition: border-color .15s, background .15s, color .15s;
+}
+.bucket-tab:hover { border-color: var(--accent); }
+.bucket-tab.active { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+.bucket-tab .bucket-count { font-family: "IBM Plex Mono", monospace; font-weight: 600; }
+
 /* --- Vendor Dashboard tab: KPI tiles (own look -- colored top accent +
    icon per tile -- deliberately distinct from the plain .kpis grid used
    elsewhere, per the reference layout this was modeled on). --- */
