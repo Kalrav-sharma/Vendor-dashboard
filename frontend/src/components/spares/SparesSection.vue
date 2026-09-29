@@ -1,6 +1,6 @@
 <script setup>
 // Spares: Summary / Spares Inventory / Warehouse stock / Appendix, over the "Spare automations"
-// sheet + live Uniware good/bad stock (scripts/sync_spares.py). Appendix is the decision layer:
+// sheet + live Uniware good/bad stock (scripts/sync_spares.py), DRR from Jarvis 485614 (spares_drr). Appendix is the decision layer:
 // its per-SKU x warehouse status and per-SKU vendor drive the other three views.
 import { ref } from "vue";
 import "../health/health.css";
@@ -13,7 +13,7 @@ import SparesAppendix from "./SparesAppendix.vue";
 
 const props = defineProps({ editorLabel: { type: String, default: "" } });
 const store = useSparesData(() => props.editorLabel);
-const { sheetSyncedAt, stockSyncedAt, loadError, saveError } = store;
+const { sheetSyncedAt, stockSyncedAt, drrSyncedAt, loadError, saveError } = store;
 
 const SUBTABS = [
   { id: "summary", label: "Summary" },
@@ -25,6 +25,8 @@ const activeSubTab = ref("summary");
 
 const fmtStamp = (iso) => (iso ? new Date(iso).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "–");
 const stale = (iso) => !iso || Date.now() - new Date(iso).getTime() > 3 * 60 * 60 * 1000;
+// DRR comes from the local launchd sync (10:45 / 16:45 IST), not the half-hourly Action.
+const staleDrr = (iso) => !iso || Date.now() - new Date(iso).getTime() > 30 * 60 * 60 * 1000;
 </script>
 
 <template>
@@ -36,6 +38,7 @@ const stale = (iso) => !iso || Date.now() - new Date(iso).getTime() > 3 * 60 * 6
   <div class="hc-stamps">
     <span :class="{ stale: stale(sheetSyncedAt) }">Sheet {{ fmtStamp(sheetSyncedAt) }}</span>
     <span :class="{ stale: stale(stockSyncedAt) }">Uniware stock {{ fmtStamp(stockSyncedAt) }}</span>
+    <span :class="{ stale: staleDrr(drrSyncedAt) }">DRR {{ fmtStamp(drrSyncedAt) }}</span>
   </div>
 
   <div v-if="loadError" class="sp-alert">{{ loadError }}</div>
