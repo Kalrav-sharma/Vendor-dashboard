@@ -1,10 +1,22 @@
 """Shadowfax adapter -- 89% of in-scope volume, verified live 2026-09-07.
 
-Endpoint (found in the tracker SPA's own bundle):
+Two paths, chosen by whether SHADOWFAX_API_TOKEN is set:
+
+OFFICIAL (Unified API, https://sfxunifiedapi.docs.apiary.io) -- used when the
+token is set. Written against the published API Blueprint, not a live capture:
+    POST https://dale.shadowfax.in/api/v4/clients/bulk_track/
+    Authorization: Token <SHADOWFAX_API_TOKEN>
+    {"awb_numbers": [...]}           -- max 50 per call (documented 400 above)
+Response: {"message": "Success", "data": [{..., "awb_number", "status",
+"status_display", "promised_delivery_date", "delivery_details": {...},
+"tracking_details": [{"created", "location", "status_id", "status",
+"remarks"}]}]}. Timestamps are UTC ("...Z") per the docs -- see _parse_utc().
+
+PUBLIC (tokenless fallback, found in the tracker SPA's own bundle):
     GET https://saruman.shadowfax.in/web_app/delivery/track/{awb}/
     Authorization: Token <sfxTrackStaticToken>
 
-The token is baked into Shadowfax's public JS bundle. It WILL rotate, so it is
+That token is baked into Shadowfax's public JS bundle. It WILL rotate, so it is
 re-derived from the bundle at runtime and cached, rather than hardcoded. If the
 extraction ever fails, the adapter reports AUTH_REQUIRED instead of guessing.
 
@@ -23,9 +35,10 @@ from __future__ import annotations
 
 import re
 import threading
+from datetime import datetime, timezone
 from typing import Any, Sequence
 
-from ..dates import parse_dt
+from ..dates import IST, parse_dt
 from .base import (AdapterSpec, CanonicalStatus, FetchContext, FetchOutcome,
                    TrackEvent, TrackingResult)
 from ._loop import run_loop
@@ -35,6 +48,14 @@ ADAPTER_ID = "shadowfax"
 
 TRACKER_ORIGIN = "https://tracker.shadowfax.in"
 API = "https://saruman.shadowfax.in/web_app/delivery/track/{awb}/"
+
+OFFICIAL_BULK_URL = "https://dale.shadowfax.in/api/v4/clients/bulk_track/"
+OFFICIAL_BATCH_SIZE = 50
+OFFICIAL_MIN_INTERVAL_S = 0.5
+#: ~100 calls/run at 50 AWBs each. The public path's cap of 60 existed only
+#: because of the shared public quota; a client token has its own. A per-run
+#: ctx.max_awbs_override still wins over this.
+OFFICIAL_MAX_AWBS_PER_RUN = 5000
 
 SPEC = AdapterSpec(
     adapter_id=ADAPTER_ID,
@@ -70,10 +91,11 @@ _token_cache: dict[str, Any] = {"token": None, "bundle": None}
 
 
 def resolve_token(ctx: FetchContext) -> str | None:
-    """An explicit SHADOWFAX_API_TOKEN wins; else re-derive from the bundle."""
-    supplied = (ctx.secrets or {}).get("SHADOWFAX_API_TOKEN")
-    if supplied:
-        return supplied
+    """The PUBLIC tracker's token, re-derived from its bundle.
+
+    SHADOWFAX_API_TOKEN is deliberately not read here: it is the Unified API
+    client key, which track() routes to the official endpoint instead.
+    """
     with _token_lock:
         if _token_cache["token"]:
             return _token_cache["token"]
@@ -137,6 +159,39 @@ STATUS_MAP: dict[str, CanonicalStatus] = {
     "qc_failed": CanonicalStatus.ON_HOLD,
     "cancelled": CanonicalStatus.CANCELLED,
     "pickup_cancelled": CanonicalStatus.CANCELLED,
+    # --- Unified API status_ids (the docs' marketplace + warehouse "Order
+    # States" tables). A different vocabulary from the public tracker above,
+    # though the two overlap where the keys match (ofp, picked, ofd, ...).
+    "new": CanonicalStatus.MANIFESTED,
+    "assigned_for_seller_pickup": CanonicalStatus.MANIFESTED,
+    "received_from_client_warehouse": CanonicalStatus.PICKED_UP,
+    "recd_at_rev_hub": CanonicalStatus.PICKED_UP,
+    "item_manifested": CanonicalStatus.IN_TRANSIT,
+    "bag_in_transit": CanonicalStatus.IN_TRANSIT,
+    "bag_received_at_via": CanonicalStatus.IN_TRANSIT,
+    "recd_at_fwd_hub": CanonicalStatus.IN_TRANSIT,
+    "item_misrouted": CanonicalStatus.IN_TRANSIT,
+    "bag_received": CanonicalStatus.REACHED_DESTINATION_HUB,
+    "recd_at_fwd_dc": CanonicalStatus.REACHED_DESTINATION_HUB,
+    "assigned_for_delivery": CanonicalStatus.REACHED_DESTINATION_HUB,
+    "cid": CanonicalStatus.DELIVERY_ATTEMPT_FAILED,
+    "nc": CanonicalStatus.DELIVERY_ATTEMPT_FAILED,
+    "na": CanonicalStatus.DELIVERY_ATTEMPT_FAILED,
+    "reopen_ndr": CanonicalStatus.DELIVERY_ATTEMPT_FAILED,
+    "seller_initiated_delay": CanonicalStatus.ON_HOLD,
+    "seller_not_contactable": CanonicalStatus.ON_HOLD,
+    "pickup_not_attempted": CanonicalStatus.ON_HOLD,
+    "cancelled_by_seller": CanonicalStatus.CANCELLED,
+    "cancelled_by_customer": CanonicalStatus.CANCELLED,
+    "rts": CanonicalStatus.RTO_INITIATED,
+    "rto": CanonicalStatus.RTO_INITIATED,
+    "rts_in_process": CanonicalStatus.RTO_IN_TRANSIT,
+    "rts_ofd": CanonicalStatus.RTO_IN_TRANSIT,
+    "rts_nd": CanonicalStatus.RTO_IN_TRANSIT,
+    "in_transit_return": CanonicalStatus.RTO_IN_TRANSIT,
+    "rts_d": CanonicalStatus.RTO_DELIVERED,
+    "rto_d": CanonicalStatus.RTO_DELIVERED,
+    "lost": CanonicalStatus.LOST_OR_DAMAGED,
 }
 
 
