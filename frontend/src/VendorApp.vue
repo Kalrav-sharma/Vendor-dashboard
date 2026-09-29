@@ -11,7 +11,7 @@ import { useShipmentTracking } from "./composables/useShipmentTracking.js";
 import { useModal } from "./composables/useModal.js";
 import { useInvoiceUploads } from "./composables/useInvoiceUploads.js";
 import { usePaymentFilters } from "./composables/usePaymentFilters.js";
-import { dedupeInvoiceNumbers, dedupeVendorOptions } from "./format.js";
+import { dedupeInvoiceNumbers, dedupeVendorOptions, fmtDateOnly } from "./format.js";
 import SidebarNav from "./components/SidebarNav.vue";
 import PoTrackingTable from "./components/PoTrackingTable.vue";
 import SkuLevelTable from "./components/SkuLevelTable.vue";
@@ -30,13 +30,16 @@ const myDisplayName = ref("Vendor"); // recorded on any invoice this login uploa
 const myEmail = ref("");
 const myRole = ref("vendor"); // real DB role -- stays "admin" even while previewing this view
 const activeNav = ref("dashboard");
-const pageTitle = computed(() => ({
-  "dashboard": "Dashboard",
-  "po-tracking": "PO Tracking",
-  "sku-data": "SKU Level Data",
-  "dispatch-planning": "Dispatch Planning",
-  "payment-dashboard": "Payment Dashboard",
-}[activeNav.value]));
+const pageTitle = computed(() => {
+  if (activeNav.value === "dashboard") return `Welcome ${myDisplayName.value} Team`;
+  return {
+    "po-tracking": "PO Tracking",
+    "sku-data": "SKU Level Data",
+    "dispatch-planning": "Dispatch Planning",
+    "payment-dashboard": "Payment Dashboard",
+  }[activeNav.value];
+});
+const todayLabel = computed(() => fmtDateOnly(new Date().toISOString().slice(0, 10)));
 
 // Admin previewing a specific vendor (Profile > Switch view) -- a plain
 // synchronous read, since it only ever matters for that one admin-only
@@ -198,7 +201,7 @@ async function signOut() {
           <div>
             <h1>{{ pageTitle }}</h1>
             <div class="scope">
-              <template v-if="activeNav === 'dashboard'">An overview of your account -- built out next.</template>
+              <template v-if="activeNav === 'dashboard'">Performance snapshot - {{ todayLabel }}</template>
               <template v-else-if="activeNav === 'po-tracking'">{{ scopeLine }}</template>
               <template v-else-if="activeNav === 'sku-data'">SKUs with at least one open purchase order not yet fully supplied, highest pending quantity first. Click a SKU for the PO-level breakdown.</template>
               <template v-else-if="activeNav === 'dispatch-planning'">Estimated dispatch date and quantity per SKU awaiting dispatch, plus live Bluedart status for every shipment you've already confirmed. Click a PO to see its details.</template>
