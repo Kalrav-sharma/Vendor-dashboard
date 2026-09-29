@@ -29,8 +29,9 @@ const mustChangePassword = ref(false); // gates the whole dashboard until cleare
 const myDisplayName = ref("Vendor"); // recorded on any invoice this login uploads
 const myEmail = ref("");
 const myRole = ref("vendor"); // real DB role -- stays "admin" even while previewing this view
-const activeNav = ref("po-tracking");
+const activeNav = ref("dashboard");
 const pageTitle = computed(() => ({
+  "dashboard": "Dashboard",
   "po-tracking": "PO Tracking",
   "sku-data": "SKU Level Data",
   "dispatch-planning": "Dispatch Planning",
@@ -179,6 +180,7 @@ async function signOut() {
       v-model="activeNav"
       brand="Vendor Portal"
       :items="[
+        { id: 'dashboard', label: 'Dashboard' },
         { id: 'po-tracking', label: 'PO Tracking' },
         { id: 'sku-data', label: 'SKU Level Data' },
         { id: 'dispatch-planning', label: 'Dispatch Planning' },
@@ -196,13 +198,18 @@ async function signOut() {
           <div>
             <h1>{{ pageTitle }}</h1>
             <div class="scope">
-              <template v-if="activeNav === 'po-tracking'">{{ scopeLine }}</template>
+              <template v-if="activeNav === 'dashboard'">An overview of your account -- built out next.</template>
+              <template v-else-if="activeNav === 'po-tracking'">{{ scopeLine }}</template>
               <template v-else-if="activeNav === 'sku-data'">SKUs with at least one open purchase order not yet fully supplied, highest pending quantity first. Click a SKU for the PO-level breakdown.</template>
               <template v-else-if="activeNav === 'dispatch-planning'">Estimated dispatch date and quantity per SKU awaiting dispatch, plus live Bluedart status for every shipment you've already confirmed. Click a PO to see its details.</template>
               <template v-else-if="activeNav === 'payment-dashboard'">Every invoice you've uploaded, with its reconciliation and payment status. Click a PO to see its details.</template>
             </div>
           </div>
         </header>
+
+        <div v-show="activeNav === 'dashboard'">
+          <p class="muted-text">Dashboard content coming next -- this tab is just the shell for now.</p>
+        </div>
 
         <div v-show="activeNav === 'po-tracking'">
           <PoTrackingTable
