@@ -40,12 +40,21 @@ AWB_NOT_FOUND_ESCALATE_HOURS = 48
 
 #: Severity is what the dashboard sorts by, so it encodes "who needs to act
 #: first", not merely "how unusual is this".
+#:
+#: NO_PICKUP moved above BREACHED 2026-09-29 (measured against SF3778328724URM
+#: and 5 others found the same day, one 51 days stuck): a shipment the carrier
+#: has NEVER scanned as picked up, for days or weeks, was showing as plain
+#: "Breached" -- indistinguishable from a shipment merely 1 day past its
+#: promise. That masked exactly the cases worth checking against Uniware
+#: first (a stuck-since-manifest shipment is far more likely to actually be a
+#: tracking gap or a lost parcel than an ordinary late delivery), so the more
+#: specific, more actionable flag now wins as primary_flag whenever both fire.
 SEVERITY: dict[str, int] = {
     "LOST_SUSPECTED": 100,
     "NDR_FAILED_ATTEMPT": 85,
+    "NO_PICKUP": 82,
     "BREACHED": 80,
     "STUCK": 70,
-    "NO_PICKUP": 65,
     "AWB_NOT_FOUND": 60,
     "ON_HOLD": 55,
     "CARRIER_DECLARED_DELAY": 50,

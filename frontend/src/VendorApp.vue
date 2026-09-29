@@ -15,7 +15,6 @@ import { dedupeInvoiceNumbers, dedupeVendorOptions, fmtDateOnly, fmtNum, TERMINA
 import DashboardOverview from "./components/DashboardOverview.vue";
 import SidebarNav from "./components/SidebarNav.vue";
 import PoTrackingTable from "./components/PoTrackingTable.vue";
-import SkuLevelTable from "./components/SkuLevelTable.vue";
 import DispatchPlanningTable from "./components/DispatchPlanningTable.vue";
 import PaymentDashboardTable from "./components/PaymentDashboardTable.vue";
 import AppModal from "./components/AppModal.vue";
@@ -35,7 +34,6 @@ const pageTitle = computed(() => {
   if (activeNav.value === "dashboard") return `Welcome ${myDisplayName.value} Team`;
   return {
     "po-tracking": "Purchase Order",
-    "sku-data": "SKU Level Data",
     "dispatch-planning": "Dispatch Planning",
     "payment-dashboard": "Payments",
   }[activeNav.value];
@@ -274,7 +272,6 @@ async function signOut() {
       :items="[
         { id: 'dashboard', label: 'Dashboard' },
         { id: 'po-tracking', label: 'PO Tracking' },
-        { id: 'sku-data', label: 'SKU Level Data' },
         { id: 'dispatch-planning', label: 'Dispatch Planning' },
         { id: 'payment-dashboard', label: 'Payments' },
       ]"
@@ -292,7 +289,6 @@ async function signOut() {
             <div class="scope">
               <template v-if="activeNav === 'dashboard'">Performance snapshot - {{ todayLabel }}</template>
               <template v-else-if="activeNav === 'po-tracking'">{{ scopeLine }}</template>
-              <template v-else-if="activeNav === 'sku-data'">SKUs with at least one open purchase order not yet fully supplied, highest pending quantity first. Click a SKU for the PO-level breakdown.</template>
               <template v-else-if="activeNav === 'dispatch-planning'">Estimated dispatch date and quantity per SKU awaiting dispatch, plus live Bluedart status for every shipment you've already confirmed. Click a PO to see its details.</template>
               <template v-else-if="activeNav === 'payment-dashboard'">Every invoice you've uploaded, with its reconciliation and payment status. Click a PO to see its details.</template>
             </div>
@@ -314,10 +310,6 @@ async function signOut() {
             :on-open-po="openPoDetailModal" :allow-invoice-upload="true" :uploader-label="myDisplayName"
             :sku-rows="skuFilteredSorted" :sku-filters="skuFilters" :on-open-sku="openSkuDetailModal"
           />
-        </div>
-
-        <div v-show="activeNav === 'sku-data'">
-          <SkuLevelTable :rows="skuFilteredSorted" :filters="skuFilters" :on-open-sku="openSkuDetailModal" />
         </div>
 
         <div v-show="activeNav === 'dispatch-planning'">
