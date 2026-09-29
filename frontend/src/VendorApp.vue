@@ -37,7 +37,7 @@ const pageTitle = computed(() => {
     "po-tracking": "Purchase Order",
     "sku-data": "SKU Level Data",
     "dispatch-planning": "Dispatch Planning",
-    "payment-dashboard": "Payment Dashboard",
+    "payment-dashboard": "Payments",
   }[activeNav.value];
 });
 const todayLabel = computed(() => fmtDateOnly(new Date().toISOString().slice(0, 10)));
@@ -276,7 +276,7 @@ async function signOut() {
         { id: 'po-tracking', label: 'PO Tracking' },
         { id: 'sku-data', label: 'SKU Level Data' },
         { id: 'dispatch-planning', label: 'Dispatch Planning' },
-        { id: 'payment-dashboard', label: 'Payment Dashboard' },
+        { id: 'payment-dashboard', label: 'Payments' },
       ]"
     >
       <template #account>
@@ -329,6 +329,7 @@ async function signOut() {
             :rows="paymentFilteredSorted" :filters="paymentFilters" :reconciliation-options="reconciliationOptions"
             :payment-status-options="paymentStatusOptions"
             :on-open-po="openPoDetailModal" :uploader-label="myDisplayName"
+            :show-vendor-kpis="true" :pos-needing-invoice-count="dashOpenPos"
           />
         </div>
 

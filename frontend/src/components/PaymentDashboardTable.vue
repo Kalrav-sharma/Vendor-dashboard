@@ -15,6 +15,8 @@ const props = defineProps({
   vendorLabel: { type: Function, default: null }, // (code) => string -- required when vendorOptions is set
   onOpenPo: { type: Function, required: true }, // (poCode) => void
   uploaderLabel: { type: String, default: "" }, // current user's display name, recorded on an uploaded credit note
+  showVendorKpis: { type: Boolean, default: false }, // vendor.html's own 4-tile set below; admin.html keeps the original tiles
+  posNeedingInvoiceCount: { type: Number, default: 0 }, // POs with no invoice uploaded yet at all -- vendor-only, see dashOpenPos in VendorApp.vue
 });
 
 function invoiceNumber(row) { return row.match_details?.extracted?.invoice_number || "–"; }
