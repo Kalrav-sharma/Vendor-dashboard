@@ -27,6 +27,11 @@
   --ink: #262626;
   --muted: #6E6B78;
   --line: #E6E1F2;
+  /* A clearly visible outline, for entities that need one to actually read
+     as a distinct box -- --line alone (#E6E1F2, close to --paper/--surface)
+     is too low-contrast for that on its own; see the login page's card/
+     fields/button. */
+  --line-strong: #C7BCE3;
   --accent: #6E42E5;
   --accent-soft: #EFE9FC;
   --good: #1F7A4D;
@@ -52,6 +57,7 @@
     --ink: #F1EEF7;
     --muted: #A6A1B3;
     --line: #332E42;
+    --line-strong: #564D6E;
     --accent: #9A7CF2;
     --accent-soft: #322A48;
     --good: #5FD08A;
@@ -70,6 +76,7 @@
   --ink: #F1EEF7;
   --muted: #A6A1B3;
   --line: #332E42;
+  --line-strong: #564D6E;
   --accent: #9A7CF2;
   --accent-soft: #322A48;
   --good: #5FD08A;
@@ -503,7 +510,10 @@ th.doi-facility { background: var(--paper); z-index: 2; }
 
 /* --- Auth forms (login page) --- */
 .auth-shell { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
-.auth-card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 32px; width: 100%; max-width: 380px; }
+.auth-card {
+  background: var(--surface); border: 1px solid var(--line-strong); border-radius: 12px;
+  padding: 32px; width: 100%; max-width: 380px;
+}
 .auth-card h1 { font-size: 1.25rem; margin-bottom: 4px; }
 .auth-card .sub { color: var(--muted); font-size: 0.83rem; margin-bottom: 24px; }
 .login-logo { height: 26px; margin: 0 auto 28px; }
@@ -521,6 +531,11 @@ th.doi-facility { background: var(--paper); z-index: 2; }
 }
 .field textarea { resize: vertical; min-height: 80px; }
 .field input:focus, .field select:focus, .field textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* Login page's own fields/button get a clearly visible outline -- the
+   shared .field/.primary-btn rules above stay untouched everywhere else in
+   the app, so this is scoped to .auth-card only. */
+.auth-card .field input { border: 1px solid var(--line-strong); }
+.auth-card button.primary-btn { border: 1px solid var(--line-strong); }
 button.primary-btn {
   width: 100%; padding: 10px; border: none; border-radius: 7px; background: var(--accent);
   color: var(--surface); font-size: 0.88rem; font-weight: 600; cursor: pointer; font-family: inherit;
