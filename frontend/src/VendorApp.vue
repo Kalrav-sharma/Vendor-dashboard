@@ -122,8 +122,16 @@ onMounted(async () => {
   if (previewingAsAdmin) {
     // Unfiltered on purpose -- this admin's RLS access already spans every
     // vendor; it's just listing them, not reading anyone's PO details.
-    const { data } = await supabase.from("purchase_orders").select("vendor_code, vendor_name");
-    previewVendorOptions.value = dedupeVendorOptions(data || []);
+    // Merges both directions of the same gap AdminApp.vue's own
+    // poVendorOptions does: a vendor_code with real POs but no login yet,
+    // or a login that exists before any PO has landed (a freshly-created
+    // placeholder) -- either way it's previewable, just an empty dashboard
+    // in the zero-PO case.
+    const [{ data: pos }, { data: logins }] = await Promise.all([
+      supabase.from("purchase_orders").select("vendor_code, vendor_name"),
+      supabase.from("profiles").select("vendor_code, vendor_name").eq("role", "vendor"),
+    ]);
+    previewVendorOptions.value = dedupeVendorOptions([...(logins || []), ...(pos || [])]);
   }
   if (ctx.profile.must_change_password) {
     mustChangePassword.value = true;

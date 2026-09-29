@@ -142,12 +142,17 @@ const vendorOptions = computed(() => {
   return [...byCode.values()];
 });
 
-// Settings > Switch view's "Preview as" list -- deliberately sourced from
-// real PO data (every vendor_code seen in currentPos), not from vendorOptions
-// above. A vendor can have POs long before anyone creates a login account
-// for them (e.g. Accord), and previewing their view doesn't need one --
-// usePurchaseOrders(vendorCode)'s filter works off vendor_code alone.
-const poVendorOptions = computed(() => dedupeVendorOptions(currentPos.value));
+// Settings > Switch view's "Preview as" list -- merges both directions of
+// the same gap: a vendor can have real POs long before anyone creates a
+// login for them (e.g. Accord -- from currentPos), or a login can exist
+// before any PO has ever landed (e.g. a freshly-onboarded placeholder like
+// Biotech -- from vendors). Either way, usePurchaseOrders(vendorCode)'s
+// filter just works off vendor_code alone, so there's nothing else a
+// vendor needs before it's previewable; a zero-PO vendor's preview is
+// simply an empty dashboard, which is correct, not broken. `vendors` is
+// listed first so its deliberately-curated vendor_name wins over a PO
+// row's on a vendor_code that happens to appear in both.
+const poVendorOptions = computed(() => dedupeVendorOptions([...vendors.value, ...currentPos.value]));
 const { filters: skuFilters, filteredSorted: skuFilteredSorted } = useSkuFilters(skuRows, vendorLabel);
 
 // Dispatch Planning shows the whole lifecycle of a SKU's dispatch, as one
