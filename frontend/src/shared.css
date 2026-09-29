@@ -262,6 +262,8 @@ button.link-btn {
 .bucket-tab.active { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
 .bucket-tab .bucket-count { font-family: "IBM Plex Mono", monospace; font-weight: 600; }
 
+.substep-boxes { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+
 /* --- Vendor Dashboard tab: KPI tiles (own look -- colored top accent +
    icon per tile -- deliberately distinct from the plain .kpis grid used
    elsewhere, per the reference layout this was modeled on). --- */

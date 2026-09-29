@@ -97,6 +97,24 @@ function poBucket(p) {
   const fullyPaid = uploads.every((u) => u.payment_status === "paid");
   return TERMINAL_STATUSES.has(p.status) && fullyPaid ? "complete" : "processing";
 }
+
+// The 3-step breakdown shown in place of the status chip for a
+// "processing" row -- GRN Complete (full ordered qty received),
+// Reconciliation Complete (every uploaded invoice matched its PO/GRN),
+// Payment Booked (Oracle has a payment record for every upload, whether
+// still pending payout or already paid -- see effectivePaymentStatus()
+// in format.js for what "booked" vs "paid" means).
+function grnComplete(p) {
+  return Number(p.qty_ordered) > 0 && Number(p.qty_received) >= Number(p.qty_ordered);
+}
+function reconciliationComplete(poCode) {
+  const uploads = uploadsByPo[poCode] || [];
+  return uploads.length > 0 && uploads.every((u) => u.match_status === "matched");
+}
+function paymentBooked(poCode) {
+  const uploads = uploadsByPo[poCode] || [];
+  return uploads.length > 0 && uploads.every((u) => !!u.payment_status);
+}
 const activeBucket = ref("all");
 const bucketCounts = computed(() => {
   const counts = { all: props.rows.length, invoice_needed: 0, processing: 0, complete: 0 };
@@ -176,7 +194,14 @@ const bucketedRows = computed(() =>
           <td v-if="vendorOptions">{{ vendorLabel(p.vendor_code, p.vendor_name) }}</td>
           <td class="fac-code">{{ p.facility }}</td>
           <td class="mono">{{ p.po_code }}</td>
-          <td><StatusChip :status="p.status" /></td>
+          <td>
+            <div v-if="showBuckets && poBucket(p) === 'processing'" class="substep-boxes">
+              <span class="chip" :class="grnComplete(p) ? 'chip-good' : 'chip-critical'">GRN Complete</span>
+              <span class="chip" :class="reconciliationComplete(p.po_code) ? 'chip-good' : 'chip-critical'">Reconciliation Complete</span>
+              <span class="chip" :class="paymentBooked(p.po_code) ? 'chip-good' : 'chip-critical'">Payment Booked</span>
+            </div>
+            <StatusChip v-else :status="p.status" />
+          </td>
           <td class="num mono">{{ fmtNum(p.qty_ordered) }}</td>
           <td class="num mono">{{ fmtNum(p.qty_received) }}</td>
           <td class="num mono">{{ fmtMoney(p.total_amount) }}</td>
