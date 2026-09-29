@@ -251,7 +251,7 @@ async function saveEditDetails(row) {
           <CustomSelect v-model="accessLevel" :options="ACCESS_OPTIONS" />
         </div>
         <div class="field">
-          <label for="a-email">Email</label>
+          <label for="a-email">{{ accessLevel === "vendor" ? "Recovery email" : "Email" }}</label>
           <input id="a-email" v-model="email" type="email" required>
         </div>
 
@@ -259,6 +259,7 @@ async function saveEditDetails(row) {
           <div class="field">
             <label for="a-code">Uniware vendor code</label>
             <input id="a-code" v-model="vendorCode" type="text" required placeholder="e.g. Vendor-156">
+            <p class="field-hint">The vendor signs in with this code + their password, not the recovery email above -- that email is only used to send a reset link if they forget their password. Consider a shared mailbox (e.g. accounts@vendor.com) rather than one person's own address, since multiple people at the vendor share this one login.</p>
           </div>
           <div class="field">
             <label for="a-vname">Vendor display name</label>

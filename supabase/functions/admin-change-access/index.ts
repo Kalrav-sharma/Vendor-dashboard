@@ -112,6 +112,15 @@ Deno.serve(async (req) => {
       if (!vendor_code || !contact_name || !contact_mobile) {
         return json({ error: "vendor_code, contact_name and contact_mobile are required when switching to Vendor" }, 400);
       }
+      // Same uniqueness requirement as admin-create-vendor -- vendor_code
+      // is now also a login identifier (vendor-code-auth resolves it to
+      // exactly one account), excluding this row itself so a vendor
+      // editing their own other details doesn't trip on their own code.
+      const { data: existing } = await adminClient
+        .from("profiles").select("id").eq("role", "vendor").eq("vendor_code", vendor_code).neq("id", user_id).maybeSingle();
+      if (existing) {
+        return json({ error: "That vendor code is already in use by another login." }, 400);
+      }
       update.vendor_code = vendor_code;
       update.vendor_name = vendor_name ?? vendor_code;
       update.contact_name = contact_name;

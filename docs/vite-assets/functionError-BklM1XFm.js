@@ -1,0 +1,1 @@
+async function e(e,t){let n=e?.error||t?.message||`unexpected response from server`;if(t?.context?.json)try{let e=await t.context.json();e?.error&&(n=e.error)}catch{}return n}export{e as t};
