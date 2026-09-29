@@ -16,6 +16,7 @@ const props = defineProps({
   vendorOptions: { type: Array, default: null }, // [{code, label}] -- null hides the Vendor column entirely
   grnsByPo: { type: Object, required: true },
   showKpis: { type: Boolean, default: false },   // vendor.html shows KPI cards; admin.html doesn't
+  showKpiTiles: { type: Boolean, default: null }, // overrides showKpis for just the top number-tile row; null = follow showKpis
   vendorLabel: { type: Function, default: null }, // (code, rowName) => string -- required when vendorOptions is set
   onOpenPo: { type: Function, required: true },
   allowInvoiceUpload: { type: Boolean, default: false }, // lets a row upload without opening the PO detail modal
@@ -54,7 +55,8 @@ function invoiceUploadStatus(poCode) {
 }
 
 const kpiTiles = computed(() => {
-  if (!props.showKpis) return null;
+  const show = props.showKpiTiles === null ? props.showKpis : props.showKpiTiles;
+  if (!show) return null;
   const openCount = props.rows.filter(p => !TERMINAL_STATUSES.has(p.status)).length;
   const totalOrdered = props.rows.reduce((s, p) => s + (Number(p.qty_ordered) || 0), 0);
   const totalReceived = props.rows.reduce((s, p) => s + (Number(p.qty_received) || 0), 0);
