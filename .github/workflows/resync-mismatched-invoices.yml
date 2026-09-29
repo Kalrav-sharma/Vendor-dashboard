@@ -1,0 +1,34 @@
+name: Resync mismatched invoices
+
+# Targeted daily sweep -- see scripts/resync_mismatched_invoices.py's own
+# header comment for why this exists (a Uniware correction made AFTER a
+# PO/GRN settles is otherwise invisible forever, per sync_to_supabase.py's
+# is_settled() cost-control design). Deliberately once/day, not more often
+# -- see the 2026-09-25 Supabase quota work; this only touches the
+# (small) set of currently-mismatched invoices, never every settled PO.
+on:
+  schedule:
+    - cron: '30 22 * * *'  # once/day, ~4am IST -- off-hours
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  resync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - run: pip install -r requirements.txt
+
+      - run: python scripts/resync_mismatched_invoices.py
+        env:
+          UNIWARE_USERNAME: ${{ secrets.UNIWARE_USERNAME }}
+          UNIWARE_PASSWORD: ${{ secrets.UNIWARE_PASSWORD }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
