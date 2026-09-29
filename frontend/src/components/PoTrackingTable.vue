@@ -7,6 +7,7 @@ import DownloadPdfButton from "./DownloadPdfButton.vue";
 import InvoiceUploadButton from "./InvoiceUploadButton.vue";
 import { useInvoiceUploads } from "../composables/useInvoiceUploads.js";
 import { fmtNum, fmtMoney, TERMINAL_STATUSES, dedupeInvoiceNumbers } from "../format.js";
+import SkuLevelTable from "./SkuLevelTable.vue";
 
 const props = defineProps({
   rows: { type: Array, required: true },        // already filtered + sorted
@@ -21,8 +22,12 @@ const props = defineProps({
   onOpenPo: { type: Function, required: true },
   allowInvoiceUpload: { type: Boolean, default: false }, // lets a row upload without opening the PO detail modal
   uploaderLabel: { type: String, default: "" }, // current user's display name, recorded on an uploaded row
-  showSkuColumn: { type: Boolean, default: false }, // vendor.html only -- SKU-level summary column beside Status
-  poItemsByPo: { type: Object, default: () => ({}) }, // po_code -> po_items rows; only needed when showSkuColumn is set
+  // vendor.html only -- lets a "SKU data" tab sit beside the PO complete
+  // bucket tab and swap the table below for the same SKU Level Data view,
+  // without leaving the PO Tracking screen.
+  skuRows: { type: Array, default: () => [] },
+  skuFilters: { type: Object, default: () => ({}) },
+  onOpenSku: { type: Function, default: null },
 });
 
 // One shared upload popup instance for the whole table, opened for
@@ -118,19 +123,6 @@ function paymentBooked(poCode) {
   return uploads.length > 0 && uploads.every((u) => !!u.payment_status);
 }
 
-// Per-PO SKU-level rollup shown inline in its own column, so a vendor can
-// see how many line items are still short without opening the PO detail
-// modal -- the modal's SKU/Item/Qty ord/Recv/Pending table remains the
-// place to see each line individually.
-function skuSummary(poCode) {
-  const items = props.poItemsByPo[poCode] || [];
-  const total = items.length;
-  const complete = items.filter(
-    (it) => Number(it.quantity) > 0 && Number(it.received_quantity || 0) >= Number(it.quantity)
-  ).length;
-  return { total, complete, allComplete: total > 0 && complete === total };
-}
-const emptyColspan = computed(() => 9 + (props.vendorOptions ? 1 : 0) + (props.showSkuColumn ? 1 : 0));
 const activeBucket = ref("all");
 const bucketCounts = computed(() => {
   const counts = { all: props.rows.length, invoice_needed: 0, processing: 0, complete: 0 };
@@ -139,6 +131,12 @@ const bucketCounts = computed(() => {
 });
 const bucketedRows = computed(() =>
   activeBucket.value === "all" ? props.rows : props.rows.filter((p) => poBucket(p) === activeBucket.value));
+
+// A 5th tab beside "PO complete", vendor-only -- swaps this whole screen
+// over to the same SKU Level Data table (the sku-data nav item elsewhere
+// renders the identical component) so a vendor doesn't have to leave PO
+// Tracking to see per-SKU pending quantities.
+const showingSkuData = computed(() => props.showBuckets && activeBucket.value === "sku_data");
 </script>
 
 <template>
@@ -152,91 +150,91 @@ const bucketedRows = computed(() =>
     >
       {{ b.label }} <span class="bucket-count">{{ bucketCounts[b.key] }}</span>
     </button>
+    <button
+      type="button" class="bucket-tab" :class="{ active: activeBucket === 'sku_data' }"
+      @click="activeBucket = 'sku_data'"
+    >
+      SKU data <span class="bucket-count">{{ skuRows.length }}</span>
+    </button>
   </div>
 
-  <div v-if="showKpis" class="stat-pills">
-    <div v-for="[status, count] in statusPills" :key="status" class="stat-pill">
-      <StatusChip :status="status" /><span class="stat-count">{{ count }}</span>
+  <SkuLevelTable v-if="showingSkuData" :rows="skuRows" :filters="skuFilters" :on-open-sku="onOpenSku" />
+
+  <template v-else>
+    <div v-if="showKpis" class="stat-pills">
+      <div v-for="[status, count] in statusPills" :key="status" class="stat-pill">
+        <StatusChip :status="status" /><span class="stat-count">{{ count }}</span>
+      </div>
     </div>
-  </div>
 
-  <div class="field" style="max-width: 340px; margin-bottom: 14px;">
-    <label for="po-top-search">Search{{ vendorOptions ? " vendor," : "" }} PO code, facility, status, invoice…</label>
-    <input id="po-top-search" v-model="filters.search" type="text" placeholder="Type to search…">
-  </div>
+    <div class="field" style="max-width: 340px; margin-bottom: 14px;">
+      <label for="po-top-search">Search{{ vendorOptions ? " vendor," : "" }} PO code, facility, status, invoice…</label>
+      <input id="po-top-search" v-model="filters.search" type="text" placeholder="Type to search…">
+    </div>
 
-  <div class="table-card"><div class="table-scroll">
-    <table>
-      <thead>
-        <tr>
-          <th v-if="vendorOptions">Vendor</th>
-          <th>Facility</th><th>PO code</th><th>Status</th>
-          <th v-if="showSkuColumn">SKU data</th>
-          <th class="num">Qty ordered</th><th class="num">Received</th><th class="num">PO value</th>
-          <th>GRN / invoice</th><th class="col-tight">PO</th><th class="col-tight">Invoice</th>
-        </tr>
-        <tr class="filter-row">
-          <td v-if="vendorOptions">
-            <select v-model="filters.vendor">
-              <option value="">All</option>
-              <option v-for="v in vendorOptions" :key="v.code" :value="v.code">{{ v.label }}</option>
-            </select>
-          </td>
-          <td>
-            <select v-model="filters.facility">
-              <option value="">All</option>
-              <option v-for="f in facilityOptions" :key="f" :value="f">{{ f }}</option>
-            </select>
-          </td>
-          <td><input v-model="filters.poCode" type="text" placeholder="Filter…"></td>
-          <td>
-            <select v-model="filters.status">
-              <option value="">All</option>
-              <option v-for="s in statusOptions" :key="s" :value="s">{{ s }}</option>
-            </select>
-          </td>
-          <td v-if="showSkuColumn"></td>
-          <td><input v-model="filters.qtyOrdered" type="text" placeholder="Filter…"></td>
-          <td><input v-model="filters.qtyReceived" type="text" placeholder="Filter…"></td>
-          <td><input v-model="filters.poValue" type="text" placeholder="Filter…"></td>
-          <td><input v-model="filters.grn" type="text" placeholder="Filter…"></td>
-          <td></td>
-          <td></td>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-if="!bucketedRows.length">
-          <td :colspan="emptyColspan" class="empty-state">No purchase orders match these filters.</td>
-        </tr>
-        <tr v-for="p in bucketedRows" :key="p.po_code" class="clickable-row" @click="onOpenPo(p.po_code)">
-          <td v-if="vendorOptions">{{ vendorLabel(p.vendor_code, p.vendor_name) }}</td>
-          <td class="fac-code">{{ p.facility }}</td>
-          <td class="mono">{{ p.po_code }}</td>
-          <td>
-            <div v-if="showBuckets && poBucket(p) === 'processing'" class="substep-boxes">
-              <span
-                class="substep-box" :class="grnComplete(p) ? 'substep-good' : 'substep-critical'"
-                :title="grnComplete(p) ? 'GRN Complete' : 'GRN Pending'"
-              ></span>
-              <span
-                class="substep-box" :class="reconciliationComplete(p.po_code) ? 'substep-good' : 'substep-critical'"
-                :title="reconciliationComplete(p.po_code) ? 'Reconciliation Complete' : 'Reconciliation Pending'"
-              ></span>
-              <span
-                class="substep-box" :class="paymentBooked(p.po_code) ? 'substep-good' : 'substep-critical'"
-                :title="paymentBooked(p.po_code) ? 'Payment Booked' : 'Payment Not Booked'"
-              ></span>
-            </div>
-            <StatusChip v-else :status="p.status" />
-          </td>
-          <td v-if="showSkuColumn">
-            <span v-if="!skuSummary(p.po_code).total" class="cell-empty">–</span>
-            <span
-              v-else class="chip" :class="skuSummary(p.po_code).allComplete ? 'chip-good' : 'chip-critical'"
-              :title="`${skuSummary(p.po_code).complete} of ${skuSummary(p.po_code).total} SKU(s) fully received`"
-            >{{ skuSummary(p.po_code).complete }}/{{ skuSummary(p.po_code).total }} SKUs</span>
-          </td>
-          <td class="num mono">{{ fmtNum(p.qty_ordered) }}</td>
+    <div class="table-card"><div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th v-if="vendorOptions">Vendor</th>
+            <th>Facility</th><th>PO code</th><th>Status</th>
+            <th class="num">Qty ordered</th><th class="num">Received</th><th class="num">PO value</th>
+            <th>GRN / invoice</th><th class="col-tight">PO</th><th class="col-tight">Invoice</th>
+          </tr>
+          <tr class="filter-row">
+            <td v-if="vendorOptions">
+              <select v-model="filters.vendor">
+                <option value="">All</option>
+                <option v-for="v in vendorOptions" :key="v.code" :value="v.code">{{ v.label }}</option>
+              </select>
+            </td>
+            <td>
+              <select v-model="filters.facility">
+                <option value="">All</option>
+                <option v-for="f in facilityOptions" :key="f" :value="f">{{ f }}</option>
+              </select>
+            </td>
+            <td><input v-model="filters.poCode" type="text" placeholder="Filter…"></td>
+            <td>
+              <select v-model="filters.status">
+                <option value="">All</option>
+                <option v-for="s in statusOptions" :key="s" :value="s">{{ s }}</option>
+              </select>
+            </td>
+            <td><input v-model="filters.qtyOrdered" type="text" placeholder="Filter…"></td>
+            <td><input v-model="filters.qtyReceived" type="text" placeholder="Filter…"></td>
+            <td><input v-model="filters.poValue" type="text" placeholder="Filter…"></td>
+            <td><input v-model="filters.grn" type="text" placeholder="Filter…"></td>
+            <td></td>
+            <td></td>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-if="!bucketedRows.length">
+            <td :colspan="vendorOptions ? 10 : 9" class="empty-state">No purchase orders match these filters.</td>
+          </tr>
+          <tr v-for="p in bucketedRows" :key="p.po_code" class="clickable-row" @click="onOpenPo(p.po_code)">
+            <td v-if="vendorOptions">{{ vendorLabel(p.vendor_code, p.vendor_name) }}</td>
+            <td class="fac-code">{{ p.facility }}</td>
+            <td class="mono">{{ p.po_code }}</td>
+            <td>
+              <div v-if="showBuckets && poBucket(p) === 'processing'" class="substep-boxes">
+                <span
+                  class="substep-box" :class="grnComplete(p) ? 'substep-good' : 'substep-critical'"
+                  :title="grnComplete(p) ? 'GRN Complete' : 'GRN Pending'"
+                ></span>
+                <span
+                  class="substep-box" :class="reconciliationComplete(p.po_code) ? 'substep-good' : 'substep-critical'"
+                  :title="reconciliationComplete(p.po_code) ? 'Reconciliation Complete' : 'Reconciliation Pending'"
+                ></span>
+                <span
+                  class="substep-box" :class="paymentBooked(p.po_code) ? 'substep-good' : 'substep-critical'"
+                  :title="paymentBooked(p.po_code) ? 'Payment Booked' : 'Payment Not Booked'"
+                ></span>
+              </div>
+              <StatusChip v-else :status="p.status" />
+            </td>
+            <td class="num mono">{{ fmtNum(p.qty_ordered) }}</td>
           <td class="num mono">{{ fmtNum(p.qty_received) }}</td>
           <td class="num mono">{{ fmtMoney(p.total_amount) }}</td>
           <td>
@@ -268,6 +266,7 @@ const bucketedRows = computed(() =>
       </tbody>
     </table>
   </div></div>
+  </template>
 
   <InvoiceUploadModal
     :model-value="!!uploadModalPoCode"
