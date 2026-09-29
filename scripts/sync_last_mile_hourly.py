@@ -311,7 +311,12 @@ def main():
 
     # ---- rebuild every rollup -------------------------------------------
     al = alerts_mod.evaluate_all(ships, polls=polls, now=now_ist())
-    cards = performance.build(ships, grain="lsp")
+    # grade_assumed=True here only -- user decision 2026-09-29: the Carrier
+    # Performance view (Open Shipments tab) grades an ASSUMED promise against
+    # its 6-day default rather than excluding it. worst_lanes() below is
+    # untouched (lsp_city grain, still excludes ASSUMED) -- see build()'s
+    # docstring for why that distinction matters there.
+    cards = performance.build(ships, grain="lsp", grade_assumed=True)
     lanes = performance.worst_lanes(ships, min_volume=WORST_LANES_MIN_VOLUME,
                                     limit=WORST_LANES_LIMIT)
     funnel = performance.coverage_funnel(ships)

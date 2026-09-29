@@ -122,8 +122,21 @@ def _finalise(sc: Scorecard) -> Scorecard:
 
 def build(shipments: Iterable[Shipment], now: datetime | None = None,
           window_days: int = PERF_WINDOW_DAYS,
-          grain: str = "lsp") -> list[Scorecard]:
-    """Aggregate shipments into scorecards at the requested grain."""
+          grain: str = "lsp", grade_assumed: bool = False) -> list[Scorecard]:
+    """Aggregate shipments into scorecards at the requested grain.
+
+    grade_assumed: user decision 2026-09-29, scoped to the LSP-grain Carrier
+    Performance view only (sync_last_mile_hourly.py passes True there,
+    leaving Worst Lanes' lsp_city grain at the default False). An
+    ASSUMED-promise delivery is graded against ASSUMED_SLA_DAYS (6 days from
+    effective pickup -- see sla.py's SlaRules.promise(), the exact same
+    value already computed into promised_date/promise_days for these
+    shipments) instead of being excluded outright. Worst Lanes keeps
+    ASSUMED excluded, because its whole point is comparing a lane's
+    performance against its REAL SERVICEABILITYRULES_DP promise; folding
+    in a generic 6-day guess there would blur exactly the distinction
+    Promised TAT exists to show.
+    """
     now = now or now_ist()
     cutoff = now - timedelta(days=window_days)
 
@@ -177,8 +190,10 @@ def build(shipments: Iterable[Shipment], now: datetime | None = None,
             td = _transit_days(s)
             if td is not None:
                 transit[key].append(td)
-            # Grade against the promise -- but only where the promise is real.
-            if s.promise_source == "ASSUMED":
+            # Grade against the promise -- real rules always; ASSUMED only
+            # when grade_assumed says this call site wants that (see build()'s
+            # docstring).
+            if s.promise_source == "ASSUMED" and not grade_assumed:
                 sc.excluded_assumed_promise += 1
             else:
                 overdue = days_overdue(s.promised_date, delivered_at)
@@ -188,7 +203,11 @@ def build(shipments: Iterable[Shipment], now: datetime | None = None,
                     sc.on_time += 1
                 else:
                     sc.late += 1
-                if s.promise_days is not None:
+                # Promised TAT stays the REAL rule's promise regardless of
+                # grade_assumed -- an ASSUMED shipment's 6-day default is not
+                # a SERVICEABILITYRULES_DP fact, so it must never enter the
+                # mode this feeds.
+                if s.promise_days is not None and s.promise_source != "ASSUMED":
                     promised_days_seen[key][s.promise_days] += 1
             continue
 
