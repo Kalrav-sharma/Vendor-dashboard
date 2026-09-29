@@ -115,14 +115,21 @@ export function dtdcStatusClass(statusType) {
 // (e.g. "OFD"), but only 2 codes have been observed so far and historical
 // scan entries don't carry one at all, so this keys on the free-text
 // current_status_name instead, for full and consistent coverage. Only
-// these 5 are confirmed so far (see scripts/sync_lets_transport_tracking.py)
+// these 6 are confirmed so far (see scripts/sync_lets_transport_tracking.py)
 // -- add other known values here as they're observed.
+//
+// "pod uploaded" (seen 2026-09-29, AWB 100032616) keeps its own label
+// rather than collapsing into "Delivered" -- it's more informative (a
+// signed proof-of-delivery doc exists) -- but is still delivered-equivalent
+// everywhere that matters: see trackingBucket() in DispatchPlanningTable.vue
+// and TERMINAL_STATUSES in sync_lets_transport_tracking.py.
 export const LETS_TRANSPORT_STATUS_META = {
   "shipment booked": ["Booked", "muted"],
   "in transit": ["In transit", "open"],
   "arrived hub": ["Arrived hub", "open"],
   "out for delivery": ["Out for delivery", "open"],
   delivered: ["Delivered", "good"],
+  "pod uploaded": ["POD Uploaded", "good"],
 };
 
 export function letsTransportStatusLabel(statusType) {

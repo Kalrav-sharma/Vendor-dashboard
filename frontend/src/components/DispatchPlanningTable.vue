@@ -103,7 +103,7 @@ function trackingBucket(row) {
   } else if (row.courier === "letstransport") {
     const s = (status || "").toLowerCase();
     if (["shipment booked", "in transit", "arrived hub", "out for delivery"].includes(s)) return "in_transit";
-    if (s === "delivered") return "delivered";
+    if (s === "delivered" || s === "pod uploaded") return "delivered";
   }
   return null;
 }
