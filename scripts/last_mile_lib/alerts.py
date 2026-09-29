@@ -295,7 +295,17 @@ def evaluate(ship: Shipment, poll: TrackingResult | None = None,
             notes.append("AWB never appeared at the carrier")
 
     # --- the promise ----------------------------------------------------------
-    if overdue is not None and overdue > 0:
+    # BREACHED requires an actual current status from somewhere (the carrier
+    # poll, or a trusted Uniware read) -- user decision 2026-09-29: a
+    # promise-date comparison alone is not evidence the shipment is still
+    # undelivered, only that we haven't confirmed otherwise. Without this
+    # gate, a shipment the carrier poll simply hasn't answered on yet (fused
+    # to UNKNOWN, status_source "none") showed BREACHED next to an unknown
+    # status -- a confident claim this module has no actual basis for. If
+    # BREACHED was the only reason this shipment would have alerted, it now
+    # drops off the board entirely rather than showing a stale claim; that
+    # is the intended effect of gating on real status, not a side effect.
+    if overdue is not None and overdue > 0 and fused.canonical != C.UNKNOWN:
         flags.append("BREACHED")
     elif overdue is not None and -AT_RISK_WITHIN_DAYS <= overdue <= 0 \
             and fused.canonical not in (C.OUT_FOR_DELIVERY, C.DELIVERED):
