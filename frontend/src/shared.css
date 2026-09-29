@@ -243,6 +243,7 @@ button.link-btn {
 .kpi .value.critical { color: var(--critical); }
 .kpi .value.good { color: var(--good); }
 .kpi .value.info { color: var(--info); }
+.kpi-sublabel { font-size: 0.72rem; color: var(--muted); margin-top: 4px; }
 /* Explicit rules (not the --kpi-cols var) on purpose -- these must always
    win on small screens regardless of how many tiles a given page passes. */
 @media (max-width: 900px) { .kpis { grid-template-columns: repeat(3, 1fr); } }

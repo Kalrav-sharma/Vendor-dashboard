@@ -42,7 +42,41 @@ function isOverdue(row) {
 // exactly as it did when it was a plain row count.
 function isPaid(row) { return row.payment_status === "paid"; }
 
-const kpiTiles = computed(() => {
+const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+
+// Vendor's own 4-tile set -- amount + backing invoice count for the three
+// money tiles, and a combined action-item count for the last one (still
+// worded "invoices" below it so all four tiles read the same way).
+// "To be paid this week" = booked on the payout file but not yet paid
+// (payment_status "pending" -- see PAYMENT_STATUS_META's "Booked, Pending")
+// with a real, non-zero invoice value. "Action required" = a PO still
+// missing its invoice copy (posNeedingInvoiceCount, passed in from
+// VendorApp.vue since that's PO-level data this table doesn't otherwise
+// have) OR an uploaded invoice flagged for a credit note (match_status
+// "mismatch") -- an already-paid invoice can't be in either group.
+const vendorKpiTiles = computed(() => {
+  const paidRows = props.rows.filter(isPaid);
+  const madeTillDate = paidRows.reduce((s, r) => s + (invoiceValue(r) || 0), 0);
+
+  const weekCutoff = Date.now() - SEVEN_DAYS_MS;
+  const paidLastWeekRows = paidRows.filter(r => r.payment_date && new Date(r.payment_date).getTime() >= weekCutoff);
+  const paidLastWeek = paidLastWeekRows.reduce((s, r) => s + (invoiceValue(r) || 0), 0);
+
+  const toBePaidRows = props.rows.filter(r => r.payment_status === "pending" && (invoiceValue(r) || 0) > 0);
+  const toBePaid = toBePaidRows.reduce((s, r) => s + (invoiceValue(r) || 0), 0);
+
+  const creditNoteNeededCount = props.rows.filter(r => r.match_status === "mismatch").length;
+  const actionRequired = props.posNeedingInvoiceCount + creditNoteNeededCount;
+
+  return [
+    { label: "Payments made till date", value: fmtMoney(madeTillDate), sublabel: `${paidRows.length} invoices` },
+    { label: "Paid last week", value: fmtMoney(paidLastWeek), sublabel: `${paidLastWeekRows.length} invoices` },
+    { label: "To be paid this week", value: fmtMoney(toBePaid), sublabel: `${toBePaidRows.length} invoices` },
+    { label: "Action required", value: actionRequired, cls: actionRequired > 0 ? "critical" : "", sublabel: `${actionRequired} invoices` },
+  ];
+});
+
+const adminKpiTiles = computed(() => {
   const pending = props.rows.filter(r => !isPaid(r)).length;
   const onTrack = props.rows.filter(r => r.match_status === "matched" && !isOverdue(r)).length;
   const hasIssues = props.rows.filter(r => r.match_status === "mismatch" || r.match_status === "error").length;
@@ -54,6 +88,8 @@ const kpiTiles = computed(() => {
     { label: "Overdue", value: overdue, cls: overdue > 0 ? "critical" : "" },
   ];
 });
+
+const kpiTiles = computed(() => (props.showVendorKpis ? vendorKpiTiles.value : adminKpiTiles.value));
 </script>
 
 <template>

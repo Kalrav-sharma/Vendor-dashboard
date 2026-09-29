@@ -5,7 +5,7 @@
 // the same way the table itself is) and just hands them here to render,
 // so the KPI counts always match whatever's actually on screen.
 defineProps({
-  tiles: { type: Array, required: true }, // [{ label, value, cls? }] -- cls: "good"|"critical" tints the value
+  tiles: { type: Array, required: true }, // [{ label, value, cls?, sublabel? }] -- cls: "good"|"critical" tints the value
 });
 </script>
 
@@ -14,6 +14,7 @@ defineProps({
     <div v-for="t in tiles" :key="t.label" class="kpi">
       <div class="label">{{ t.label }}</div>
       <div class="value" :class="t.cls">{{ t.value }}</div>
+      <div v-if="t.sublabel" class="kpi-sublabel">{{ t.sublabel }}</div>
     </div>
   </div>
 </template>
