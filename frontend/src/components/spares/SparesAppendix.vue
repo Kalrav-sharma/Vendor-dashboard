@@ -5,6 +5,7 @@
 // someone edits a cell; an edited cell shows a dot and can be reset back to the sheet default.
 import { ref, computed } from "vue";
 import { FACILITIES, STATUSES } from "../../composables/useSparesData.js";
+import SparesVendorPicker from "./SparesVendorPicker.vue";
 
 const props = defineProps({ store: { type: Object, required: true } });
 const s = props.store;
@@ -45,13 +46,12 @@ function setAll(sku, ev) {
   if (!v) return;
   for (const f of cols.value) if (s.statusOf(sku, f.code) !== v || !s.isEdited(sku, f.code)) s.setStatus(sku, f.code, v);
 }
-function commitVendor(sku, ev) {
-  const v = ev.target.value.trim();
+function commitVendor(sku, v) {
+  v = (v || "").trim();
   if (v === s.vendorOf(sku)) return;
   if (!v || v === s.sheetVendor(sku)) s.resetVendor(sku);
   else s.setVendor(sku, v);
 }
-const fmt = (n) => Math.round(n).toLocaleString("en-IN");
 </script>
 
 <template>
@@ -98,11 +98,8 @@ const fmt = (n) => Math.round(n).toLocaleString("en-IN");
             <td class="sku sp-sticky">{{ sku }}</td>
             <td :class="{ dim: !s.categoryOf(sku) }">{{ s.categoryOf(sku) || "–" }}</td>
             <td>
-              <span class="sp-cell" style="justify-content:flex-start">
-                <input class="sp-vendor" :class="{ edited: s.vendorEdited(sku) }" :value="s.vendorOf(sku)" list="sp-vendor-list"
-                       @change="commitVendor(sku, $event)" @keydown.enter="$event.target.blur()" />
-                <button v-if="s.vendorEdited(sku)" type="button" class="sp-reset" title="Reset to sheet vendor" @click="s.resetVendor(sku)">↺</button>
-              </span>
+              <SparesVendorPicker :value="s.vendorOf(sku)" :options="s.vendorOptions.value" :edited="s.vendorEdited(sku)"
+                                  @commit="commitVendor(sku, $event)" @reset="s.resetVendor(sku)" />
             </td>
             <td v-for="f in cols" :key="f.code" class="c gl">
               <span class="sp-cell">
@@ -113,7 +110,6 @@ const fmt = (n) => Math.round(n).toLocaleString("en-IN");
                 </select>
                 <button v-if="s.isEdited(sku, f.code)" type="button" class="sp-reset" title="Reset to sheet default" @click="s.resetStatus(sku, f.code)">↺</button>
               </span>
-              <small class="hc-num" :title="'Good / bad at ' + f.label">{{ fmt(s.stockAt(sku, f.code).good) }} / {{ fmt(s.stockAt(sku, f.code).bad) }}</small>
             </td>
             <td v-if="cols.length > 1" class="c gl">
               <select class="sp-status" @change="setAll(sku, $event)">
@@ -126,8 +122,5 @@ const fmt = (n) => Math.round(n).toLocaleString("en-IN");
         </tbody>
       </table>
     </div>
-    <datalist id="sp-vendor-list">
-      <option v-for="v in s.vendorOptions.value" :key="v" :value="v" />
-    </datalist>
   </section>
 </template>

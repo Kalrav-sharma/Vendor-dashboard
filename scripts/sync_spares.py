@@ -50,7 +50,9 @@ WH_KEYS = {"PB_GGN": "ggn", "PB_BLR": "blr", "PB_BOM": "bom", "PB_KOL": "kol", "
 FACILITIES = [code for codes in WAREHOUSE_FACILITY_CODES.values() for code in codes]
 
 SKU_CHUNK = 100                      # keep request bodies small; Uniware's cap is undocumented
-UPDATED_SINCE_MINUTES = 60 * 24 * 365 * 5
+# Uniware caps this at one day ("You can query for only one day snapshots", code 1000, 2026-09-28),
+# so it only adds SKUs whose stock moved in the last 24h on top of the explicit list.
+UPDATED_SINCE_MINUTES = 60 * 24
 
 # Codes Uniware rejected at one facility are unknown to the tenant, so skip them at the rest.
 UNKNOWN_CODES = set()

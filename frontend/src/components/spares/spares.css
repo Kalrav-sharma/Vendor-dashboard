@@ -70,3 +70,15 @@ thead .sp-sticky { background: var(--paper); z-index: 2; }
 @media (max-width: 700px) {
   .sp-search { width: 100%; }
 }
+
+/* vendor combobox (Appendix) -- list is position:fixed so the scrolling table can't clip it */
+.sp-combo { display: inline-flex; align-items: center; gap: 3px; }
+.sp-combo-list {
+  position: fixed; z-index: 50; margin: 0; padding: 4px 0; list-style: none; max-height: 240px; overflow-y: auto;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 8px 24px -10px rgba(0,0,0,0.25);
+  font-size: 0.76rem;
+}
+.sp-combo-list li { padding: 5px 10px; cursor: pointer; white-space: nowrap; color: var(--ink); }
+.sp-combo-list li.on, .sp-combo-list li:hover { background: var(--paper); }
+.sp-combo-list li.cur { font-weight: 600; }
+.sp-combo-list li.add { color: var(--info); font-weight: 600; border-bottom: 1px solid var(--line); }
