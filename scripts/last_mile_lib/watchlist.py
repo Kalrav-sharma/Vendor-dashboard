@@ -78,6 +78,21 @@ LIVE_DISPATCH_HORIZON_DAYS = 15
 #: Beyond the horizon but still not delivered = the stale backlog cohort.
 BACKLOG_HORIZON_DAYS = 60
 
+#: AWBs a human confirmed are actually done, checked directly in Uniware's
+#: UI, even though Uniware's OWN export fields (Shipping Tracking Status /
+#: Sale Order Item Status) are stuck stale and will never resolve on their
+#: own -- measured 2026-09-29: a batch of aged_out Shadowfax AWBs, re-pulled
+#: fresh, still came back with months-old status. Shadowfax has no live-poll
+#: fallback the way Bluedart/Delhivery/DTDC do (see sync_last_mile_hourly.py's
+#: POLLED_ADAPTERS), so nothing else will ever correct these -- forced to
+#: cohort='closed' below regardless of what each day's export says. Remove
+#: an AWB from this set to resume normal tracking on it.
+MANUALLY_CLOSED_AWBS: frozenset[str] = frozenset({
+    "SF3696142351URM", "SF3696142375URM", "SF3702564433URM", "SF3702564198URM",
+    "SF3725396640URM", "SF3720249258URM", "SF3728820522URM", "SF3723470012URM",
+    "SF3734260729URM", "SF3746033758URM", "SF3737517237URM", "SF3734260426URM",
+})
+
 BLANKS = {"", "-", "NA", "N/A", "0", "NULL", "NONE"}
 
 
@@ -180,16 +195,8 @@ def payment_type_of(items: list[dict[str, Any]]) -> str:
 
 def build_shipments(rows: Iterable[dict[str, Any]], rules: SlaRules | None = None,
                     now: datetime | None = None,
-                    dq: Any | None = None,
-                    manually_closed: frozenset[str] = frozenset()) -> tuple[list[Shipment], dict[str, Any]]:
-    """Collapse de-duplicated order-item rows into shipment-grain records.
-
-    manually_closed: AWBs from last_mile_manual_closures -- a human has
-    confirmed these are actually done in Uniware's UI even though the
-    export's own status fields are stuck stale (see that table's comment
-    in schema.sql). Checked first, ahead of every other cohort rule, so
-    it always wins regardless of adapter/status/age.
-    """
+                    dq: Any | None = None) -> tuple[list[Shipment], dict[str, Any]]:
+    """Collapse de-duplicated order-item rows into shipment-grain records."""
     now = now or now_ist()
     rules = rules or SlaRules()
     stats: dict[str, Any] = {
@@ -228,10 +235,10 @@ def build_shipments(rows: Iterable[dict[str, Any]], rules: SlaRules | None = Non
         pkg_code = _g(lead, "Shipping Package Status Code")
         track_status = _g(lead, "Shipping Tracking Status")
 
-        if awb in manually_closed:
+        if awb in MANUALLY_CLOSED_AWBS:
             # A human confirmed this one directly in Uniware's UI -- wins
             # over every other rule below, including a status/adapter that
-            # would otherwise keep re-opening it (see the docstring above).
+            # would otherwise keep re-opening it (see the constant's comment above).
             cohort = "closed"
         elif res.adapter_id in EXCLUDED_ADAPTERS:
             # Out of scope entirely: in-house fleet, no courier assigned, Porter,
