@@ -130,6 +130,15 @@ async function handleCreate(adminClient: ReturnType<typeof createClient>, body: 
     return json({ error: "email, vendor_code, contact_name and contact_mobile are required" }, 400);
   }
 
+  // vendor_code now also doubles as a login identifier (vendor-code-auth
+  // resolves it to exactly one account), so it must be unique across
+  // vendor logins -- reject before creating anything.
+  const { data: existing } = await adminClient
+    .from("profiles").select("id").eq("role", "vendor").eq("vendor_code", vendor_code).maybeSingle();
+  if (existing) {
+    return json({ error: "That vendor code is already in use by another login." }, 400);
+  }
+
   const { data: created, error: createErr } = await adminClient.auth.admin.createUser({
     email,
     password: DEFAULT_TEMP_PASSWORD,

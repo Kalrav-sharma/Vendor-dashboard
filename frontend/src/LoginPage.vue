@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted } from "vue";
 import { supabase, INTERNAL_ROLES, isRecoveryLink } from "./supabaseClient.js";
+import { resolveFunctionError } from "./functionError.js";
 import BrandLogo from "./components/BrandLogo.vue";
 
 const view = ref("login"); // "login" | "reset"
@@ -31,16 +32,44 @@ async function redirectByRole(userId) {
 async function handleSignIn() {
   errorMsg.value = "";
   signingIn.value = true;
-  const { data, error } = await supabase.auth.signInWithPassword({
-    email: email.value.trim(),
-    password: password.value,
+  const identifier = email.value.trim();
+
+  if (identifier.includes("@")) {
+    // Staff always take this path; a vendor may too, if they'd rather use
+    // their real (recovery) email than the shared vendor code.
+    const { data, error } = await supabase.auth.signInWithPassword({ email: identifier, password: password.value });
+    if (error) {
+      errorMsg.value = error.message === "Invalid login credentials" ? "Incorrect email or password." : error.message;
+      signingIn.value = false;
+      return;
+    }
+    await redirectByRole(data.user.id);
+    return;
+  }
+
+  // Vendor code: resolved to the real underlying account AND authenticated
+  // server-side by vendor-code-auth, so that real email never reaches this
+  // client. setSession below installs the result on THIS shared client, so
+  // every other page's requireSession()/getSession() can't tell this apart
+  // from a normal email sign-in.
+  const { data, error } = await supabase.functions.invoke("vendor-code-auth", {
+    body: { action: "signin", vendor_code: identifier, password: password.value },
   });
-  if (error) {
-    errorMsg.value = error.message === "Invalid login credentials" ? "Incorrect email or password." : error.message;
+  if (error || !data?.access_token) {
+    errorMsg.value = await resolveFunctionError(data, error);
     signingIn.value = false;
     return;
   }
-  await redirectByRole(data.user.id);
+  const { data: sessionData, error: setErr } = await supabase.auth.setSession({
+    access_token: data.access_token,
+    refresh_token: data.refresh_token,
+  });
+  if (setErr || !sessionData?.user) {
+    errorMsg.value = "Something went wrong signing in. Please try again.";
+    signingIn.value = false;
+    return;
+  }
+  await redirectByRole(sessionData.user.id);
 }
 
 function goToReset() {
@@ -58,17 +87,34 @@ function backToLogin() {
 async function handleSendReset() {
   errorMsg.value = "";
   sendingReset.value = true;
+  const identifier = resetEmail.value.trim();
   const redirectTo = new URL("reset-password.html", window.location.href).href;
-  const { error } = await supabase.auth.resetPasswordForEmail(resetEmail.value.trim(), { redirectTo });
-  sendingReset.value = false;
 
-  // Supabase deliberately doesn't reveal whether the email exists (avoids
-  // leaking which emails have accounts) -- show the same message either way.
-  if (error) {
-    errorMsg.value = error.message;
+  if (identifier.includes("@")) {
+    const { error } = await supabase.auth.resetPasswordForEmail(identifier, { redirectTo });
+    sendingReset.value = false;
+    // Supabase deliberately doesn't reveal whether the email exists (avoids
+    // leaking which emails have accounts) -- show the same message either way.
+    if (error) {
+      errorMsg.value = error.message;
+      return;
+    }
+    resetSentMsg.value = `If an account exists for ${identifier}, a password reset link has been sent. Check your email.`;
     return;
   }
-  resetSentMsg.value = `If an account exists for ${resetEmail.value.trim()}, a password reset link has been sent. Check your email.`;
+
+  // Vendor code: resolved server-side by vendor-code-auth, which always
+  // returns the same generic response whether or not it actually resolved
+  // to anything -- same anti-enumeration principle as the email path above.
+  const { data, error } = await supabase.functions.invoke("vendor-code-auth", {
+    body: { action: "reset", identifier, redirect_to: redirectTo },
+  });
+  sendingReset.value = false;
+  if (error) {
+    errorMsg.value = await resolveFunctionError(data, error);
+    return;
+  }
+  resetSentMsg.value = data?.message || "If an account exists for that vendor code, a password reset link has been sent.";
 }
 </script>
 
@@ -81,8 +127,8 @@ async function handleSendReset() {
 
       <form v-if="view === 'login'" @submit.prevent="handleSignIn">
         <div class="field">
-          <label for="email">Email</label>
-          <input id="email" v-model="email" type="email" required autocomplete="username">
+          <label for="email">Email or Vendor Code</label>
+          <input id="email" v-model="email" type="text" required autocomplete="username">
         </div>
         <div class="field">
           <label for="password">Password</label>
@@ -97,10 +143,10 @@ async function handleSendReset() {
       <form v-else @submit.prevent="handleSendReset">
         <div v-if="resetSentMsg" class="form-success">{{ resetSentMsg }}</div>
         <template v-else>
-          <div class="sub" style="margin-top: -8px;">Enter your email and we'll send you a link to reset your password.</div>
+          <div class="sub" style="margin-top: -8px;">Enter your email or vendor code and we'll send a reset link to the account's recovery email.</div>
           <div class="field">
-            <label for="reset-email">Email</label>
-            <input id="reset-email" v-model="resetEmail" type="email" required autocomplete="username">
+            <label for="reset-email">Email or Vendor Code</label>
+            <input id="reset-email" v-model="resetEmail" type="text" required autocomplete="username">
           </div>
           <button type="submit" class="primary-btn" :disabled="sendingReset">
             {{ sendingReset ? "Sending…" : "Send reset link" }}

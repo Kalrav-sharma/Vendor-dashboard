@@ -144,10 +144,19 @@ def build(shipments: Iterable[Shipment], now: datetime | None = None,
     transit: dict[tuple[str, str], list[float]] = defaultdict(list)
     couriers: dict[tuple[str, str], set[str]] = defaultdict(set)
     promised_days_seen: dict[tuple[str, str], Counter] = defaultdict(Counter)
+    # Uniware's `Shipping Address City` is free text with no canonical form --
+    # measured 2026-09-29: the same city recurs under multiple raw spellings
+    # (RAIGARH/Raigarh, HANUMANGARH/Hanumangarh/hanumangarh, ...), which
+    # silently double- or triple-counted it as separate lanes. Grouping keys
+    # on the case-folded city so those collapse into one; city_labels_seen
+    # tracks the raw spellings so the DISPLAY label can be the most common
+    # one instead of the case-folded key itself (forcing e.g. "SPSR Nellore"
+    # to a naive title-case would mangle a real abbreviation).
+    city_labels_seen: dict[tuple[str, str], Counter] = defaultdict(Counter)
 
     def key_for(s: Shipment) -> tuple[str, str]:
         if grain == "lsp_city":
-            return (s.adapter_id, s.city or "(unknown)")
+            return (s.adapter_id, (s.city or "(unknown)").strip().upper())
         if grain == "lsp_facility":
             return (s.adapter_id, s.facility_code or "(unknown)")
         return (s.adapter_id, "")
@@ -161,6 +170,8 @@ def build(shipments: Iterable[Shipment], now: datetime | None = None,
             continue
 
         key = key_for(s)
+        if grain == "lsp_city":
+            city_labels_seen[key][(s.city or "(unknown)").strip()] += 1
         spec = registry.get_spec(s.adapter_id)
         sc = buckets.get(key)
         if sc is None:
@@ -235,6 +246,8 @@ def build(shipments: Iterable[Shipment], now: datetime | None = None,
 
     out: list[Scorecard] = []
     for key, sc in buckets.items():
+        if grain == "lsp_city" and city_labels_seen[key]:
+            sc.dimension = city_labels_seen[key].most_common(1)[0][0]
         vals = sorted(transit[key])
         if vals:
             sc.avg_transit_days = round(sum(vals) / len(vals), 2)

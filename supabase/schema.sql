@@ -2454,4 +2454,19 @@ drop policy if exists spares_vendor_override_delete on public.spares_vendor_over
 create policy spares_vendor_override_delete on public.spares_vendor_override
   for delete using (public.is_internal_staff());
 grant select, insert, update, delete on public.spares_vendor_override to authenticated;
+
+-- Rate-limit counter for the vendor-code-auth Edge Function (public,
+-- pre-login sign-in via vendor_code+password instead of email). Service-
+-- role only -- RLS is enabled with deliberately NO policies at all, so
+-- neither anon nor an authenticated client can ever read/write this
+-- through the normal Supabase client; only the Edge Function's
+-- service_role key (which bypasses RLS entirely) touches it. 10 failed
+-- attempts within a window locks that vendor_code out for 15 minutes --
+-- see vendor-code-auth/index.ts for the actual logic.
+create table if not exists public.vendor_login_attempts (
+  vendor_code text primary key,
+  failed_count int not null default 0,
+  locked_until timestamptz
+);
+alter table public.vendor_login_attempts enable row level security;
 -- ---------------------------------------------------------------------
