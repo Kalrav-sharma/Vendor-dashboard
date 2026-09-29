@@ -47,7 +47,7 @@ function fmtPayment(p) {
 // every filter in this app already following what you're looking at.
 const CSV_COLUMNS = [
   ["awb", "AWB"], ["primary_flag", "Flag"], ["category", "Category"], ["lsp", "LSP"],
-  ["city", "City"], ["pincode", "Pincode"], ["payment_type", "Payment"],
+  ["facility_code", "Source WH"], ["city", "City"], ["pincode", "Pincode"], ["payment_type", "Payment"],
   ["order", "Order"], ["status", "Status"], ["promised_date", "Promised"],
   ["days_overdue", "Overdue (days)"], ["last_scan_text", "Last scan"], ["notes", "Notes"],
 ];
@@ -58,7 +58,7 @@ function csvCell(v) {
 function downloadCsv() {
   const rows = filteredSorted.value.map(a => ({
     awb: a.awb, primary_flag: fmtFlag(a.primary_flag), category: a.category || "",
-    lsp: a.lsp || "", city: a.city || "", pincode: a.pincode || "", payment_type: fmtPayment(a.payment_type),
+    lsp: a.lsp || "", facility_code: a.facility_code || "", city: a.city || "", pincode: a.pincode || "", payment_type: fmtPayment(a.payment_type),
     order: (a.sale_order_codes || [])[0] || "", status: a.status || a.raw_status || "",
     promised_date: fmtDate(a.promised_date), days_overdue: a.days_overdue ?? "",
     last_scan_text: a.last_scan_text || "", notes: a.ndr_reason || a.notes || "",
@@ -131,7 +131,7 @@ const kpiTiles = computed(() => {
       <table>
         <thead>
           <tr>
-            <th>AWB</th><th>Flag</th><th>Category</th><th>LSP</th><th>City / pincode</th>
+            <th>AWB</th><th>Flag</th><th>Category</th><th>LSP</th><th>Source WH</th><th>City / pincode</th>
             <th>Payment</th><th>Order</th><th>Status</th>
             <th>Promised</th><th class="num">Overdue</th><th>Last scan</th><th>Notes</th>
           </tr>
@@ -149,6 +149,7 @@ const kpiTiles = computed(() => {
                 <option v-for="l in lspOptions" :key="l" :value="l">{{ l }}</option>
               </select>
             </td>
+            <td></td>
             <td>
               <select v-model="filters.city">
                 <option value="">All</option>
@@ -160,13 +161,14 @@ const kpiTiles = computed(() => {
         </thead>
         <tbody>
           <tr v-if="!filteredSorted.length">
-            <td colspan="12" class="empty-state">No alerts match these filters.</td>
+            <td colspan="13" class="empty-state">No alerts match these filters.</td>
           </tr>
           <tr v-for="a in filteredSorted" :key="a.id">
             <td class="mono">{{ a.awb }}</td>
             <td><span class="chip chip-critical">{{ fmtFlag(a.primary_flag) }}</span></td>
             <td><span class="chip" :class="`chip-${CATEGORY_CLASS[a.category] || 'muted'}`">{{ a.category || "–" }}</span></td>
             <td>{{ a.lsp || "–" }}</td>
+            <td class="mono">{{ a.facility_code || "–" }}</td>
             <td>{{ a.city || "–" }}<span v-if="a.pincode" class="mono" style="color: var(--muted);"> · {{ a.pincode }}</span></td>
             <td><span v-if="fmtPayment(a.payment_type) !== '–'" class="chip" :class="a.payment_type === 'COD' ? 'chip-open' : 'chip-muted'">{{ fmtPayment(a.payment_type) }}</span><span v-else>–</span></td>
             <td class="mono">{{ (a.sale_order_codes || [])[0] || "–" }}</td>

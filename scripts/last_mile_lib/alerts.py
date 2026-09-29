@@ -211,6 +211,24 @@ def fuse(ship: Shipment, poll: TrackingResult | None,
         return FusedStatus(canonical=C.AWB_NOT_FOUND, raw=poll.raw_status,
                            source="lsp", at=None, uniware_canonical=uni_canon)
 
+    # RTO/return is trusted from Uniware even for a carrier we poll ourselves
+    # -- user decision 2026-09-29 (AWB 77111296043): unlike the general
+    # status-agreement question the rule below was measured against, a
+    # return is a Uniware/warehouse-side event (is_return() at intake, same
+    # source), not carrier scan noise, so it doesn't carry the "Uniware
+    # disagreed 22/25 times" risk. Skipping this would leave a shipment
+    # re-alerting as BREACHED/STUCK/etc. every hourly run once the carrier
+    # poll itself goes quiet on it, even though Uniware already knows it's
+    # heading back. evaluate() drops all three of these already (RTO_INITIATED/
+    # RTO_IN_TRANSIT stay open for restock/refund chasing but never alert;
+    # RTO_DELIVERED is fully settled) -- this is what lets that exclusion
+    # actually fire instead of the fallthrough to UNKNOWN below.
+    if uni_canon in (C.RTO_INITIATED, C.RTO_IN_TRANSIT, C.RTO_DELIVERED):
+        return FusedStatus(canonical=uni_canon,
+                           raw=ship.uniware_courier_status or ship.uniware_tracking_status,
+                           source="uniware", at=uni_at, mapped=uni_mapped,
+                           uniware_canonical=uni_canon)
+
     # Uniware is NOT an acceptable answer for a carrier we poll ourselves.
     # Measured 2026-09-14: of 25 Blue Dart AWBs whose status came from Uniware,
     # 22 were already DELIVERED at the carrier and none agreed. Falling back
@@ -244,8 +262,13 @@ def evaluate(ship: Shipment, poll: TrackingResult | None = None,
     # `rto_completed` in the carrier scorecards, which is where a completed
     # return actually belongs.
     #
-    # A return still IN FLIGHT (RTO_INITIATED / RTO_IN_TRANSIT) stays, because
-    # its closure can still be chased for restock and refund.
+    # A return still IN FLIGHT (RTO_INITIATED / RTO_IN_TRANSIT) also leaves the
+    # board -- superseded by the 2026-09-09 decision recorded on BUCKET_ORDER
+    # above ("every return status is now terminal"; this line used to say
+    # in-flight returns "stay" for restock/refund chasing, but the code has
+    # excluded them since 2026-09-09 same as RTO_DELIVERED -- that older
+    # comment was simply never updated to match). All three keep counting in
+    # performance.build()'s rto_in_flight/rto_completed either way.
     if fused.canonical in (C.DELIVERED, C.CANCELLED,
                            C.RTO_INITIATED, C.RTO_IN_TRANSIT, C.RTO_DELIVERED):
         return None

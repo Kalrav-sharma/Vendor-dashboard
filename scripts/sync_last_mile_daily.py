@@ -86,8 +86,19 @@ REQUEST_TIMEOUT = 90
 AUTH_RETRY_ATTEMPTS = 3
 AUTH_RETRY_BACKOFF_SECONDS = 5
 
-DEFAULT_WINDOW_DAYS = 45  # matches awb_tracker's default -- wide enough to
-                          # catch anything still open; only addedOn is
+DEFAULT_WINDOW_DAYS = 75  # widened from 45 2026-09-29 (AWB 77111296043,
+                          # measured): the filter here is on addedOn (order
+                          # creation), but a shipment stays in the actively
+                          # alerted "backlog" cohort for up to
+                          # BACKLOG_HORIZON_DAYS=60 since DISPATCH -- since
+                          # dispatch trails creation, 45 days silently
+                          # stopped refreshing anything created 45-60+ days
+                          # ago while it was still being alerted hourly on
+                          # an ever-more-stale snapshot that could never
+                          # learn about a status change (that AWB's RTO
+                          # never reached us; last refreshed 11 days stale).
+                          # 75 = 60-day backlog horizon + 15-day margin for
+                          # the creation-to-dispatch lag. Only addedOn is
                           # filterable, so a rolling re-query + de-dupe on
                           # AWB (the upsert key) is how this stays correct.
 
