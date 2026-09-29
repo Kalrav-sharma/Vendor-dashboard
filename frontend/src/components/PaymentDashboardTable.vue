@@ -202,28 +202,53 @@ const displayRows = computed(() => {
         </tr>
       </thead>
       <tbody>
-        <tr v-if="!rows.length">
+        <tr v-if="!displayRows.length">
           <td :colspan="vendorOptions ? 9 : 8" class="empty-state">No invoices match these filters.</td>
         </tr>
-        <tr v-for="row in rows" :key="row.id">
-          <td v-if="vendorOptions">{{ vendorLabel(row.vendor_code) }}</td>
-          <td class="mono"><button class="link-btn-inline" @click="onOpenPo(row.po_code)">{{ row.po_code }}</button></td>
-          <td class="mono">{{ invoiceNumber(row) }}</td>
-          <td class="col-tight"><ViewInvoiceButton :row="row" /></td>
-          <td class="num mono">{{ fmtMoney(invoiceValue(row)) }}</td>
-          <td class="num mono">{{ fmtMoney(grnValue(row)) }}</td>
+        <tr v-for="entry in displayRows" :key="entry.kind === 'invoice' ? entry.row.id : 'need-invoice:' + entry.po.po_code">
+          <td v-if="vendorOptions">{{ vendorLabel(entry.kind === 'invoice' ? entry.row.vendor_code : entry.po.vendor_code) }}</td>
           <td class="mono">
-            {{ fmtDateOnly(dueDate(row)) }}
-            <span
-              v-if="dueDateEstimated(row)" class="due-date-estimated-mark"
-              title="Not printed on the invoice -- estimated as 45 days from the invoice date."
-            >*</span>
+            <button
+              class="link-btn-inline"
+              @click="onOpenPo(entry.kind === 'invoice' ? entry.row.po_code : entry.po.po_code)"
+            >{{ entry.kind === 'invoice' ? entry.row.po_code : entry.po.po_code }}</button>
           </td>
-          <td><ReconciliationChip :row="row" /></td>
-          <td><PaymentStatusChip :row="row" :uploader-label="uploaderLabel" /></td>
+          <td class="mono">{{ entry.kind === 'invoice' ? invoiceNumber(entry.row) : '–' }}</td>
+          <td class="col-tight">
+            <ViewInvoiceButton v-if="entry.kind === 'invoice'" :row="entry.row" />
+            <InvoiceUploadButton v-else :on-click="() => openUploadModal(entry.po)" />
+          </td>
+          <td class="num mono">{{ fmtMoney(entry.kind === 'invoice' ? invoiceValue(entry.row) : entry.po.total_amount) }}</td>
+          <td class="num mono">{{ entry.kind === 'invoice' ? fmtMoney(grnValue(entry.row)) : '–' }}</td>
+          <td class="mono">
+            <template v-if="entry.kind === 'invoice'">
+              {{ fmtDateOnly(dueDate(entry.row)) }}
+              <span
+                v-if="dueDateEstimated(entry.row)" class="due-date-estimated-mark"
+                title="Not printed on the invoice -- estimated as 45 days from the invoice date."
+              >*</span>
+            </template>
+            <span v-else class="cell-empty">–</span>
+          </td>
+          <td>
+            <ReconciliationChip v-if="entry.kind === 'invoice'" :row="entry.row" />
+            <span v-else class="chip chip-critical">Invoice needed</span>
+          </td>
+          <td>
+            <PaymentStatusChip v-if="entry.kind === 'invoice'" :row="entry.row" :uploader-label="uploaderLabel" />
+            <span v-else class="cell-empty">–</span>
+          </td>
         </tr>
       </tbody>
     </table>
   </div></div>
   <p v-if="rows.some(dueDateEstimated)" class="field-hint">* not printed on the invoice -- estimated as 45 days from the invoice date.</p>
+
+  <InvoiceUploadModal
+    :model-value="!!uploadModalPoCode"
+    :po-code="uploadModalPoCode || ''"
+    :vendor-code="uploadModalVendorCode || ''"
+    :uploader-label="uploaderLabel"
+    @update:model-value="(v) => { if (!v) uploadModalPoCode = null }"
+  />
 </template>
