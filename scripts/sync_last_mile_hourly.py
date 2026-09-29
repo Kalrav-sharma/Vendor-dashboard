@@ -319,6 +319,14 @@ def main():
     cards = performance.build(ships, grain="lsp", grade_assumed=True)
     lanes = performance.worst_lanes(ships, min_volume=WORST_LANES_MIN_VOLUME,
                                     limit=WORST_LANES_LIMIT)
+    # Total lanes ACTUALLY IN USE across every LSP -- user decision 2026-09-29:
+    # worst_lanes() itself only returns the curated top WORST_LANES_LIMIT (25)
+    # lanes that also clear WORST_LANES_MIN_VOLUME (>=5 graded), so
+    # len(lanes) was never "how many lanes exist", only "how many made this
+    # curated list". Every (lsp, city) combination with at least one shipment
+    # gets its own Scorecard bucket in build() regardless of volume or
+    # grading, so this is the real count.
+    total_lanes_active = len(performance.build(ships, grain="lsp_city"))
     funnel = performance.coverage_funnel(ships)
     dq_summary = dq.summary()
 
@@ -391,6 +399,7 @@ def main():
         "queue_data_quality": by_bucket.get("data_quality", 0),
         "open_shipments": len(open_ships),
         "live_tracked": len(polls),
+        "total_lanes_active": total_lanes_active,
         "scope_channels": sorted({s.channel for s in ships if s.channel}),
         "scope_note": "Spares, refresh kits and RO purifiers. B2B and internal BOM excluded.",
     }], on_conflict="run_id")

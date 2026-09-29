@@ -1861,6 +1861,12 @@ create table if not exists public.last_mile_run (
   synced_at timestamptz not null default now()
 );
 create index if not exists idx_last_mile_run_generated_at on public.last_mile_run (generated_at desc);
+-- total_lanes_active added 2026-09-29 for the Worst Lanes tab's Total lanes
+-- KPI -- worst_lanes() only ever returns its curated top-25-worst subset,
+-- so that count is not "how many lanes exist", only "how many made the
+-- list". "create table if not exists" won't retroactively add this on an
+-- already-deployed database; this does, and is a no-op if already there.
+alter table public.last_mile_run add column if not exists total_lanes_active int;
 
 alter table public.last_mile_run enable row level security;
 drop policy if exists last_mile_run_select on public.last_mile_run;

@@ -282,7 +282,25 @@ def build_shipments(rows: Iterable[dict[str, Any]], rules: SlaRules | None = Non
             cohort=cohort,
             # Uniware already knows the LSP state for most open AWBs; those
             # need a poll only for freshness, not for a first answer.
-            needs_lsp_poll=(cohort in ("live", "backlog", "no_dispatch_date")),
+            #
+            # aged_out is included on purpose (2026-09-29, measured against
+            # AWBs like SF3696142351URM): the real "stop polling this" signal
+            # is last_mile_poll_state.terminal (an LSP actually confirmed
+            # delivered/RTO/lost), not calendar age -- sync_last_mile_hourly.py
+            # already excludes anything state.settled_awbs() covers before it
+            # ever gets here, so this doesn't reopen polling on shipments
+            # that were genuinely resolved. What it DOES fix: an aged_out
+            # shipment on a live-polled carrier (Bluedart/Delhivery/DTDC) that
+            # was NEVER actually confirmed terminal has no other way to learn
+            # its real status -- Uniware's own tracking_status field can
+            # itself go stale for a shipment this old (measured: last_mile_
+            # daily's own re-pull came back with a still-months-old value),
+            # so cutting off the one independent correction path at a fixed
+            # age turned a slow-to-resolve shipment into a permanently wrong
+            # one. Adapters this doesn't cover (e.g. Shadowfax -- not in
+            # POLLED_ADAPTERS, sync_last_mile_hourly.py) are unaffected by
+            # this change either way, since that filter still excludes them.
+            needs_lsp_poll=(cohort in ("live", "backlog", "no_dispatch_date", "aged_out")),
             awb_pattern_ok=pattern_ok,
         )
         shipments.append(ship)
