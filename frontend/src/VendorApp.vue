@@ -11,7 +11,8 @@ import { useShipmentTracking } from "./composables/useShipmentTracking.js";
 import { useModal } from "./composables/useModal.js";
 import { useInvoiceUploads } from "./composables/useInvoiceUploads.js";
 import { usePaymentFilters } from "./composables/usePaymentFilters.js";
-import { dedupeInvoiceNumbers, dedupeVendorOptions, fmtDateOnly } from "./format.js";
+import { dedupeInvoiceNumbers, dedupeVendorOptions, fmtDateOnly, fmtNum, TERMINAL_STATUSES, trackingBucket } from "./format.js";
+import DashboardOverview from "./components/DashboardOverview.vue";
 import SidebarNav from "./components/SidebarNav.vue";
 import PoTrackingTable from "./components/PoTrackingTable.vue";
 import SkuLevelTable from "./components/SkuLevelTable.vue";
@@ -88,6 +89,85 @@ const { filters: dispatchFilters, filteredSorted: dispatchFilteredSorted } = use
 const { allUploads, fetchAllUploads } = useInvoiceUploads();
 const { filters: paymentFilters, filteredSorted: paymentFilteredSorted, reconciliationOptions, paymentStatusOptions } = usePaymentFilters(allUploads);
 
+// --- Dashboard tab ---
+const DASH_ICONS = {
+  document: '<svg viewBox="0 0 20 20"><path d="M6 2.5h6l3 3v12a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-14a1 1 0 0 1 1-1Z"/><path d="M12 2.5V6h3.5"/></svg>',
+  clipboard: '<svg viewBox="0 0 20 20"><rect x="5" y="3.5" width="10" height="14" rx="1.5"/><rect x="7.5" y="2" width="5" height="3" rx="1"/><path d="M7.5 9h5M7.5 12h5M7.5 15h3"/></svg>',
+  truck: '<svg viewBox="0 0 20 20"><path d="M2 6h9v8H2Z"/><path d="M11 9h3l3 3v2h-6V9Z"/><circle cx="6" cy="16" r="1.5"/><circle cx="14" cy="16" r="1.5"/></svg>',
+  check: '<svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="7.5"/><path d="M6.5 10.2 8.8 12.5 13.5 7.5"/></svg>',
+  percent: '<svg viewBox="0 0 20 20"><circle cx="6" cy="6" r="2"/><circle cx="14" cy="14" r="2"/><path d="M15 5 5 15"/></svg>',
+};
+
+// A PO "has an invoice shared" once any upload exists for it, regardless of
+// reconciliation/payment outcome -- allUploads is the same flat per-login
+// list the Payment Dashboard already reads, so this needs no extra fetch.
+const poCodesWithInvoice = computed(() => new Set(allUploads.value.map((u) => u.po_code)));
+
+const dashOpenPos = computed(() =>
+  currentPos.value.filter((p) => !TERMINAL_STATUSES.has(p.status) && !poCodesWithInvoice.value.has(p.po_code)).length);
+const dashDocketPending = computed(() => new Set(pendingDispatchRows.value.map((r) => r.po_code)).size);
+const dashInTransit = computed(() =>
+  new Set(shippedDispatchRows.value.filter((r) => trackingBucket(r) === "in_transit").map((r) => r.po_code)).size);
+const NINETY_DAYS_MS = 90 * 24 * 60 * 60 * 1000;
+const dashPoComplete = computed(() => {
+  const cutoff = Date.now() - NINETY_DAYS_MS;
+  return currentPos.value.filter((p) => p.status === "COMPLETE" && p.created_at && new Date(p.created_at).getTime() >= cutoff).length;
+});
+const dashFillRatePct = computed(() => {
+  const totalOrdered = currentPos.value.reduce((s, p) => s + (Number(p.qty_ordered) || 0), 0);
+  const totalReceived = currentPos.value.reduce((s, p) => s + (Number(p.qty_received) || 0), 0);
+  return totalOrdered > 0 ? (totalReceived / totalOrdered) * 100 : null;
+});
+// Days between a PO's creation and the confirmed dispatch date of each of
+// its shipments -- no target/on-track threshold shown here, since nothing
+// in this data tells us what this vendor's actual TAT commitment is.
+const dashAvgTatDays = computed(() => {
+  const posByCode = new Map(currentPos.value.map((p) => [p.po_code, p]));
+  const withDates = shippedDispatchRows.value
+    .map((r) => ({ r, po: posByCode.get(r.po_code) }))
+    .filter(({ r, po }) => r.dispatched_date && po?.created_at);
+  if (!withDates.length) return null;
+  const totalDays = withDates.reduce((s, { r, po }) =>
+    s + (new Date(r.dispatched_date) - new Date(po.created_at)) / (24 * 60 * 60 * 1000), 0);
+  return totalDays / withDates.length;
+});
+
+const dashKpiTiles = computed(() => [
+  { key: "open", label: "Open POs", value: dashOpenPos.value, sublabel: "Invoice not yet shared", icon: DASH_ICONS.document, colorVar: "--open" },
+  { key: "docket", label: "Docket pending", value: dashDocketPending.value, sublabel: "Invoice shared · add docket", icon: DASH_ICONS.clipboard, colorVar: "--info" },
+  { key: "transit", label: "In transit", value: dashInTransit.value, sublabel: "Tracking confirmed", icon: DASH_ICONS.truck, colorVar: "--accent" },
+  { key: "complete", label: "PO complete", value: dashPoComplete.value, sublabel: "Closed · last 3 mo", icon: DASH_ICONS.check, colorVar: "--good" },
+  {
+    key: "fillrate", label: "Fill rate",
+    value: dashFillRatePct.value == null ? "–" : `${dashFillRatePct.value.toFixed(1)}%`,
+    sublabel: "Target 90%", icon: DASH_ICONS.percent,
+    colorVar: dashFillRatePct.value == null ? "--muted" : dashFillRatePct.value >= 90 ? "--good" : "--critical",
+  },
+]);
+
+const dashScorecardTiles = computed(() => {
+  const fillOk = dashFillRatePct.value != null && dashFillRatePct.value >= 90;
+  return [
+    {
+      key: "tat", label: "Avg TAT",
+      value: dashAvgTatDays.value == null ? "–" : `${dashAvgTatDays.value.toFixed(0)}d`,
+      sublabel: dashAvgTatDays.value == null ? "No dispatched shipments yet" : "", cls: "",
+    },
+    {
+      key: "fillrate", label: "Fill rate",
+      value: dashFillRatePct.value == null ? "–" : `${dashFillRatePct.value.toFixed(1)}%`,
+      sublabel: dashFillRatePct.value == null ? "" : (fillOk ? "On target" : "Target: ≥90%"),
+      cls: dashFillRatePct.value == null ? "" : (fillOk ? "good" : "critical"),
+    },
+  ];
+});
+
+const dashRecentPos = computed(() => currentPos.value.slice(0, 5).map((p) => ({
+  po_code: p.po_code,
+  sku_count: (poItemsByPo.value[p.po_code] || []).length,
+  facility: p.facility || "",
+})));
+
 const scopeLine = computed(() => `${currentPos.value.length} purchase order${currentPos.value.length === 1 ? "" : "s"} on file`);
 const lastCheckedText = computed(() => lastUpdated.value
   ? "Page last checked " + lastUpdated.value.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit" })
@@ -123,6 +203,7 @@ onMounted(async () => {
     return;
   }
   myRole.value = ctx.profile.role;
+  let previewedVendorName = null;
   if (previewingAsAdmin) {
     // Unfiltered on purpose -- this admin's RLS access already spans every
     // vendor; it's just listing them, not reading anyone's PO details.
@@ -135,13 +216,21 @@ onMounted(async () => {
       supabase.from("purchase_orders").select("vendor_code, vendor_name"),
       supabase.from("profiles").select("vendor_code, vendor_name").eq("role", "vendor"),
     ]);
-    previewVendorOptions.value = dedupeVendorOptions([...(logins || []), ...(pos || [])]);
+    const allVendors = [...(logins || []), ...(pos || [])];
+    previewVendorOptions.value = dedupeVendorOptions(allVendors);
+    // The vendor actually being previewed, not the admin's own vendor_name
+    // (staff profiles reuse that column for their own display name, e.g.
+    // "Praneeth Kumar" -- showing that here instead of the previewed
+    // vendor's name was a real bug).
+    previewedVendorName = allVendors.find(v => v.vendor_code === previewVendorCode)?.vendor_name;
   }
   if (ctx.profile.must_change_password) {
     mustChangePassword.value = true;
     return;
   }
-  myDisplayName.value = ctx.profile.vendor_name || ctx.profile.email || "Vendor";
+  myDisplayName.value = previewingAsAdmin
+    ? (previewedVendorName || previewVendorCode || "Vendor")
+    : (ctx.profile.vendor_name || ctx.profile.email || "Vendor");
   myEmail.value = ctx.profile.email || "";
   await fetchAllUploads(previewVendorCode);
   ready.value = true;
@@ -211,7 +300,10 @@ async function signOut() {
         </header>
 
         <div v-show="activeNav === 'dashboard'">
-          <p class="muted-text">Dashboard content coming next -- this tab is just the shell for now.</p>
+          <DashboardOverview
+            :kpis="dashKpiTiles" :scorecard="dashScorecardTiles" :recent-pos="dashRecentPos"
+            :on-open-po="openPoDetailModal"
+          />
         </div>
 
         <div v-show="activeNav === 'po-tracking'">

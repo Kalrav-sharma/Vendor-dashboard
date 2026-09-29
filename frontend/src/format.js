@@ -123,9 +123,8 @@ export function dtdcStatusClass(statusType) {
 // "Delivered" label as a plain delivered status instead of surfacing the
 // raw courier text (Kalrav's explicit call, 2026-09-29). Still keyed
 // separately here since it's a distinct raw value; see trackingBucket()
-// in DispatchPlanningTable.vue and TERMINAL_STATUSES in
-// sync_lets_transport_tracking.py for the other places it's treated the
-// same as "delivered".
+// below and TERMINAL_STATUSES in sync_lets_transport_tracking.py for the
+// other places it's treated the same as "delivered".
 export const LETS_TRANSPORT_STATUS_META = {
   "shipment booked": ["Booked", "muted"],
   "in transit": ["In transit", "open"],
@@ -247,6 +246,31 @@ export function dedupeInvoiceNumbers(numbers) {
     if (!seen.has(key)) seen.set(key, trimmed);
   }
   return [...seen.values()];
+}
+
+// Buckets a shipped dispatch row's courier-specific status_type into
+// "in_transit" | "delivered" | "exception" | null -- each courier has its
+// own status vocabulary (Bluedart: short codes; DTDC and Lets Transport:
+// free text), so this is the one place that needs to know all three,
+// rather than spreading courier-specific checks across every KPI that
+// needs to know "is this shipment still moving." Shared by
+// DispatchPlanningTable.vue's own KPI tiles and VendorApp.vue's Dashboard.
+export function trackingBucket(row) {
+  const status = row.tracking?.status_type;
+  if (row.courier === "bluedart") {
+    if (status === "IT") return "in_transit";
+    if (status === "DL") return "delivered";
+    if (["UD", "RT"].includes(status)) return "exception";
+  } else if (row.courier === "dtdc") {
+    const s = (status || "").toLowerCase();
+    if (["in transit", "out for delivery", "pickup awaited"].includes(s)) return "in_transit";
+    if (s === "delivered") return "delivered";
+  } else if (row.courier === "letstransport") {
+    const s = (status || "").toLowerCase();
+    if (["shipment booked", "in transit", "arrived hub", "out for delivery"].includes(s)) return "in_transit";
+    if (s === "delivered" || s === "pod uploaded") return "delivered";
+  }
+  return null;
 }
 
 // Distinct vendor_code/vendor_name pairs out of any list of PO-like rows,

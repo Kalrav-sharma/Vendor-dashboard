@@ -1,7 +1,7 @@
 <script setup>
 import { reactive, ref, computed, watch } from "vue";
 import { supabase } from "../supabaseClient.js";
-import { fmtNum, fmtDateOnly, fmtDate } from "../format.js";
+import { fmtNum, fmtDateOnly, fmtDate, trackingBucket } from "../format.js";
 import SummaryKpis from "./SummaryKpis.vue";
 import BluedartStatusChip from "./BluedartStatusChip.vue";
 import DtdcStatusChip from "./DtdcStatusChip.vue";
@@ -65,11 +65,6 @@ function isOverdue(row) {
   return row.kind === "pending" && !!row.estimated_dispatch_date && new Date(row.estimated_dispatch_date) < todayStart;
 }
 
-// Buckets a shipped row's courier-specific status_type into one of the
-// three KPI tiles below -- each courier has its own status vocabulary
-// (Bluedart: short codes; DTDC and Lets Transport: free text), so this is
-// the one place that needs to know all three, rather than spreading
-// courier-specific checks across the KPI computation itself.
 // Actual delivery date/time -- the newest scan IS the delivery event once
 // a shipment reaches "delivered" (that's exactly why the sync scripts
 // stop polling it), so last_scan_at at that point already is the actual
@@ -98,24 +93,6 @@ function letsTransportEstimate(row) {
 // for Lets Transport (the only courier whose field is reliably blank).
 function expectedDelivery(row) {
   return row.tracking?.expected_delivery_date || letsTransportEstimate(row);
-}
-
-function trackingBucket(row) {
-  const status = row.tracking?.status_type;
-  if (row.courier === "bluedart") {
-    if (status === "IT") return "in_transit";
-    if (status === "DL") return "delivered";
-    if (["UD", "RT"].includes(status)) return "exception";
-  } else if (row.courier === "dtdc") {
-    const s = (status || "").toLowerCase();
-    if (["in transit", "out for delivery", "pickup awaited"].includes(s)) return "in_transit";
-    if (s === "delivered") return "delivered";
-  } else if (row.courier === "letstransport") {
-    const s = (status || "").toLowerCase();
-    if (["shipment booked", "in transit", "arrived hub", "out for delivery"].includes(s)) return "in_transit";
-    if (s === "delivered" || s === "pod uploaded") return "delivered";
-  }
-  return null;
 }
 
 const kpiTiles = computed(() => {
