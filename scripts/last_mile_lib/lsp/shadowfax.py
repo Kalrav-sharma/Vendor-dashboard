@@ -237,14 +237,189 @@ def parse(payload: dict[str, Any], awb: str, courier: str,
     )
 
 
-def track(awbs: Sequence[str], ctx: FetchContext) -> list[TrackingResult]:
-    """Poll via the shared loop, so an abort records what went unpolled.
+def _parse_utc(value: Any) -> datetime | None:
+    """The Unified API's timestamps are UTC ("2024-08-27T11:29:31Z").
 
-    This adapter used to carry its own inline loop, written before `_loop.py`
-    existed. On abort it simply stopped, so the remaining AWBs were neither
-    polled nor recorded -- on the first full-scale run that silently dropped
-    5,138 of 5,167 shipments, and the poll state had no idea they were missed.
+    parse_dt() strips a trailing Z and then ASSUMES IST, which would put every
+    Shadowfax scan 5.5h in the past and manufacture STUCK alerts -- so parse
+    naive here and stamp UTC explicitly.
     """
+    dt = parse_dt(value, assume_ist=False)
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(IST)
+
+
+#: Customer name/phone/address and seller/tax lines are never needed to track a
+#: shipment, and raw_payload lands in last_mile_alerts.raw -- so they are
+#: dropped rather than copied into our tables.
+_ADDRESS_KEEP = ("city", "state", "pincode")
+
+
+def _redact(rec: dict[str, Any]) -> dict[str, Any]:
+    out = {k: v for k, v in rec.items()
+           if k not in ("pickup_details", "delivery_details", "product_details")}
+    for key in ("pickup_details", "delivery_details"):
+        addr = rec.get(key)
+        if isinstance(addr, dict):
+            out[key] = {k: addr.get(k) for k in _ADDRESS_KEEP}
+    return out
+
+
+def parse_official(rec: dict[str, Any], awb: str,
+                   ctx: FetchContext) -> TrackingResult:
+    """Pure parser for one Unified API bulk_track `data` entry."""
+    steps = [s for s in (rec.get("tracking_details") or []) if isinstance(s, dict)]
+    # The docs list scans oldest-first; the rest of the pipeline reads
+    # events[0] as the latest scan. ISO-UTC strings sort chronologically.
+    steps.sort(key=lambda s: str(s.get("created") or ""), reverse=True)
+
+    raw = str(rec.get("status") or rec.get("status_id")
+              or (steps[0].get("status_id") if steps else "") or "").strip().lower()
+    mapped = raw in STATUS_MAP
+    canonical = STATUS_MAP.get(raw, CanonicalStatus.UNKNOWN)
+    if not mapped and raw and ctx.dq is not None:
+        ctx.dq.unmapped_status(ADAPTER_ID, raw, awb, _redact(rec))
+
+    events: list[TrackEvent] = []
+    for s in steps:
+        sid = str(s.get("status_id") or "").strip().lower()
+        events.append(TrackEvent(
+            at=_parse_utc(s.get("created")),
+            raw_status=str(s.get("status") or sid),
+            canonical=STATUS_MAP.get(sid, CanonicalStatus.UNKNOWN),
+            location=s.get("location") or None,
+            remark=s.get("remarks") or None,
+            raw_status_mapped=sid in STATUS_MAP,
+        ))
+
+    attempts = sum(1 for e in events
+                   if e.canonical == CanonicalStatus.DELIVERY_ATTEMPT_FAILED)
+    latest = events[0] if events else None
+    return TrackingResult(
+        awb=awb, adapter_id=ADAPTER_ID, courier_code="",
+        fetched_at=ctx.now, outcome=FetchOutcome.OK,
+        canonical_status=canonical, raw_status=raw or None,
+        raw_status_mapped=mapped,
+        status_at=latest.at if latest else None,
+        events=tuple(events),
+        expected_delivery=parse_dt(rec.get("promised_delivery_date")),
+        attempt_count=attempts or None,
+        ndr_reason=(latest.remark if latest
+                    and canonical == CanonicalStatus.DELIVERY_ATTEMPT_FAILED else None),
+        current_location=latest.location if latest else None,
+        destination=(rec.get("delivery_details") or {}).get("city") or None,
+        raw_payload=_redact(rec),
+    )
+
+
+def _track_official(awbs: Sequence[str], ctx: FetchContext,
+                    token: str) -> list[TrackingResult]:
+    """One POST per 50 AWBs against the Unified API's bulk_track."""
+    cap = (ctx.max_awbs_override or {}).get(ADAPTER_ID, OFFICIAL_MAX_AWBS_PER_RUN)
+    awbs = list(awbs)
+    awbs, over = awbs[:cap], awbs[cap:]
+    headers = {"Authorization": f"Token {token}", "Accept": "application/json"}
+
+    def fail(batch, outcome, err, http=None,
+             status=CanonicalStatus.UNKNOWN) -> list[TrackingResult]:
+        return [TrackingResult(
+            awb=a, adapter_id=ADAPTER_ID, courier_code="", fetched_at=ctx.now,
+            outcome=outcome, canonical_status=status, http_status=http,
+            error=str(err)[:200]) for a in batch]
+
+    def fetch_batch(batch: list[str]) -> list[TrackingResult]:
+        r = ctx.http.request(
+            ADAPTER_ID, "POST", OFFICIAL_BULK_URL,
+            json={"awb_numbers": batch},
+            min_interval_s=OFFICIAL_MIN_INTERVAL_S,
+            timeout=(SPEC.timeout_connect_s, SPEC.timeout_read_s),
+            headers=headers, block_signatures=SPEC.block_signatures)
+        if r.status_code in (401, 403):
+            raise PermissionError(f"SHADOWFAX_API_TOKEN rejected (http={r.status_code})")
+        if r.status_code == 400:
+            # Documented for an invalid AWB, but not whether one bad AWB fails
+            # the whole batch -- so split and retry until it is isolated,
+            # rather than losing 49 good answers to one bad number.
+            if len(batch) > 1:
+                mid = len(batch) // 2
+                return fetch_batch(batch[:mid]) + fetch_batch(batch[mid:])
+            try:
+                msg = str(r.json().get("message") or "")
+            except Exception:
+                msg = r.text[:120]
+            return fail(batch, FetchOutcome.NOT_FOUND, msg or "http 400", 400,
+                        CanonicalStatus.AWB_NOT_FOUND)
+        if r.status_code == 429 or r.status_code >= 500:
+            return fail(batch, FetchOutcome.TRANSIENT_ERROR,
+                        f"http {r.status_code}", r.status_code)
+        try:
+            data = r.json().get("data")
+        except Exception as exc:
+            return fail(batch, FetchOutcome.PARSE_ERROR,
+                        f"non-JSON response: {type(exc).__name__}", r.status_code)
+        if not isinstance(data, list):
+            return fail(batch, FetchOutcome.PARSE_ERROR,
+                        "no `data` list in bulk_track response", r.status_code)
+
+        found = {str(d.get("awb_number") or "").strip().upper(): d
+                 for d in data if isinstance(d, dict)}
+        out: list[TrackingResult] = []
+        for a in batch:
+            rec = found.get(a.strip().upper())
+            if rec is None:
+                out += fail([a], FetchOutcome.NOT_FOUND,
+                            "not present in the bulk_track response",
+                            r.status_code, CanonicalStatus.AWB_NOT_FOUND)
+                continue
+            res = parse_official(rec, a, ctx)
+            res.http_status = r.status_code
+            res.latency_ms = int(r.elapsed.total_seconds() * 1000)
+            out.append(res)
+        return out
+
+    out: list[TrackingResult] = []
+    stop: tuple[FetchOutcome, str] | None = None
+    for i in range(0, len(awbs), OFFICIAL_BATCH_SIZE):
+        batch = awbs[i:i + OFFICIAL_BATCH_SIZE]
+        if stop is None and ctx.out_of_budget():
+            stop = (FetchOutcome.SKIPPED_BUDGET, "run budget spent")
+        if stop is not None:
+            out += fail(batch, *stop)
+            continue
+        try:
+            out += fetch_batch(batch)
+        except PermissionError as exc:
+            # Every remaining call would fail the same way.
+            out += fail(batch, FetchOutcome.AUTH_REQUIRED, exc)
+            stop = (FetchOutcome.AUTH_REQUIRED, f"skipped: {exc}")
+        except BlockedError as exc:
+            out += fail(batch, FetchOutcome.BLOCKED, exc)
+            stop = (FetchOutcome.SKIPPED_BUDGET, "deferred: adapter blocked earlier this run")
+        except CircuitOpen as exc:
+            out += fail(batch, FetchOutcome.TRANSIENT_ERROR, exc)
+            stop = (FetchOutcome.SKIPPED_BUDGET, "deferred: adapter aborted earlier this run")
+        except Exception as exc:
+            out += fail(batch, FetchOutcome.TRANSIENT_ERROR, f"{type(exc).__name__}: {exc}")
+    out += fail(over, FetchOutcome.SKIPPED_BUDGET, f"deferred: over {ADAPTER_ID} cap={cap}")
+    return out
+
+
+def track(awbs: Sequence[str], ctx: FetchContext) -> list[TrackingResult]:
+    """Official Unified API when SHADOWFAX_API_TOKEN is set, else the public path.
+
+    The public path polls via the shared loop, so an abort records what went
+    unpolled. This adapter used to carry its own inline loop, written before
+    `_loop.py` existed. On abort it simply stopped, so the remaining AWBs were
+    neither polled nor recorded -- on the first full-scale run that silently
+    dropped 5,138 of 5,167 shipments, and the poll state had no idea.
+    """
+    official = ((ctx.secrets or {}).get("SHADOWFAX_API_TOKEN") or "").strip()
+    if official:
+        return _track_official(awbs, ctx, official)
+
     token = resolve_token(ctx)
     if not token:
         return [TrackingResult(

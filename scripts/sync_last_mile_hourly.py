@@ -39,11 +39,12 @@ Supabase rows drop into unchanged.
 
 SHADOWFAX
 ---------
-Not polled. Kalrav's call: it needs a manual check against public data or
-Uniware's own tracking status rather than an automated adapter, so its
-shipments keep whatever status Uniware recorded and are never counted as
-carrier-verified. The adapter module is present but this script does not
-call it -- see POLLED_ADAPTERS below.
+Polled ONLY when SHADOWFAX_API_TOKEN (the Unified API client key) is set --
+see TOKEN_GATED_ADAPTERS below. Without it the only path is the shared public
+tracker token, whose rolling quota (~60 AWBs/run) can't cover the volume,
+which is why Shadowfax used to be left to Uniware's own tracking status
+entirely. That turned out not to be safe: measured 2026-09-29, Uniware's
+status for aged Shadowfax AWBs stayed months stale even on a fresh re-pull.
 
 HOLISOL
 -------
@@ -80,10 +81,11 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from last_mile_lib import alerts as alerts_mod          # noqa: E402
 from last_mile_lib import envfile, performance          # noqa: E402
-from last_mile_lib.dates import now_ist                 # noqa: E402
+from last_mile_lib.dates import now_ist, parse_dt       # noqa: E402
 from last_mile_lib.dq import DQSink                     # noqa: E402
 from last_mile_lib.lsp import registry                  # noqa: E402
-from last_mile_lib.lsp.base import FetchContext, FetchOutcome, TrackingResult  # noqa: E402
+from last_mile_lib.lsp.base import (CanonicalStatus, FetchContext,  # noqa: E402
+                                    FetchOutcome, TrackingResult)
 from last_mile_lib.lsp.http import HttpClient           # noqa: E402
 from last_mile_lib.sla import days_overdue              # noqa: E402
 from last_mile_lib.tiering import PollState             # noqa: E402
@@ -95,11 +97,13 @@ PERF_WINDOW_DAYS = 15
 WORST_LANES_MIN_VOLUME = 5
 WORST_LANES_LIMIT = 25
 
-# Adapters this job actually calls. Shadowfax is deliberately absent (see the
-# module docstring); not_trackable/porter/unknown/holisol have nothing to
-# call -- holisol is excluded at intake entirely (config.json), never even
-# reaching the `candidates` filter below.
+# Adapters this job always calls. not_trackable/porter/unknown/holisol have
+# nothing to call -- holisol is excluded at intake entirely (config.json),
+# never even reaching the `candidates` filter below.
 POLLED_ADAPTERS = frozenset({"bluedart", "delhivery", "dtdc"})
+# Adapters polled only once their credential is present (see the module
+# docstring's SHADOWFAX section for why its tokenless path isn't enough).
+TOKEN_GATED_ADAPTERS = {"shadowfax": "SHADOWFAX_API_TOKEN"}
 
 
 def env(name):
@@ -210,9 +214,10 @@ def main():
     if "--adapters" in sys.argv:
         only_adapters = {x.strip().lower() for x in
                          sys.argv[sys.argv.index("--adapters") + 1].split(",") if x.strip()}
-        unknown = only_adapters - POLLED_ADAPTERS
+        pollable = POLLED_ADAPTERS | set(TOKEN_GATED_ADAPTERS)
+        unknown = only_adapters - pollable
         if unknown:
-            sys.exit(f"--adapters: not pollable: {sorted(unknown)}; choose from {sorted(POLLED_ADAPTERS)}")
+            sys.exit(f"--adapters: not pollable: {sorted(unknown)}; choose from {sorted(pollable)}")
 
     url, key = env("SUPABASE_URL").rstrip("/"), env("SUPABASE_SERVICE_ROLE_KEY")
     now = now_ist()
@@ -241,9 +246,11 @@ def main():
     # carrier already confirmed delivered must never be re-polled just because
     # the rolling window re-exported it.
     settled = state.settled_awbs()
+    polled_adapters = POLLED_ADAPTERS | {a for a, k in TOKEN_GATED_ADAPTERS.items()
+                                         if secrets.get(k)}
     candidates = [s for s in ships
                   if s.needs_lsp_poll and s.awb not in settled
-                  and s.adapter_id in POLLED_ADAPTERS]
+                  and s.adapter_id in polled_adapters]
     if only_adapters:
         before = len(candidates)
         candidates = [s for s in candidates if s.adapter_id in only_adapters]
@@ -308,6 +315,28 @@ def main():
                   f"poll_state left untouched for those shipments, they are simply due again next run.")
 
     polls = {r.awb: r for r in results if r.outcome == FetchOutcome.OK}
+
+    # A carrier-reported terminal status (delivered/cancelled/returned/lost)
+    # still holds in the hours an AWB isn't re-polled. `polls` above is only
+    # THIS run's calls, so without this a shipment the carrier already said was
+    # delivered fell back to Uniware's own status every hour it wasn't due --
+    # which for Shadowfax can be months stale -- and re-alerted as BREACHED.
+    carried = 0
+    for awb, rec in state.records.items():
+        if awb in polls or not rec.terminal or not rec.last_status:
+            continue
+        try:
+            last = CanonicalStatus(rec.last_status)
+        except ValueError:
+            continue
+        polls[awb] = TrackingResult(
+            awb=awb, adapter_id="", courier_code="", fetched_at=now,
+            outcome=FetchOutcome.OK, canonical_status=last,
+            raw_status=f"{last.value} (last carrier poll)",
+            status_at=parse_dt(rec.last_status_at) if rec.last_status_at else None)
+        carried += 1
+    if carried:
+        print(f"carried forward {carried:,} carrier-confirmed terminal status(es) from poll state")
 
     # ---- rebuild every rollup -------------------------------------------
     al = alerts_mod.evaluate_all(ships, polls=polls, now=now_ist())
