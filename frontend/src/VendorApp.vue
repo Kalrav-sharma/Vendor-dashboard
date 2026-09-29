@@ -34,7 +34,7 @@ const activeNav = ref("dashboard");
 const pageTitle = computed(() => {
   if (activeNav.value === "dashboard") return `Welcome ${myDisplayName.value} Team`;
   return {
-    "po-tracking": "PO Tracking",
+    "po-tracking": "Purchase Order",
     "sku-data": "SKU Level Data",
     "dispatch-planning": "Dispatch Planning",
     "payment-dashboard": "Payment Dashboard",
