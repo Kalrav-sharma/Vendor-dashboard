@@ -436,6 +436,7 @@ def main():
         "on_time_pct": l.get("on_time_pct"),
         "avg_transit_days": l.get("avg_transit_days"),
         "p85_transit_days": l.get("p85_transit_days"),
+        "promised_tat_days": l.get("promised_tat_days"),
         "active": l.get("active") or 0, "breached": l.get("breached") or 0,
         "rto_in_flight": l.get("rto_in_flight") or 0,
         "excluded_assumed_promise": l.get("excluded_assumed_promise") or 0,

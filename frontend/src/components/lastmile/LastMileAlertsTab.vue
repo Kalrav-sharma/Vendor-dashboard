@@ -48,8 +48,7 @@ function fmtPayment(p) {
 const CSV_COLUMNS = [
   ["awb", "AWB"], ["primary_flag", "Flag"], ["category", "Category"], ["lsp", "LSP"],
   ["city", "City"], ["pincode", "Pincode"], ["payment_type", "Payment"],
-  ["order", "Order"], ["status", "Status"], ["destination", "Destination"],
-  ["expected_delivery_date", "Carrier ETA"], ["promised_date", "Promised"],
+  ["order", "Order"], ["status", "Status"], ["promised_date", "Promised"],
   ["days_overdue", "Overdue (days)"], ["last_scan_text", "Last scan"], ["notes", "Notes"],
 ];
 function csvCell(v) {
@@ -61,7 +60,6 @@ function downloadCsv() {
     awb: a.awb, primary_flag: fmtFlag(a.primary_flag), category: a.category || "",
     lsp: a.lsp || "", city: a.city || "", pincode: a.pincode || "", payment_type: fmtPayment(a.payment_type),
     order: (a.sale_order_codes || [])[0] || "", status: a.status || a.raw_status || "",
-    destination: a.destination || "", expected_delivery_date: fmtDate(a.expected_delivery_date),
     promised_date: fmtDate(a.promised_date), days_overdue: a.days_overdue ?? "",
     last_scan_text: a.last_scan_text || "", notes: a.ndr_reason || a.notes || "",
   }));
@@ -134,7 +132,7 @@ const kpiTiles = computed(() => {
         <thead>
           <tr>
             <th>AWB</th><th>Flag</th><th>Category</th><th>LSP</th><th>City / pincode</th>
-            <th>Payment</th><th>Order</th><th>Status</th><th>Destination</th><th>Carrier ETA</th>
+            <th>Payment</th><th>Order</th><th>Status</th>
             <th>Promised</th><th class="num">Overdue</th><th>Last scan</th><th>Notes</th>
           </tr>
           <tr class="filter-row">
@@ -157,12 +155,12 @@ const kpiTiles = computed(() => {
                 <option v-for="c in cityOptions" :key="c" :value="c">{{ c }}</option>
               </select>
             </td>
-            <td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td>
+            <td></td><td></td><td></td><td></td><td></td><td></td><td></td>
           </tr>
         </thead>
         <tbody>
           <tr v-if="!filteredSorted.length">
-            <td colspan="14" class="empty-state">No alerts match these filters.</td>
+            <td colspan="12" class="empty-state">No alerts match these filters.</td>
           </tr>
           <tr v-for="a in filteredSorted" :key="a.id">
             <td class="mono">{{ a.awb }}</td>
@@ -173,8 +171,6 @@ const kpiTiles = computed(() => {
             <td><span v-if="fmtPayment(a.payment_type) !== '–'" class="chip" :class="a.payment_type === 'COD' ? 'chip-open' : 'chip-muted'">{{ fmtPayment(a.payment_type) }}</span><span v-else>–</span></td>
             <td class="mono">{{ (a.sale_order_codes || [])[0] || "–" }}</td>
             <td>{{ a.status || a.raw_status || "–" }}</td>
-            <td>{{ a.destination || "–" }}</td>
-            <td class="mono">{{ a.expected_delivery_date ? fmtDate(a.expected_delivery_date) : "–" }}</td>
             <td>{{ fmtDate(a.promised_date) }}</td>
             <td class="num mono" :class="a.days_overdue > 0 ? 'cell-critical' : ''">{{ fmtDays(a.days_overdue) }}</td>
             <td>

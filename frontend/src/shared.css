@@ -270,6 +270,20 @@ button.link-btn {
 
 .table-card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
 .table-scroll { overflow-x: auto; }
+
+/* Meter / progress-track infographic -- e.g. Last Mile Tracking's per-LSP
+   comparison. Fill is a single neutral accent, not a status hue: see
+   LastMileCarrierTab.vue's own comment for why (validated against the
+   dataviz skill's CVD checks 2026-09-29 -- this app's --good/--open/
+   --critical are audited for text/chip use, not as adjacent painted
+   marks). Severity rides the paired figure's own text color instead. */
+.lsp-meter-list { display: flex; flex-direction: column; gap: 18px; }
+.lsp-meter-row { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+.lsp-meter-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+.meter-track { background: var(--line); border-radius: 999px; height: 10px; overflow: hidden; }
+.meter-fill { background: var(--accent); border-radius: 999px; height: 100%; }
+.lsp-meter-stats { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 10px; font-size: 0.8rem; color: var(--muted); }
+.lsp-meter-stats b { color: var(--ink); }
 table { width: 100%; border-collapse: collapse; font-size: 0.86rem; min-width: 920px; }
 th { text-align: left; padding: 10px 12px; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); font-weight: 600; border-bottom: 1px solid var(--line); background: var(--paper); white-space: nowrap; vertical-align: middle; }
 /* A numeric column's header must right-align to match its data below it --

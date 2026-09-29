@@ -60,6 +60,11 @@ class Scorecard:
     on_time_pct: float | None = None
     #: Deliveries excluded from on_time_pct because the promise was assumed.
     excluded_assumed_promise: int = 0
+    #: The SERVICEABILITYRULES_DP promise for this lane, in days -- the most
+    #: common promise_days among this lane's non-ASSUMED (real-rule) graded
+    #: deliveries. None if every delivery here was ASSUMED (no rule covers
+    #: the lane at all).
+    promised_tat_days: int | None = None
 
     avg_transit_days: float | None = None
     p85_transit_days: float | None = None
@@ -125,6 +130,7 @@ def build(shipments: Iterable[Shipment], now: datetime | None = None,
     buckets: dict[tuple[str, str], Scorecard] = {}
     transit: dict[tuple[str, str], list[float]] = defaultdict(list)
     couriers: dict[tuple[str, str], set[str]] = defaultdict(set)
+    promised_days_seen: dict[tuple[str, str], Counter] = defaultdict(Counter)
 
     def key_for(s: Shipment) -> tuple[str, str]:
         if grain == "lsp_city":
@@ -182,6 +188,8 @@ def build(shipments: Iterable[Shipment], now: datetime | None = None,
                     sc.on_time += 1
                 else:
                     sc.late += 1
+                if s.promise_days is not None:
+                    promised_days_seen[key][s.promise_days] += 1
             continue
 
         if canon == C.RTO_DELIVERED:
@@ -214,6 +222,11 @@ def build(shipments: Iterable[Shipment], now: datetime | None = None,
             sc.p85_transit_days = round(percentile(vals, 0.85) or 0, 2)
             sc.worst_transit_days = vals[-1]
         sc.courier_codes = sorted(c for c in couriers[key] if c)
+        if promised_days_seen[key]:
+            # Mode, not mean -- a lane's promise is a single rule value, not a
+            # continuous quantity, and this is robust to the occasional
+            # pincode-specific override skewing an average within the lane.
+            sc.promised_tat_days = promised_days_seen[key].most_common(1)[0][0]
         out.append(_finalise(sc))
 
     # Biggest carrier first -- that is where a percentage point matters most.
@@ -236,6 +249,7 @@ def worst_lanes(shipments: Iterable[Shipment], now: datetime | None = None,
         "lsp": c.lsp, "city": c.dimension, "graded": c.on_time + c.late,
         "on_time_pct": c.on_time_pct, "late": c.late,
         "avg_transit_days": c.avg_transit_days, "p85_transit_days": c.p85_transit_days,
+        "promised_tat_days": c.promised_tat_days,
         "active": c.active, "breached": c.breached,
         "rto_in_flight": c.rto_in_flight,
         "excluded_assumed_promise": c.excluded_assumed_promise,

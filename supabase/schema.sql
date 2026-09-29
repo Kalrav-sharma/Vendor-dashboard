@@ -1988,6 +1988,10 @@ create table if not exists public.last_mile_worst_lanes (
   on_time_pct numeric,
   avg_transit_days numeric,
   p85_transit_days numeric,             -- the tail, which an average hides
+  promised_tat_days int,                -- SERVICEABILITYRULES_DP's promise for this
+                                         -- lane -- mode of promise_days among its
+                                         -- non-ASSUMED graded deliveries, null if
+                                         -- every delivery here was ASSUMED
   active int not null default 0,        -- still in flight on this lane
   breached int not null default 0,
   rto_in_flight int not null default 0,
@@ -1995,6 +1999,10 @@ create table if not exists public.last_mile_worst_lanes (
   synced_at timestamptz not null default now()
 );
 create index if not exists idx_last_mile_worst_lanes_run on public.last_mile_worst_lanes (run_id);
+-- promised_tat_days added 2026-09-29 for the Worst Lanes tab's Promised TAT
+-- column -- "create table if not exists" won't retroactively add it on an
+-- already-deployed database; this does, and is a no-op if already there.
+alter table public.last_mile_worst_lanes add column if not exists promised_tat_days int;
 
 alter table public.last_mile_worst_lanes enable row level security;
 drop policy if exists last_mile_worst_lanes_select on public.last_mile_worst_lanes;
