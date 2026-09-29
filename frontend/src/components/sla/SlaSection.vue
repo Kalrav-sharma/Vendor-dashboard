@@ -2,6 +2,8 @@
 // SLA: delivery SLA performance, brought into the portal from two local Claude skills:
 //   Trends       <- /late-delivery-trends (leadership trend lines, weekly/monthly)
 //   Week N — RCA <- /late-delivery-rca (the week's late-delivery root-cause dashboard)
+//   SLA change alerts <- pincodes of the RCA week under 88% on time (sla_pincode_alert),
+//                        with the user's per-week "SLA revised" toggle
 // Both are fed from Jarvis by a VPN-side sync (~/.claude/scripts/sla_portal/), because
 // GitHub Actions can't reach Jarvis. See schema.sql's "SLA section" block.
 //
@@ -12,13 +14,16 @@ import { ref, computed } from "vue";
 import "./sla.css";
 import SlaTrendsTab from "./SlaTrendsTab.vue";
 import SlaRcaTab from "./SlaRcaTab.vue";
+import SlaChangeAlerts from "./SlaChangeAlerts.vue";
 import { useSlaRcaData } from "../../composables/useSlaRcaData.js";
 
+const props = defineProps({ editorLabel: { type: String, default: "" } });
 const { run, loaded, loadError } = useSlaRcaData();
 
 const SUBTABS = computed(() => [
   { id: "trends", label: "Trends" },
   { id: "rca", label: run.value ? `Week ${run.value.week_no} — RCA` : "Week — RCA" },
+  { id: "alerts", label: "SLA change alerts" },
 ]);
 const activeSubTab = ref("trends");
 </script>
@@ -34,4 +39,5 @@ const activeSubTab = ref("trends");
 
   <div v-show="activeSubTab === 'trends'"><SlaTrendsTab :rca-run="run" /></div>
   <div v-show="activeSubTab === 'rca'"><SlaRcaTab :run="run" :loaded="loaded" :load-error="loadError" /></div>
+  <div v-show="activeSubTab === 'alerts'"><SlaChangeAlerts :run="run" :editor-label="props.editorLabel" /></div>
 </template>

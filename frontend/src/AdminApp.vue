@@ -382,7 +382,7 @@ async function signOut() {
         </div>
 
         <div v-if="canSeeSla" v-show="activeNav === 'sla'">
-          <SlaSection />
+          <SlaSection :editor-label="whoLine" />
         </div>
 
         <div v-if="canSeeSpares" v-show="activeNav === 'spares'">
