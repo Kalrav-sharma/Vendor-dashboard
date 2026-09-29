@@ -101,8 +101,14 @@ const DASH_ICONS = {
 // list the Payment Dashboard already reads, so this needs no extra fetch.
 const poCodesWithInvoice = computed(() => new Set(allUploads.value.map((u) => u.po_code)));
 
-const dashOpenPos = computed(() =>
-  currentPos.value.filter((p) => !TERMINAL_STATUSES.has(p.status) && !poCodesWithInvoice.value.has(p.po_code)).length);
+// Full PO rows (not just a count) behind the same "Invoice not yet shared"
+// definition as dashOpenPos below -- the Payments tab's "Invoice Copy
+// Needed" bucket lists and uploads directly against these, since a PO
+// missing its invoice entirely has no po_invoice_uploads row to show in
+// that table otherwise.
+const posNeedingInvoice = computed(() =>
+  currentPos.value.filter((p) => !TERMINAL_STATUSES.has(p.status) && !poCodesWithInvoice.value.has(p.po_code)));
+const dashOpenPos = computed(() => posNeedingInvoice.value.length);
 const dashDocketPending = computed(() => new Set(pendingDispatchRows.value.map((r) => r.po_code)).size);
 const dashInTransit = computed(() =>
   new Set(shippedDispatchRows.value.filter((r) => trackingBucket(r) === "in_transit").map((r) => r.po_code)).size);
@@ -321,7 +327,7 @@ async function signOut() {
             :rows="paymentFilteredSorted" :filters="paymentFilters" :reconciliation-options="reconciliationOptions"
             :payment-status-options="paymentStatusOptions"
             :on-open-po="openPoDetailModal" :uploader-label="myDisplayName"
-            :show-vendor-kpis="true" :pos-needing-invoice-count="dashOpenPos"
+            :show-vendor-kpis="true" :show-buckets="true" :pos-needing-invoice="posNeedingInvoice"
           />
         </div>
 

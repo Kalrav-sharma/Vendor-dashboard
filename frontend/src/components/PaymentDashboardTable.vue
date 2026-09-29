@@ -1,9 +1,11 @@
 <script setup>
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import { fmtMoney, fmtDateOnly } from "../format.js";
 import ReconciliationChip from "./ReconciliationChip.vue";
 import PaymentStatusChip from "./PaymentStatusChip.vue";
 import ViewInvoiceButton from "./ViewInvoiceButton.vue";
+import InvoiceUploadButton from "./InvoiceUploadButton.vue";
+import InvoiceUploadModal from "./InvoiceUploadModal.vue";
 import SummaryKpis from "./SummaryKpis.vue";
 
 const props = defineProps({
@@ -16,7 +18,8 @@ const props = defineProps({
   onOpenPo: { type: Function, required: true }, // (poCode) => void
   uploaderLabel: { type: String, default: "" }, // current user's display name, recorded on an uploaded credit note
   showVendorKpis: { type: Boolean, default: false }, // vendor.html's own 4-tile set below; admin.html keeps the original tiles
-  posNeedingInvoiceCount: { type: Number, default: 0 }, // POs with no invoice uploaded yet at all -- vendor-only, see dashOpenPos in VendorApp.vue
+  showBuckets: { type: Boolean, default: false }, // vendor.html's All/CN Required/Invoice Copy Needed/No Action Needed/Paid tabs
+  posNeedingInvoice: { type: Array, default: () => [] }, // POs with no invoice uploaded yet at all -- vendor-only, see posNeedingInvoice in VendorApp.vue
 });
 
 function invoiceNumber(row) { return row.match_details?.extracted?.invoice_number || "–"; }
@@ -42,6 +45,15 @@ function isOverdue(row) {
 // exactly as it did when it was a plain row count.
 function isPaid(row) { return row.payment_status === "paid"; }
 
+// One shared upload popup for the "Invoice Copy Needed" bucket's rows --
+// same pattern as PoTrackingTable's per-row upload button.
+const uploadModalPoCode = ref(null);
+const uploadModalVendorCode = ref(null);
+function openUploadModal(po) {
+  uploadModalPoCode.value = po.po_code;
+  uploadModalVendorCode.value = po.vendor_code;
+}
+
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 
 // Vendor's own 4-tile set -- amount + backing invoice count for the three
@@ -51,7 +63,7 @@ const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 // "To be paid this week" = booked on the payout file but not yet paid
 // (payment_status "pending" -- see PAYMENT_STATUS_META's "Booked, Pending")
 // with a real, non-zero invoice value. "Action required" = a PO still
-// missing its invoice copy (posNeedingInvoiceCount, passed in from
+// missing its invoice copy (posNeedingInvoice, passed in from
 // VendorApp.vue since that's PO-level data this table doesn't otherwise
 // have) OR an uploaded invoice flagged for a credit note (match_status
 // "mismatch") -- an already-paid invoice can't be in either group.
@@ -67,7 +79,7 @@ const vendorKpiTiles = computed(() => {
   const toBePaid = toBePaidRows.reduce((s, r) => s + (invoiceValue(r) || 0), 0);
 
   const creditNoteNeededCount = props.rows.filter(r => r.match_status === "mismatch").length;
-  const actionRequired = props.posNeedingInvoiceCount + creditNoteNeededCount;
+  const actionRequired = props.posNeedingInvoice.length + creditNoteNeededCount;
 
   return [
     { label: "Payments made till date", value: fmtMoney(madeTillDate), sublabel: `${paidRows.length} invoices` },
@@ -91,10 +103,62 @@ const adminKpiTiles = computed(() => {
 });
 
 const kpiTiles = computed(() => (props.showVendorKpis ? vendorKpiTiles.value : adminKpiTiles.value));
+
+// Segregates the same rows the KPI tiles above already count into
+// clickable buckets -- "All" is every real invoice row PLUS the synthetic
+// "needs a copy" PO entries below, so its count matches the sum of the
+// other four exactly (mirrors why Action Required above adds those two
+// different-shaped things together). No-Action-Needed is deliberately the
+// leftover bucket: not yet paid and not flagged for a credit note --
+// covers pending/matched/needs_review/error alike, since none of those
+// need anything from the vendor beyond waiting.
+const BUCKETS = [
+  { key: "all", label: "All" },
+  { key: "cn_required", label: "CN Required" },
+  { key: "invoice_copy_needed", label: "Invoice Copy Needed" },
+  { key: "no_action_needed", label: "No Action Needed" },
+  { key: "paid", label: "Paid" },
+];
+const cnRequiredRows = computed(() => props.rows.filter((r) => r.match_status === "mismatch"));
+const paidRows = computed(() => props.rows.filter(isPaid));
+const noActionRows = computed(() => props.rows.filter((r) => !isPaid(r) && r.match_status !== "mismatch"));
+const activeBucket = ref("all");
+const bucketCounts = computed(() => ({
+  all: props.rows.length + props.posNeedingInvoice.length,
+  cn_required: cnRequiredRows.value.length,
+  invoice_copy_needed: props.posNeedingInvoice.length,
+  no_action_needed: noActionRows.value.length,
+  paid: paidRows.value.length,
+}));
+
+// Real invoice rows and "needs a copy" POs have different shapes, so each
+// display row is tagged with its kind and the template branches per cell.
+function invoiceEntry(row) { return { kind: "invoice", row }; }
+function needInvoiceEntry(po) { return { kind: "need_invoice", po }; }
+const displayRows = computed(() => {
+  if (!props.showBuckets) return props.rows.map(invoiceEntry);
+  switch (activeBucket.value) {
+    case "cn_required": return cnRequiredRows.value.map(invoiceEntry);
+    case "invoice_copy_needed": return props.posNeedingInvoice.map(needInvoiceEntry);
+    case "no_action_needed": return noActionRows.value.map(invoiceEntry);
+    case "paid": return paidRows.value.map(invoiceEntry);
+    default: return [...props.rows.map(invoiceEntry), ...props.posNeedingInvoice.map(needInvoiceEntry)];
+  }
+});
 </script>
 
 <template>
   <SummaryKpis :tiles="kpiTiles" />
+
+  <div v-if="showBuckets" class="bucket-tabs">
+    <button
+      v-for="b in BUCKETS" :key="b.key" type="button"
+      class="bucket-tab" :class="{ active: activeBucket === b.key }"
+      @click="activeBucket = b.key"
+    >
+      {{ b.label }} <span class="bucket-count">{{ bucketCounts[b.key] }}</span>
+    </button>
+  </div>
 
   <div class="field" style="max-width: 340px; margin-bottom: 14px;">
     <label for="payment-top-search">Search{{ vendorOptions ? " vendor," : "" }} PO code, invoice number…</label>

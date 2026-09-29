@@ -177,15 +177,24 @@ class Alert:
 
 
 #: Canonical status pairs that are NOT a real disagreement, just Uniware's
-#: own tracking enum being coarser than the carrier's -- a hub arrival IS
-#: still "in transit" from Uniware's point of view, not a conflicting claim.
-#: Measured 2026-09-29: 246 of 420 STATUS_MISMATCH alerts in one run (59%)
-#: were exactly Uniware=IN_TRANSIT / carrier=REACHED_DESTINATION_HUB -- the
-#: single largest source of data_quality noise, and none of it was a real
-#: disagreement to investigate. Order doesn't matter -- checked both ways.
+#: own tracking enum being coarser than the carrier's -- a hub arrival, or
+#: being out for delivery, are BOTH still "in transit" from Uniware's point
+#: of view, not a conflicting claim. Measured 2026-09-29 against one run's
+#: 420 STATUS_MISMATCH alerts: 246 (59%) were Uniware=IN_TRANSIT / carrier=
+#: REACHED_DESTINATION_HUB, another 85 (20%) were Uniware=IN_TRANSIT /
+#: carrier=OUT_FOR_DELIVERY -- together 79% of all data_quality noise from
+#: this one flag, none of it a real disagreement worth investigating. Order
+#: doesn't matter within a pair -- checked both ways.
+#:
+#: Deliberately NOT extended to carrier=DELIVERY_ATTEMPT_FAILED (22 in that
+#: same run) or carrier=DELIVERED -- those aren't "further along the same
+#: normal journey", they're outcomes Uniware hasn't caught up to yet, which
+#: is exactly the kind of disagreement this flag exists to surface.
 COMPATIBLE_STATUS_PAIRS: frozenset[tuple[C, C]] = frozenset({
     (C.IN_TRANSIT, C.REACHED_DESTINATION_HUB),
     (C.REACHED_DESTINATION_HUB, C.IN_TRANSIT),
+    (C.IN_TRANSIT, C.OUT_FOR_DELIVERY),
+    (C.OUT_FOR_DELIVERY, C.IN_TRANSIT),
 })
 
 
