@@ -21,6 +21,8 @@ const props = defineProps({
   onOpenPo: { type: Function, required: true },
   allowInvoiceUpload: { type: Boolean, default: false }, // lets a row upload without opening the PO detail modal
   uploaderLabel: { type: String, default: "" }, // current user's display name, recorded on an uploaded row
+  showSkuColumn: { type: Boolean, default: false }, // vendor.html only -- SKU-level summary column beside Status
+  poItemsByPo: { type: Object, default: () => ({}) }, // po_code -> po_items rows; only needed when showSkuColumn is set
 });
 
 // One shared upload popup instance for the whole table, opened for
@@ -115,6 +117,20 @@ function paymentBooked(poCode) {
   const uploads = uploadsByPo[poCode] || [];
   return uploads.length > 0 && uploads.every((u) => !!u.payment_status);
 }
+
+// Per-PO SKU-level rollup shown inline in its own column, so a vendor can
+// see how many line items are still short without opening the PO detail
+// modal -- the modal's SKU/Item/Qty ord/Recv/Pending table remains the
+// place to see each line individually.
+function skuSummary(poCode) {
+  const items = props.poItemsByPo[poCode] || [];
+  const total = items.length;
+  const complete = items.filter(
+    (it) => Number(it.quantity) > 0 && Number(it.received_quantity || 0) >= Number(it.quantity)
+  ).length;
+  return { total, complete, allComplete: total > 0 && complete === total };
+}
+const emptyColspan = computed(() => 9 + (props.vendorOptions ? 1 : 0) + (props.showSkuColumn ? 1 : 0));
 const activeBucket = ref("all");
 const bucketCounts = computed(() => {
   const counts = { all: props.rows.length, invoice_needed: 0, processing: 0, complete: 0 };
@@ -155,6 +171,7 @@ const bucketedRows = computed(() =>
         <tr>
           <th v-if="vendorOptions">Vendor</th>
           <th>Facility</th><th>PO code</th><th>Status</th>
+          <th v-if="showSkuColumn">SKU data</th>
           <th class="num">Qty ordered</th><th class="num">Received</th><th class="num">PO value</th>
           <th>GRN / invoice</th><th class="col-tight">PO</th><th class="col-tight">Invoice</th>
         </tr>
@@ -178,6 +195,7 @@ const bucketedRows = computed(() =>
               <option v-for="s in statusOptions" :key="s" :value="s">{{ s }}</option>
             </select>
           </td>
+          <td v-if="showSkuColumn"></td>
           <td><input v-model="filters.qtyOrdered" type="text" placeholder="Filter…"></td>
           <td><input v-model="filters.qtyReceived" type="text" placeholder="Filter…"></td>
           <td><input v-model="filters.poValue" type="text" placeholder="Filter…"></td>
@@ -188,7 +206,7 @@ const bucketedRows = computed(() =>
       </thead>
       <tbody>
         <tr v-if="!bucketedRows.length">
-          <td :colspan="vendorOptions ? 10 : 9" class="empty-state">No purchase orders match these filters.</td>
+          <td :colspan="emptyColspan" class="empty-state">No purchase orders match these filters.</td>
         </tr>
         <tr v-for="p in bucketedRows" :key="p.po_code" class="clickable-row" @click="onOpenPo(p.po_code)">
           <td v-if="vendorOptions">{{ vendorLabel(p.vendor_code, p.vendor_name) }}</td>
@@ -210,6 +228,13 @@ const bucketedRows = computed(() =>
               ></span>
             </div>
             <StatusChip v-else :status="p.status" />
+          </td>
+          <td v-if="showSkuColumn">
+            <span v-if="!skuSummary(p.po_code).total" class="cell-empty">–</span>
+            <span
+              v-else class="chip" :class="skuSummary(p.po_code).allComplete ? 'chip-good' : 'chip-critical'"
+              :title="`${skuSummary(p.po_code).complete} of ${skuSummary(p.po_code).total} SKU(s) fully received`"
+            >{{ skuSummary(p.po_code).complete }}/{{ skuSummary(p.po_code).total }} SKUs</span>
           </td>
           <td class="num mono">{{ fmtNum(p.qty_ordered) }}</td>
           <td class="num mono">{{ fmtNum(p.qty_received) }}</td>

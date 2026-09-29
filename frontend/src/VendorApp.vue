@@ -312,6 +312,7 @@ async function signOut() {
             :facility-options="facilityOptions" :status-options="statusOptions"
             :grns-by-po="grnsByPo" :show-buckets="true"
             :on-open-po="openPoDetailModal" :allow-invoice-upload="true" :uploader-label="myDisplayName"
+            :show-sku-column="true" :po-items-by-po="poItemsByPo"
           />
         </div>
 
