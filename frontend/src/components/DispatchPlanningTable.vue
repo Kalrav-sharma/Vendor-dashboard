@@ -6,6 +6,7 @@ import SummaryKpis from "./SummaryKpis.vue";
 import BluedartStatusChip from "./BluedartStatusChip.vue";
 import DtdcStatusChip from "./DtdcStatusChip.vue";
 import LetsTransportStatusChip from "./LetsTransportStatusChip.vue";
+import { letsTransportEstimatedDeliveryDate } from "../letsTransportTat.js";
 
 const props = defineProps({
   rows: { type: Array, required: true },        // mix of kind: "pending" (po_items row, awaiting dispatch) and
@@ -75,6 +76,18 @@ function isOverdue(row) {
 // delivery timestamp. No separate field/column needed anywhere upstream.
 function deliveredAt(row) {
   return trackingBucket(row) === "delivered" ? row.tracking?.last_scan_at : null;
+}
+
+// Lets Transport-only: Softpal's own ExpectedDeliveryDate is almost never
+// populated (see sync_lets_transport_tracking.py), so this fills the gap
+// with our own calculation from the commercial TAT sheet -- see
+// letsTransportTat.js for the zone matrix/city mapping and the max-of-range
+// call. Never shown once actually delivered (Actual delivery covers that),
+// and shows "–" rather than a guess when the origin/destination city isn't
+// in the known zone mapping.
+function letsTransportEstimate(row) {
+  if (row.courier !== "letstransport" || trackingBucket(row) === "delivered") return null;
+  return letsTransportEstimatedDeliveryDate(row.dispatched_date, row.tracking?.origin, row.tracking?.destination);
 }
 
 function trackingBucket(row) {
@@ -195,7 +208,7 @@ async function handleCancelPlan(row) {
           <th v-if="vendorOptions">Vendor</th>
           <th>PO code</th><th>SKU</th><th>Item</th>
           <th class="num">Qty</th><th>Dispatch date</th>
-          <th>AWB / Tracking ID</th><th>Courier</th><th>Status</th><th>Route</th><th>Expected delivery</th><th>Actual delivery</th><th>Last scan</th>
+          <th>AWB / Tracking ID</th><th>Courier</th><th>Status</th><th>Route</th><th>Expected delivery</th><th>Actual delivery</th><th>Est. delivery (LT)</th><th>Last scan</th>
           <th v-if="allowConfirmDispatch"></th>
         </tr>
         <tr class="filter-row">
@@ -227,13 +240,13 @@ async function handleCancelPlan(row) {
               <option value="RL">Redirected</option>
             </select>
           </td>
-          <td></td><td></td><td></td><td></td>
+          <td></td><td></td><td></td><td></td><td></td>
           <td v-if="allowConfirmDispatch"></td>
         </tr>
       </thead>
       <tbody>
         <tr v-if="!rows.length">
-          <td :colspan="(vendorOptions ? 13 : 12) + (allowConfirmDispatch ? 1 : 0)" class="empty-state">Nothing here yet -- rows appear once a vendor fills in an estimated dispatch date and quantity for a SKU, and stay once dispatched with their live shipment status.</td>
+          <td :colspan="(vendorOptions ? 14 : 13) + (allowConfirmDispatch ? 1 : 0)" class="empty-state">Nothing here yet -- rows appear once a vendor fills in an estimated dispatch date and quantity for a SKU, and stay once dispatched with their live shipment status.</td>
         </tr>
         <tr v-for="row in rows" :key="keyFor(row)">
           <td v-if="vendorOptions">{{ vendorLabel(row.vendor_code) }}</td>
@@ -270,6 +283,9 @@ async function handleCancelPlan(row) {
           <td v-else class="cell-empty">–</td>
 
           <td v-if="row.kind === 'shipped'" class="mono">{{ deliveredAt(row) ? fmtDate(deliveredAt(row)) : "–" }}</td>
+          <td v-else class="cell-empty">–</td>
+
+          <td v-if="row.kind === 'shipped'" class="mono">{{ letsTransportEstimate(row) ? fmtDateOnly(letsTransportEstimate(row)) : "–" }}</td>
           <td v-else class="cell-empty">–</td>
 
           <td v-if="row.kind === 'shipped'">
