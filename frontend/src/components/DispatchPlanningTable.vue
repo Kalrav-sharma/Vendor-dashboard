@@ -82,11 +82,14 @@ function deliveredAt(row) {
 // populated (see sync_lets_transport_tracking.py), so this fills the gap
 // with our own calculation from the commercial TAT sheet -- see
 // letsTransportTat.js for the zone matrix/city mapping and the max-of-range
-// call. Never shown once actually delivered (Actual delivery covers that),
-// and shows "–" rather than a guess when the origin/destination city isn't
-// in the known zone mapping.
+// call. Deliberately shown even once actually delivered -- the whole point
+// is comparing it against Actual delivery (Kalrav's explicit call,
+// 2026-09-29), so it's the fixed TAT commitment made at dispatch time, not
+// something that disappears once the outcome is known. Shows "–" rather
+// than a guess when the origin/destination city isn't in the known zone
+// mapping.
 function letsTransportEstimate(row) {
-  if (row.courier !== "letstransport" || trackingBucket(row) === "delivered") return null;
+  if (row.courier !== "letstransport") return null;
   return letsTransportEstimatedDeliveryDate(row.dispatched_date, row.tracking?.origin, row.tracking?.destination);
 }
 

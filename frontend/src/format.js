@@ -118,18 +118,21 @@ export function dtdcStatusClass(statusType) {
 // these 6 are confirmed so far (see scripts/sync_lets_transport_tracking.py)
 // -- add other known values here as they're observed.
 //
-// "pod uploaded" (seen 2026-09-29, AWB 100032616) keeps its own label
-// rather than collapsing into "Delivered" -- it's more informative (a
-// signed proof-of-delivery doc exists) -- but is still delivered-equivalent
-// everywhere that matters: see trackingBucket() in DispatchPlanningTable.vue
-// and TERMINAL_STATUSES in sync_lets_transport_tracking.py.
+// "pod uploaded" (seen 2026-09-29, AWB 100032616) is a real terminal
+// status Softpal uses that isn't literally "Delivered" -- shows the same
+// "Delivered" label as a plain delivered status instead of surfacing the
+// raw courier text (Kalrav's explicit call, 2026-09-29). Still keyed
+// separately here since it's a distinct raw value; see trackingBucket()
+// in DispatchPlanningTable.vue and TERMINAL_STATUSES in
+// sync_lets_transport_tracking.py for the other places it's treated the
+// same as "delivered".
 export const LETS_TRANSPORT_STATUS_META = {
   "shipment booked": ["Booked", "muted"],
   "in transit": ["In transit", "open"],
   "arrived hub": ["Arrived hub", "open"],
   "out for delivery": ["Out for delivery", "open"],
   delivered: ["Delivered", "good"],
-  "pod uploaded": ["POD Uploaded", "good"],
+  "pod uploaded": ["Delivered", "good"],
 };
 
 export function letsTransportStatusLabel(statusType) {
