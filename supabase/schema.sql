@@ -1757,6 +1757,7 @@ create table if not exists public.last_mile_watchlist (
   sale_order_item_codes text[] not null default '{}',
   item_count int not null default 0,
   channel text,
+  category text,                  -- RO | Locks | Spares | Refresh -- see scripts/last_mile_lib/product_category.py
   payment_type text,              -- COD | Prepaid | '' when the export predates the column
   facility_code text,
   city text,
@@ -1786,6 +1787,8 @@ create table if not exists public.last_mile_watchlist (
 -- retroactively add it on an already-deployed database; this does, and is
 -- a no-op if already there.
 alter table public.last_mile_watchlist add column if not exists days_since_dispatch numeric;
+-- Same reason, category added 2026-09-29 for the Alerts tab's Category column.
+alter table public.last_mile_watchlist add column if not exists category text;
 
 create index if not exists idx_last_mile_watchlist_cohort on public.last_mile_watchlist (cohort);
 create index if not exists idx_last_mile_watchlist_needs_poll on public.last_mile_watchlist (needs_lsp_poll) where needs_lsp_poll;
@@ -2024,6 +2027,7 @@ create table if not exists public.last_mile_alerts (
   city text,
   pincode text,
   channel text,
+  category text,                  -- RO | Locks | Spares | Refresh -- see scripts/last_mile_lib/product_category.py
   payment_type text,
   sale_order_codes text[],
   item_count int,
@@ -2071,6 +2075,9 @@ alter table public.last_mile_alerts add column if not exists destination text;
 alter table public.last_mile_alerts add column if not exists expected_delivery_date date;
 alter table public.last_mile_alerts add column if not exists last_scan_text text;
 alter table public.last_mile_alerts add column if not exists raw jsonb;
+-- category added 2026-09-29 for the Alerts tab's Category column, same
+-- "create table if not exists is a no-op on an existing table" reason.
+alter table public.last_mile_alerts add column if not exists category text;
 
 alter table public.last_mile_alerts enable row level security;
 drop policy if exists last_mile_alerts_select on public.last_mile_alerts;

@@ -133,6 +133,7 @@ class Alert:
     city: str = ""
     pincode: str = ""
     channel: str = ""
+    category: str = ""       # RO | Locks | Spares | Refresh -- see product_category.py
     payment_type: str = ""   # COD | Prepaid | "" -- a stuck COD parcel is a
                              # cash-recovery problem, not just a delivery one
     sale_order_codes: list[str] = field(default_factory=list)
@@ -344,6 +345,7 @@ def evaluate(ship: Shipment, poll: TrackingResult | None = None,
         lsp=(spec.display_name if spec else ship.adapter_id),
         courier_code=ship.courier_code, facility_code=ship.facility_code,
         city=ship.city, pincode=ship.pincode, channel=ship.channel,
+        category=ship.category,
         payment_type=ship.payment_type,
         sale_order_codes=ship.sale_order_codes[:5], item_count=ship.item_count,
         status=fused.canonical.value, raw_status=fused.raw,

@@ -446,6 +446,7 @@ def main():
         "bucket": a.bucket, "severity": a.severity, "lsp": a.lsp,
         "courier_code": a.courier_code, "facility_code": a.facility_code,
         "city": a.city, "pincode": a.pincode, "channel": a.channel,
+        "category": a.category,
         "payment_type": a.payment_type, "sale_order_codes": a.sale_order_codes,
         "item_count": a.item_count, "status": a.status, "raw_status": a.raw_status,
         "status_source": a.status_source, "status_at": a.status_at,
