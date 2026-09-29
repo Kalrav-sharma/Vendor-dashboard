@@ -24,11 +24,11 @@ import re
 
 _REFRESH_RE = re.compile(r"refresh", re.IGNORECASE)
 _LOCK_RE = re.compile(r"\block\b", re.IGNORECASE)
-# purifier/membrane/filter/health booster: every RO-line item observed live
-# names one of these -- "Native M1 Pro RO water purifier", "Concealed RO
-# Membrane...", "Pre filter Housing", "Spun Filter - M3 Series", "NATIVE RO
-# Membrane, 3000 TDS, 10 inch", "Health Booster - M2".
-_RO_RE = re.compile(r"\bRO\b|purifier|membrane|\bfilter\b|health booster", re.IGNORECASE)
+# User decision 2026-09-29: RO means the purifier UNIT itself -- only a name
+# containing "purifier" counts. RO accessories/consumables (membrane, filter
+# housing, health booster) are deliberately NOT RO under this rule, even
+# though they're RO-related; they fall through to Spares/Other instead.
+_RO_RE = re.compile(r"purifier", re.IGNORECASE)
 # Enumerated, not a catch-all -- these are the specific spare-part terms
 # observed live ("1 Metre White Pipe, Pack of 1", "1/2\" thread adapter...",
 # "Battery M3", "NATIVE ESF Spanner", "S Bracket Lexcru 10 (VERGIN-BLACK)",
