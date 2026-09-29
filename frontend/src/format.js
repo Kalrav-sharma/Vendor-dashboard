@@ -50,6 +50,31 @@ export function statusClass(status) {
   return (STATUS_META[status] || [null, "muted"])[1];
 }
 
+// Raise a Ticket -- same [label, chip color] pattern as STATUS_META above.
+export const TICKET_CATEGORY_META = {
+  po_issue: "PO issue",
+  payment_issue: "Payment issue",
+  dispatch_issue: "Dispatch issue",
+  other: "Other",
+};
+export const TICKET_STATUS_META = {
+  open: ["Open", "open"],
+  in_progress: ["In progress", "info"],
+  resolved: ["Resolved", "good"],
+};
+
+export function ticketCategoryLabel(category) {
+  return TICKET_CATEGORY_META[category] || category || "Other";
+}
+
+export function ticketStatusLabel(status) {
+  return (TICKET_STATUS_META[status] || [status || "Open", "muted"])[0];
+}
+
+export function ticketStatusClass(status) {
+  return (TICKET_STATUS_META[status] || [null, "muted"])[1];
+}
+
 // Invoice-vs-PO/GRN reconciliation status (see check-invoice-match Edge
 // Function) -- same [label, chip color] pattern as STATUS_META above.
 export const MATCH_STATUS_META = {

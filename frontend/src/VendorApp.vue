@@ -13,6 +13,7 @@ import { useInvoiceUploads } from "./composables/useInvoiceUploads.js";
 import { usePaymentFilters } from "./composables/usePaymentFilters.js";
 import { dedupeInvoiceNumbers, dedupeVendorOptions, fmtDateOnly, fmtNum, TERMINAL_STATUSES, trackingBucket } from "./format.js";
 import DashboardOverview from "./components/DashboardOverview.vue";
+import MyPerformance from "./components/MyPerformance.vue";
 import SidebarNav from "./components/SidebarNav.vue";
 import PoTrackingTable from "./components/PoTrackingTable.vue";
 import DispatchPlanningTable from "./components/DispatchPlanningTable.vue";
@@ -36,6 +37,7 @@ const pageTitle = computed(() => {
     "po-tracking": "Purchase Order",
     "dispatch-planning": "Dispatch Planning",
     "payment-dashboard": "Payments",
+    "my-performance": "My Performance",
   }[activeNav.value];
 });
 const todayLabel = computed(() => fmtDateOnly(new Date().toISOString().slice(0, 10)));
@@ -166,6 +168,68 @@ const dashScorecardTiles = computed(() => {
   ];
 });
 
+// --- My Performance tab ---
+// PO completion rate -- currentPos is already the same visible/hidden-
+// filtered set every other PO count on this page uses (see visiblePos()
+// in format.js), so this reads consistently with Dashboard's "PO complete"
+// tile, just as an all-time rate instead of a 90-day count.
+const perfPoCompletionPct = computed(() => {
+  if (!currentPos.value.length) return null;
+  const complete = currentPos.value.filter((p) => p.status === "COMPLETE").length;
+  return (complete / currentPos.value.length) * 100;
+});
+
+// Avg calendar days between uploading an invoice and it actually being
+// paid -- only counts rows that have both a created_at (every row has
+// one) and a payment_date (only rows the payout sync has actually
+// settled), so an invoice still awaiting payment doesn't drag this down
+// with a fake "0 days so far".
+const perfAvgDaysToPaid = computed(() => {
+  const paid = allUploads.value.filter((u) => u.payment_status === "paid" && u.payment_date && u.created_at);
+  if (!paid.length) return null;
+  const totalDays = paid.reduce((s, u) =>
+    s + (new Date(u.payment_date) - new Date(u.created_at)) / (24 * 60 * 60 * 1000), 0);
+  return totalDays / paid.length;
+});
+
+// Of every invoice this vendor has ever uploaded, what share needed a
+// credit note (match_status "mismatch") vs. reconciled clean ("matched")
+// -- the two rates that make up "payment health" alongside how fast
+// payment actually lands above.
+const perfCreditNoteRatePct = computed(() => {
+  if (!allUploads.value.length) return null;
+  return (allUploads.value.filter((u) => u.match_status === "mismatch").length / allUploads.value.length) * 100;
+});
+const perfMatchRatePct = computed(() => {
+  if (!allUploads.value.length) return null;
+  return (allUploads.value.filter((u) => u.match_status === "matched").length / allUploads.value.length) * 100;
+});
+
+const perfFulfillmentScorecard = computed(() => {
+  const fillOk = dashFillRatePct.value != null && dashFillRatePct.value >= 90;
+  const completeOk = perfPoCompletionPct.value != null && perfPoCompletionPct.value >= 90;
+  return [
+    { key: "tat", label: "Avg TAT", value: dashAvgTatDays.value == null ? "–" : `${dashAvgTatDays.value.toFixed(0)}d`,
+      sublabel: dashAvgTatDays.value == null ? "No dispatched shipments yet" : "PO created → dispatched", cls: "" },
+    { key: "fillrate", label: "Fill rate", value: dashFillRatePct.value == null ? "–" : `${dashFillRatePct.value.toFixed(1)}%`,
+      sublabel: dashFillRatePct.value == null ? "" : (fillOk ? "On target" : "Target: ≥90%"), cls: dashFillRatePct.value == null ? "" : (fillOk ? "good" : "critical") },
+    { key: "completion", label: "PO completion rate", value: perfPoCompletionPct.value == null ? "–" : `${perfPoCompletionPct.value.toFixed(1)}%`,
+      sublabel: perfPoCompletionPct.value == null ? "" : (completeOk ? "On target" : "Target: ≥90%"), cls: perfPoCompletionPct.value == null ? "" : (completeOk ? "good" : "critical") },
+  ];
+});
+const perfPaymentHealthScorecard = computed(() => {
+  const cnOk = perfCreditNoteRatePct.value != null && perfCreditNoteRatePct.value <= 10;
+  const matchOk = perfMatchRatePct.value != null && perfMatchRatePct.value >= 90;
+  return [
+    { key: "daystopaid", label: "Avg days to get paid", value: perfAvgDaysToPaid.value == null ? "–" : `${perfAvgDaysToPaid.value.toFixed(0)}d`,
+      sublabel: perfAvgDaysToPaid.value == null ? "No paid invoices yet" : "Upload → payment", cls: "" },
+    { key: "cnrate", label: "Credit note rate", value: perfCreditNoteRatePct.value == null ? "–" : `${perfCreditNoteRatePct.value.toFixed(1)}%`,
+      sublabel: perfCreditNoteRatePct.value == null ? "" : (cnOk ? "On target" : "Target: ≤10%"), cls: perfCreditNoteRatePct.value == null ? "" : (cnOk ? "good" : "critical") },
+    { key: "matchrate", label: "Reconciliation match rate", value: perfMatchRatePct.value == null ? "–" : `${perfMatchRatePct.value.toFixed(1)}%`,
+      sublabel: perfMatchRatePct.value == null ? "" : (matchOk ? "On target" : "Target: ≥90%"), cls: perfMatchRatePct.value == null ? "" : (matchOk ? "good" : "critical") },
+  ];
+});
+
 const dashRecentPos = computed(() => currentPos.value.slice(0, 5).map((p) => ({
   po_code: p.po_code,
   sku_count: (poItemsByPo.value[p.po_code] || []).length,
@@ -280,6 +344,7 @@ async function signOut() {
         { id: 'po-tracking', label: 'PO Tracking' },
         { id: 'dispatch-planning', label: 'Dispatch Planning' },
         { id: 'payment-dashboard', label: 'Payments' },
+        { id: 'my-performance', label: 'My Performance' },
       ]"
     >
       <template #account>
@@ -297,6 +362,7 @@ async function signOut() {
               <template v-else-if="activeNav === 'po-tracking'">{{ scopeLine }}</template>
               <template v-else-if="activeNav === 'dispatch-planning'">Estimated dispatch date and quantity per SKU awaiting dispatch, plus live Bluedart status for every shipment you've already confirmed. Click a PO to see its details.</template>
               <template v-else-if="activeNav === 'payment-dashboard'">Every invoice you've uploaded, with its reconciliation and payment status. Click a PO to see its details.</template>
+              <template v-else-if="activeNav === 'my-performance'">Your fulfillment and payment-health scorecard, all-time.</template>
             </div>
           </div>
         </header>
@@ -329,6 +395,10 @@ async function signOut() {
             :on-open-po="openPoDetailModal" :uploader-label="myDisplayName"
             :show-vendor-kpis="true" :show-buckets="true" :pos-needing-invoice="posNeedingInvoice"
           />
+        </div>
+
+        <div v-show="activeNav === 'my-performance'">
+          <MyPerformance :fulfillment="perfFulfillmentScorecard" :payment-health="perfPaymentHealthScorecard" />
         </div>
 
         <footer class="page-foot">Data refreshes automatically every ~5 minutes from Uniware. {{ lastCheckedText }}</footer>

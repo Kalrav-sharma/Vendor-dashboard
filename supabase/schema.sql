@@ -2534,4 +2534,72 @@ create table if not exists public.vendor_login_attempts (
   locked_until timestamptz
 );
 alter table public.vendor_login_attempts enable row level security;
+
+-- ---------------------------------------------------------------------
+-- support_tickets — the vendor portal's "Raise a Ticket" screen. A
+-- vendor-raised issue (PO/payment/dispatch/other), visible to the vendor
+-- who raised it and to internal staff, who triage it from the admin
+-- console's own Tickets screen. Written directly by the app through RLS,
+-- same discipline as po_invoice_uploads -- nothing here is synced from
+-- an external system.
+-- ---------------------------------------------------------------------
+create table if not exists public.support_tickets (
+  id bigint generated always as identity primary key,
+  vendor_code text not null,
+  vendor_name text,          -- denormalized display name at creation time
+  category text not null check (category in ('po_issue', 'payment_issue', 'dispatch_issue', 'other')),
+  po_code text references public.purchase_orders(po_code) on delete set null,  -- optional
+  subject text not null,
+  description text not null,
+  status text not null default 'open' check (status in ('open', 'in_progress', 'resolved')),
+  created_by uuid references auth.users(id) on delete set null,
+  created_by_name text,      -- denormalized submitter display name
+  admin_response text,       -- staff's reply, visible to the vendor who raised it
+  responded_by_name text,
+  resolved_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists support_tickets_vendor_code_idx on public.support_tickets(vendor_code);
+create index if not exists support_tickets_status_idx on public.support_tickets(status);
+
+alter table public.support_tickets enable row level security;
+
+drop policy if exists support_tickets_select on public.support_tickets;
+create policy support_tickets_select on public.support_tickets
+  for select
+  using (
+    public.is_internal_staff()
+    or vendor_code = (select p.vendor_code from public.profiles p where p.id = auth.uid())
+  );
+
+-- A vendor can only raise a ticket tagged with their own vendor_code, and
+-- if it references a PO, that PO must actually belong to the same
+-- vendor_code -- same discipline as po_invoice_uploads_insert. An admin
+-- can raise one on behalf of any vendor.
+drop policy if exists support_tickets_insert on public.support_tickets;
+create policy support_tickets_insert on public.support_tickets
+  for insert
+  with check (
+    (
+      po_code is null
+      or exists (
+        select 1 from public.purchase_orders po
+        where po.po_code = support_tickets.po_code and po.vendor_code = support_tickets.vendor_code
+      )
+    )
+    and (
+      public.is_internal_staff()
+      or vendor_code = (select p.vendor_code from public.profiles p where p.id = auth.uid())
+    )
+  );
+
+-- Only internal staff triage a ticket (status/response) -- the vendor who
+-- raised it can read updates but doesn't edit the ticket itself.
+drop policy if exists support_tickets_update on public.support_tickets;
+create policy support_tickets_update on public.support_tickets
+  for update
+  using (public.is_internal_staff())
+  with check (public.is_internal_staff());
 -- ---------------------------------------------------------------------
