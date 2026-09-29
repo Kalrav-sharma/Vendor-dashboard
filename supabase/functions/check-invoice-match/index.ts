@@ -76,35 +76,52 @@ Deno.serve(async (req) => {
       return json({ error: "Missing Authorization header" }, 401);
     }
 
-    // Scoped to the caller's own JWT -- RLS decides what they can see.
-    const callerClient = createClient(SUPABASE_URL, ANON_KEY, {
-      global: { headers: { Authorization: authHeader } },
-    });
-    const { data: { user }, error: userErr } = await callerClient.auth.getUser();
-    if (userErr || !user) {
-      return json({ error: "Not authenticated" }, 401);
-    }
-
     const body = await req.json();
     const uploadId = body?.upload_id;
     if (!uploadId) {
       return json({ error: "upload_id is required" }, 400);
     }
 
-    // Reading this row through the caller's own RLS-scoped client IS the
-    // authorization check -- if they can't see it (wrong vendor_code,
-    // not an admin), this returns nothing and we refuse below. No
-    // hand-rolled role check needed on top of that.
-    const { data: upload, error: uploadErr } = await callerClient
-      .from("po_invoice_uploads").select("*").eq("id", uploadId).single();
-    if (uploadErr || !upload) {
-      return json({ error: "Invoice upload not found or not accessible" }, 404);
-    }
-
     // Everything from here on needs service_role: downloading the
     // private file, and reading the PO/grns/grn_items regardless of
-    // whose vendor_code they belong to (already authorized above).
+    // whose vendor_code they belong to (already authorized below).
     const adminClient = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
+
+    // Two ways in: a real user's JWT (the normal "Re-check" button,
+    // RLS-scoped below), or our own service_role key presented directly --
+    // scripts/resync_mismatched_invoices.py's daily sweep, which already
+    // holds this same secret to write straight to the DB, so accepting it
+    // here grants nothing it couldn't already do.
+    const isSystemCaller = authHeader === `Bearer ${SERVICE_ROLE_KEY}`;
+
+    let upload;
+    if (isSystemCaller) {
+      const { data, error } = await adminClient
+        .from("po_invoice_uploads").select("*").eq("id", uploadId).single();
+      if (error || !data) {
+        return json({ error: "Invoice upload not found" }, 404);
+      }
+      upload = data;
+    } else {
+      // Scoped to the caller's own JWT -- RLS decides what they can see.
+      const callerClient = createClient(SUPABASE_URL, ANON_KEY, {
+        global: { headers: { Authorization: authHeader } },
+      });
+      const { data: { user }, error: userErr } = await callerClient.auth.getUser();
+      if (userErr || !user) {
+        return json({ error: "Not authenticated" }, 401);
+      }
+      // Reading this row through the caller's own RLS-scoped client IS the
+      // authorization check -- if they can't see it (wrong vendor_code,
+      // not an admin), this returns nothing and we refuse below. No
+      // hand-rolled role check needed on top of that.
+      const { data, error } = await callerClient
+        .from("po_invoice_uploads").select("*").eq("id", uploadId).single();
+      if (error || !data) {
+        return json({ error: "Invoice upload not found or not accessible" }, 404);
+      }
+      upload = data;
+    }
 
     // From here on we have a real upload row -- guaranteed to record SOME
     // result (an "error" status if nothing else) before returning, no
