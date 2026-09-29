@@ -176,6 +176,19 @@ class Alert:
         return asdict(self)
 
 
+#: Canonical status pairs that are NOT a real disagreement, just Uniware's
+#: own tracking enum being coarser than the carrier's -- a hub arrival IS
+#: still "in transit" from Uniware's point of view, not a conflicting claim.
+#: Measured 2026-09-29: 246 of 420 STATUS_MISMATCH alerts in one run (59%)
+#: were exactly Uniware=IN_TRANSIT / carrier=REACHED_DESTINATION_HUB -- the
+#: single largest source of data_quality noise, and none of it was a real
+#: disagreement to investigate. Order doesn't matter -- checked both ways.
+COMPATIBLE_STATUS_PAIRS: frozenset[tuple[C, C]] = frozenset({
+    (C.IN_TRANSIT, C.REACHED_DESTINATION_HUB),
+    (C.REACHED_DESTINATION_HUB, C.IN_TRANSIT),
+})
+
+
 @dataclass
 class FusedStatus:
     canonical: C
@@ -208,6 +221,7 @@ def fuse(ship: Shipment, poll: TrackingResult | None,
             ship.uniware_tracking_status != ""
             and uni_canon != C.UNKNOWN
             and lsp_canon != uni_canon
+            and (uni_canon, lsp_canon) not in COMPATIBLE_STATUS_PAIRS
         )
         return FusedStatus(
             canonical=lsp_canon, raw=poll.raw_status, source="lsp",
