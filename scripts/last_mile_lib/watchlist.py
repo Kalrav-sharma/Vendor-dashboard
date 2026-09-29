@@ -180,8 +180,16 @@ def payment_type_of(items: list[dict[str, Any]]) -> str:
 
 def build_shipments(rows: Iterable[dict[str, Any]], rules: SlaRules | None = None,
                     now: datetime | None = None,
-                    dq: Any | None = None) -> tuple[list[Shipment], dict[str, Any]]:
-    """Collapse de-duplicated order-item rows into shipment-grain records."""
+                    dq: Any | None = None,
+                    manually_closed: frozenset[str] = frozenset()) -> tuple[list[Shipment], dict[str, Any]]:
+    """Collapse de-duplicated order-item rows into shipment-grain records.
+
+    manually_closed: AWBs from last_mile_manual_closures -- a human has
+    confirmed these are actually done in Uniware's UI even though the
+    export's own status fields are stuck stale (see that table's comment
+    in schema.sql). Checked first, ahead of every other cohort rule, so
+    it always wins regardless of adapter/status/age.
+    """
     now = now or now_ist()
     rules = rules or SlaRules()
     stats: dict[str, Any] = {
@@ -220,7 +228,12 @@ def build_shipments(rows: Iterable[dict[str, Any]], rules: SlaRules | None = Non
         pkg_code = _g(lead, "Shipping Package Status Code")
         track_status = _g(lead, "Shipping Tracking Status")
 
-        if res.adapter_id in EXCLUDED_ADAPTERS:
+        if awb in manually_closed:
+            # A human confirmed this one directly in Uniware's UI -- wins
+            # over every other rule below, including a status/adapter that
+            # would otherwise keep re-opening it (see the docstring above).
+            cohort = "closed"
+        elif res.adapter_id in EXCLUDED_ADAPTERS:
             # Out of scope entirely: in-house fleet, no courier assigned, Porter,
             # or a courier code with no adapter rule. Cohorting here is what keeps
             # them out of alerts, scorecards and lanes in one move rather than
