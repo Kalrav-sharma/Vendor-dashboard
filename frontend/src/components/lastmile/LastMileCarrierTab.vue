@@ -103,9 +103,12 @@ const kpiTiles = computed(() => {
       </div>
     </div>
 
-    <!-- Table view: the WCAG-clean equivalent, one click away. -->
+    <!-- Table view: the WCAG-clean equivalent, one click away. Only 7 narrow
+         columns -- table-fluid drops the shared min-width so it reflows to
+         the screen instead of forcing the horizontal scrollbar every other,
+         wider Last Mile table (e.g. Alerts' 13 columns) genuinely needs. -->
     <div v-else class="table-card"><div class="table-scroll">
-      <table>
+      <table class="table-fluid">
         <thead>
           <tr>
             <th>LSP</th><th class="num">Courier codes</th>

@@ -18,6 +18,32 @@ const VIEW_KEY = "admin-view-override";
 // rows further (down to nothing), never see more than RLS already allows.
 const VENDOR_CODE_KEY = "admin-preview-vendor-code";
 
+// Which internal role's restricted nav to preview, WITHOUT leaving
+// admin.html -- unlike Vendor, "Finance" (and any other internal role) is
+// just a different set of visible nav items on the same page (see
+// AdminApp.vue's canSeeX computeds), not a separate HTML entry. Same
+// safety property as the vendor-code filter above: this only ever changes
+// which nav items AdminApp.vue shows, never what RLS/Edge Functions
+// actually let the real account do.
+const PREVIEW_ROLE_KEY = "admin-preview-role";
+
+export function getPreviewRole() {
+  try {
+    return localStorage.getItem(PREVIEW_ROLE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function setPreviewRole(role) {
+  try {
+    if (role) localStorage.setItem(PREVIEW_ROLE_KEY, role);
+    else localStorage.removeItem(PREVIEW_ROLE_KEY);
+  } catch {
+    // See setViewOverride -- same non-fatal storage failure.
+  }
+}
+
 export function getViewOverride() {
   try {
     return localStorage.getItem(VIEW_KEY);
@@ -53,12 +79,13 @@ export function setPreviewVendorCode(code) {
   }
 }
 
-// Clears both flags together so they can never point at different states
-// (e.g. "vendor" view with no vendor code, or a stale code left over after
-// switching back to Management). Call this on sign-out too, so a leftover
-// preview from one admin's session can never affect whoever logs in next
-// on the same browser.
+// Clears every preview flag together so they can never point at different/
+// contradictory states (e.g. "vendor" view with no vendor code, or a role
+// preview left over after switching to Vendor). Call this on sign-out too,
+// so a leftover preview from one admin's session can never affect whoever
+// logs in next on the same browser.
 export function clearViewOverride() {
   setViewOverride(null);
   setPreviewVendorCode(null);
+  setPreviewRole(null);
 }
