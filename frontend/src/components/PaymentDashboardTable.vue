@@ -45,8 +45,9 @@ function isPaid(row) { return row.payment_status === "paid"; }
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 
 // Vendor's own 4-tile set -- amount + backing invoice count for the three
-// money tiles, and a combined action-item count for the last one (still
-// worded "invoices" below it so all four tiles read the same way).
+// money tiles; "Action required" has no natural currency total, so its
+// value is just the combined action-item count written out as "N invoices"
+// (no separate sublabel repeating the same number).
 // "To be paid this week" = booked on the payout file but not yet paid
 // (payment_status "pending" -- see PAYMENT_STATUS_META's "Booked, Pending")
 // with a real, non-zero invoice value. "Action required" = a PO still
@@ -72,7 +73,7 @@ const vendorKpiTiles = computed(() => {
     { label: "Payments made till date", value: fmtMoney(madeTillDate), sublabel: `${paidRows.length} invoices` },
     { label: "Paid last week", value: fmtMoney(paidLastWeek), sublabel: `${paidLastWeekRows.length} invoices` },
     { label: "To be paid this week", value: fmtMoney(toBePaid), sublabel: `${toBePaidRows.length} invoices` },
-    { label: "Action required", value: actionRequired, cls: actionRequired > 0 ? "critical" : "", sublabel: `${actionRequired} invoices` },
+    { label: "Action required", value: `${actionRequired} invoices`, cls: actionRequired > 0 ? "critical" : "" },
   ];
 });
 

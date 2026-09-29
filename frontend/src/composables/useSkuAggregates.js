@@ -11,7 +11,13 @@ export function useSkuAggregates(currentPos, poItemsByPo, { multiVendor = false 
     const map = {};
     for (const p of openPos) {
       for (const item of (poItemsByPo.value[p.po_code] || [])) {
-        const pending = Number(item.pending_quantity) || 0;
+        // Derived from quantity/received_quantity rather than trusting the
+        // stored pending_quantity column -- that's Uniware's own
+        // pendingQuantity field verbatim (see sync_to_supabase.py) and can
+        // drift out of sync with what's actually been received, showing a
+        // line (and its PO/facility) as still pending after it's fully
+        // supplied.
+        const pending = Math.max((Number(item.quantity) || 0) - (Number(item.received_quantity) || 0), 0);
         if (pending <= 0) continue; // this SKU line on this PO is already fully supplied
         const key = multiVendor ? `${p.vendor_code}|${item.item_sku}` : item.item_sku;
         const agg = (map[key] ||= {
