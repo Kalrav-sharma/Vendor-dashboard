@@ -291,7 +291,7 @@ def to_row(ship):
     }
 
 
-def build_watchlist_rows(rows, manually_closed=frozenset()):
+def build_watchlist_rows(rows):
     """rows (raw Uniware CSV dicts) -> last_mile_watchlist row dicts.
 
     Thin wrapper around the real, tested pipeline in last_mile_lib.watchlist
@@ -307,33 +307,12 @@ def build_watchlist_rows(rows, manually_closed=frozenset()):
     """
     deduped = watchlist.dedupe(rows)
     dq = DQSink(state_dir=os.path.join(os.path.dirname(os.path.abspath(__file__)), ".dq"))
-    ships, stats = watchlist.build_shipments(deduped, rules=SlaRules(), dq=dq, manually_closed=manually_closed)
+    ships, stats = watchlist.build_shipments(deduped, rules=SlaRules(), dq=dq)
     print(f"  intake stats: {stats}")
     dq_sum = dq.summary()
     if dq_sum:
         print(f"  data-quality items this pull: { {k: v.get('total_occurrences') for k, v in dq_sum.items()} }")
     return [to_row(s) for s in ships]
-
-
-def fetch_manual_closures(supabase_url, key):
-    """{awb, ...} from last_mile_manual_closures -- see that table's
-    comment in schema.sql. Read fresh every run so a newly-added or
-    removed closure takes effect on the very next daily pull."""
-    rows = []
-    page = 0
-    while True:
-        r = requests.get(f"{supabase_url}/rest/v1/last_mile_manual_closures",
-                         headers={"apikey": key, "Authorization": f"Bearer {key}"},
-                         params={"select": "awb", "limit": 1000, "offset": page * 1000},
-                         timeout=REQUEST_TIMEOUT)
-        if not r.ok:
-            sys.exit(f"Reading last_mile_manual_closures failed ({r.status_code}): {r.text[:400]}")
-        batch = r.json()
-        rows.extend(batch)
-        if len(batch) < 1000:
-            break
-        page += 1
-    return frozenset(row["awb"] for row in rows)
 
 
 def supabase_config():
@@ -435,12 +414,9 @@ def main():
     print(f"{len(all_rows)} order-item row(s) across {len(facilities)} facilities.")
     supabase_url, key = supabase_config()
     refresh_sla_rules_csv(supabase_url, key)
-    manually_closed = fetch_manual_closures(supabase_url, key)
-    if manually_closed:
-        print(f"{len(manually_closed)} AWB(s) manually closed -- forced to cohort='closed' regardless of Uniware's export.")
     # NOT named `watchlist` -- that shadows the imported last_mile_lib.watchlist
     # module, which build_watchlist_rows() itself still needs to call.
-    watchlist_rows = build_watchlist_rows(all_rows, manually_closed=manually_closed)
+    watchlist_rows = build_watchlist_rows(all_rows)
     print(f"Collapsed to {len(watchlist_rows)} shipment(s) in scope.")
 
     by_cohort = defaultdict(int)
