@@ -3,7 +3,7 @@ import { ref, computed } from "vue";
 import SetNewPasswordForm from "./SetNewPasswordForm.vue";
 import CustomSelect from "./CustomSelect.vue";
 import { getTheme, setTheme } from "../theme.js";
-import { getViewOverride, getPreviewVendorCode, setViewOverride, setPreviewVendorCode, clearViewOverride } from "../viewOverride.js";
+import { getViewOverride, getPreviewVendorCode, getPreviewRole, setViewOverride, setPreviewVendorCode, setPreviewRole, clearViewOverride } from "../viewOverride.js";
 
 const props = defineProps({
   displayName: { type: String, required: true },
@@ -24,7 +24,11 @@ function chooseTheme(value) {
 // vendor is picked below, which vendor_code's rows) an admin's own session
 // is currently pointed at.
 const isAdmin = computed(() => props.role === "admin");
-const currentView = ref(getViewOverride() === "vendor" ? "vendor" : "management");
+const currentView = ref(
+  getViewOverride() === "vendor" ? "vendor" :
+  getPreviewRole() === "finance" ? "finance" :
+  "management"
+);
 // Shown as soon as "Vendor" is clicked, or already, if that's the view
 // this modal was opened from -- picking one is what actually navigates.
 const pickingVendor = ref(currentView.value === "vendor");
@@ -45,10 +49,21 @@ function chooseView(view) {
     window.location.href = "admin.html";
     return;
   }
+  if (view === "finance") {
+    // Reload (not just a local flag flip) -- keeps this identical to the
+    // Vendor path below and to how the real page always picks up a fresh
+    // navItems set on mount, rather than needing this modal to reach back
+    // into AdminApp.vue's own state.
+    clearViewOverride();
+    setPreviewRole("finance");
+    window.location.href = "admin.html";
+    return;
+  }
   pickingVendor.value = true;
 }
 function goToVendor(code) {
   selectedVendorCode.value = code;
+  clearViewOverride();
   setViewOverride("vendor");
   setPreviewVendorCode(code);
   window.location.href = "vendor.html";
@@ -78,10 +93,14 @@ function handlePasswordUpdated() {
 
     <section v-if="isAdmin" class="profile-settings-appearance">
       <h2>Switch view</h2>
-      <div class="appearance-picker cols-2" role="group" aria-label="App view">
+      <div class="appearance-picker" role="group" aria-label="App view">
         <button type="button" class="appearance-option" :class="{ active: currentView === 'management' }" :aria-pressed="currentView === 'management'" @click="chooseView('management')">
           <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2.5 16 5v5c0 4-2.5 6.5-6 7.5-3.5-1-6-3.5-6-7.5V5l6-2.5Z" /></svg>
           <span>Management</span>
+        </button>
+        <button type="button" class="appearance-option" :class="{ active: currentView === 'finance' }" :aria-pressed="currentView === 'finance'" @click="chooseView('finance')">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7" /><path d="M10 6.2v7.6M12.3 8.1c0-1-1-1.7-2.3-1.7s-2.3.6-2.3 1.6c0 2.3 4.6 1.1 4.6 3.4 0 1-1 1.7-2.3 1.7s-2.3-.7-2.3-1.7" /></svg>
+          <span>Finance</span>
         </button>
         <button type="button" class="appearance-option" :class="{ active: currentView === 'vendor' }" :aria-pressed="currentView === 'vendor'" @click="chooseView('vendor')">
           <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 6.5 10 3l7 3.5-7 3.5-7-3.5Z" /><path d="M3 6.5v7L10 17l7-3.5v-7" /><path d="M10 10v7" /></svg>

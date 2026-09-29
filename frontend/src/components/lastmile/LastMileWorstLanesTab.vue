@@ -39,9 +39,14 @@ const kpiTiles = computed(() => {
   const onTimeTotal = lanes.reduce((s, l) => s + Math.max(0, (l.graded || 0) - (l.late || 0)), 0);
   const avgOnTimePct = gradedTotal ? Math.round((onTimeTotal / gradedTotal) * 1000) / 10 : null;
   return [
-    { label: "Total lanes", value: lanes.length },
+    // run.total_lanes_active, NOT lanes.length -- user decision 2026-09-29:
+    // this table only ever holds the curated top WORST_LANES_LIMIT (25)
+    // lanes that also clear the minimum graded volume, so lanes.length was
+    // "how many made that curated list", never the real count of (LSP,
+    // city) lanes actually in use across every carrier.
+    { label: "Total lanes", value: run?.total_lanes_active ?? "–" },
     { label: "Below 70% on-time", value: critical, cls: critical > 0 ? "critical" : "" },
-    { label: "Average on-time % (all lanes)", value: avgOnTimePct == null ? "–" : `${avgOnTimePct}%`,
+    { label: "Average on-time % (lanes shown)", value: avgOnTimePct == null ? "–" : `${avgOnTimePct}%`,
       cls: avgOnTimePct != null && avgOnTimePct < 80 ? "critical" : "good" },
   ];
 });

@@ -180,8 +180,16 @@ def payment_type_of(items: list[dict[str, Any]]) -> str:
 
 def build_shipments(rows: Iterable[dict[str, Any]], rules: SlaRules | None = None,
                     now: datetime | None = None,
-                    dq: Any | None = None) -> tuple[list[Shipment], dict[str, Any]]:
-    """Collapse de-duplicated order-item rows into shipment-grain records."""
+                    dq: Any | None = None,
+                    manually_closed: frozenset[str] = frozenset()) -> tuple[list[Shipment], dict[str, Any]]:
+    """Collapse de-duplicated order-item rows into shipment-grain records.
+
+    manually_closed: AWBs from last_mile_manual_closures -- a human has
+    confirmed these are actually done in Uniware's UI even though the
+    export's own status fields are stuck stale (see that table's comment
+    in schema.sql). Checked first, ahead of every other cohort rule, so
+    it always wins regardless of adapter/status/age.
+    """
     now = now or now_ist()
     rules = rules or SlaRules()
     stats: dict[str, Any] = {
@@ -220,7 +228,12 @@ def build_shipments(rows: Iterable[dict[str, Any]], rules: SlaRules | None = Non
         pkg_code = _g(lead, "Shipping Package Status Code")
         track_status = _g(lead, "Shipping Tracking Status")
 
-        if res.adapter_id in EXCLUDED_ADAPTERS:
+        if awb in manually_closed:
+            # A human confirmed this one directly in Uniware's UI -- wins
+            # over every other rule below, including a status/adapter that
+            # would otherwise keep re-opening it (see the docstring above).
+            cohort = "closed"
+        elif res.adapter_id in EXCLUDED_ADAPTERS:
             # Out of scope entirely: in-house fleet, no courier assigned, Porter,
             # or a courier code with no adapter rule. Cohorting here is what keeps
             # them out of alerts, scorecards and lanes in one move rather than
@@ -282,7 +295,25 @@ def build_shipments(rows: Iterable[dict[str, Any]], rules: SlaRules | None = Non
             cohort=cohort,
             # Uniware already knows the LSP state for most open AWBs; those
             # need a poll only for freshness, not for a first answer.
-            needs_lsp_poll=(cohort in ("live", "backlog", "no_dispatch_date")),
+            #
+            # aged_out is included on purpose (2026-09-29, measured against
+            # AWBs like SF3696142351URM): the real "stop polling this" signal
+            # is last_mile_poll_state.terminal (an LSP actually confirmed
+            # delivered/RTO/lost), not calendar age -- sync_last_mile_hourly.py
+            # already excludes anything state.settled_awbs() covers before it
+            # ever gets here, so this doesn't reopen polling on shipments
+            # that were genuinely resolved. What it DOES fix: an aged_out
+            # shipment on a live-polled carrier (Bluedart/Delhivery/DTDC) that
+            # was NEVER actually confirmed terminal has no other way to learn
+            # its real status -- Uniware's own tracking_status field can
+            # itself go stale for a shipment this old (measured: last_mile_
+            # daily's own re-pull came back with a still-months-old value),
+            # so cutting off the one independent correction path at a fixed
+            # age turned a slow-to-resolve shipment into a permanently wrong
+            # one. Adapters this doesn't cover (e.g. Shadowfax -- not in
+            # POLLED_ADAPTERS, sync_last_mile_hourly.py) are unaffected by
+            # this change either way, since that filter still excludes them.
+            needs_lsp_poll=(cohort in ("live", "backlog", "no_dispatch_date", "aged_out")),
             awb_pattern_ok=pattern_ok,
         )
         shipments.append(ship)

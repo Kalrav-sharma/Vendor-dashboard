@@ -1861,6 +1861,12 @@ create table if not exists public.last_mile_run (
   synced_at timestamptz not null default now()
 );
 create index if not exists idx_last_mile_run_generated_at on public.last_mile_run (generated_at desc);
+-- total_lanes_active added 2026-09-29 for the Worst Lanes tab's Total lanes
+-- KPI -- worst_lanes() only ever returns its curated top-25-worst subset,
+-- so that count is not "how many lanes exist", only "how many made the
+-- list". "create table if not exists" won't retroactively add this on an
+-- already-deployed database; this does, and is a no-op if already there.
+alter table public.last_mile_run add column if not exists total_lanes_active int;
 
 alter table public.last_mile_run enable row level security;
 drop policy if exists last_mile_run_select on public.last_mile_run;
@@ -2197,6 +2203,39 @@ alter table public.last_mile_sla_rules enable row level security;
 drop policy if exists last_mile_sla_rules_select on public.last_mile_sla_rules;
 create policy last_mile_sla_rules_select on public.last_mile_sla_rules
   for select using (public.is_internal_staff());
+-- ---------------------------------------------------------------------
+
+-- ---------------------------------------------------------------------
+-- last_mile_manual_closures -- AWBs a human has confirmed are actually
+-- done (checked directly in Uniware's UI) even though Uniware's OWN
+-- export fields (Shipping Tracking Status / Sale Order Item Status) are
+-- stuck stale and will never auto-resolve on their own -- measured
+-- 2026-09-29 against a batch of aged_out Shadowfax AWBs (Shadowfax has
+-- no live-poll fallback the way Bluedart/Delhivery/DTDC do; see
+-- sync_last_mile_hourly.py's POLLED_ADAPTERS). A wider daily-pull window
+-- alone can't fix this -- the export was measured freshly re-pulled and
+-- still returned the stale value, so the staleness is in Uniware/the
+-- Shadowfax integration itself, not in when we ask.
+--
+-- Consulted by scripts/sync_last_mile_daily.py's build_watchlist_rows():
+-- an AWB listed here is forced to cohort='closed' on every run
+-- regardless of what that day's Uniware export says, so it stays closed
+-- instead of reverting to 'aged_out' (and re-alerting) on the very next
+-- daily pull. Delete a row here to resume normal tracking on that AWB.
+-- ---------------------------------------------------------------------
+create table if not exists public.last_mile_manual_closures (
+  awb text primary key,
+  reason text,
+  closed_by text,
+  closed_at timestamptz not null default now()
+);
+
+alter table public.last_mile_manual_closures enable row level security;
+drop policy if exists last_mile_manual_closures_select on public.last_mile_manual_closures;
+create policy last_mile_manual_closures_select on public.last_mile_manual_closures
+  for select using (public.is_internal_staff());
+-- No insert/update/delete policy for authenticated -- service_role only,
+-- same discipline as every other write path in this schema.
 -- ---------------------------------------------------------------------
 
 -- =====================================================================

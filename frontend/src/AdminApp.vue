@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted } from "vue";
 import { supabase, requireSession, INTERNAL_ROLES, ROLE_LABELS } from "./supabaseClient.js";
-import { clearViewOverride } from "./viewOverride.js";
+import { clearViewOverride, getPreviewRole } from "./viewOverride.js";
 import { usePurchaseOrders } from "./composables/usePurchaseOrders.js";
 import { usePoFilters } from "./composables/usePoFilters.js";
 import { useSkuAggregates } from "./composables/useSkuAggregates.js";
@@ -43,33 +43,44 @@ const myEmail = ref("");
 const myRole = ref("admin");
 const myUserId = ref(null);
 
+// Admin-only "Switch view" (Settings > Switch view) can preview another
+// internal role's restricted nav WITHOUT leaving admin.html -- Finance
+// (and friends) is just a different set of visible nav items here, not a
+// separate page like Vendor. Static for this page load (any change goes
+// through a reload, same as the vendor preview) and only ever takes effect
+// once myRole is confirmed "admin" from a fresh DB read below -- exactly
+// the same safety property as viewOverride.js's vendor-code filter: this
+// changes what the UI shows, never what RLS/Edge Functions actually allow.
+const previewRole = getPreviewRole();
+const effectiveRole = computed(() => (myRole.value === "admin" && previewRole) ? previewRole : myRole.value);
+
 // Page/action access per role -- see schema.sql's header comment for the
 // full role model. RLS itself doesn't distinguish between these four
 // (is_internal_staff() grants all of them the same underlying data
 // visibility); this is purely a frontend concern.
-const canSeePoTracking = computed(() => ["admin", "management", "operations"].includes(myRole.value));
-const canSeeSkuData = computed(() => ["admin", "management", "operations"].includes(myRole.value));
-const canSeeDispatchPlanning = computed(() => ["admin", "management", "operations"].includes(myRole.value));
-const canSeePaymentDashboard = computed(() => ["admin", "management", "finance"].includes(myRole.value));
-const canSeeManageAccess = computed(() => myRole.value === "admin"); // admin only -- Kalrav's explicit call
-const canSeeRateFinder = computed(() => ["admin", "management", "operations"].includes(myRole.value));
-const canSeeSop = computed(() => ["admin", "management", "operations"].includes(myRole.value));
+const canSeePoTracking = computed(() => ["admin", "management", "operations"].includes(effectiveRole.value));
+const canSeeSkuData = computed(() => ["admin", "management", "operations"].includes(effectiveRole.value));
+const canSeeDispatchPlanning = computed(() => ["admin", "management", "operations"].includes(effectiveRole.value));
+const canSeePaymentDashboard = computed(() => ["admin", "management", "finance"].includes(effectiveRole.value));
+const canSeeManageAccess = computed(() => effectiveRole.value === "admin"); // admin only -- Kalrav's explicit call
+const canSeeRateFinder = computed(() => ["admin", "management", "operations"].includes(effectiveRole.value));
+const canSeeSop = computed(() => ["admin", "management", "operations"].includes(effectiveRole.value));
 // Same gate as S&OP -- UC's own delivery-operations data, not something a
 // vendor (who only supplies TO Uniware, not to the end customer) sees.
-const canSeeLastMile = computed(() => ["admin", "management", "operations"].includes(myRole.value));
+const canSeeLastMile = computed(() => ["admin", "management", "operations"].includes(effectiveRole.value));
 // Same gate as S&OP / Last Mile -- UC's delivery SLA performance and late-delivery RCA.
-const canSeeSla = computed(() => ["admin", "management", "operations"].includes(myRole.value));
+const canSeeSla = computed(() => ["admin", "management", "operations"].includes(effectiveRole.value));
 // Spares planning (Summary / Spares Inventory / Warehouse stock / Appendix). Same internal roles;
 // all of them may edit Appendix status/vendor (RLS: is_internal_staff()).
-const canSeeSpares = computed(() => ["admin", "management", "operations"].includes(myRole.value));
+const canSeeSpares = computed(() => ["admin", "management", "operations"].includes(effectiveRole.value));
 // Logistics Health Card -- the landing section (first in navItems, which login uses as the default).
-const canSeeHealth = computed(() => ["admin", "management", "operations"].includes(myRole.value));
+const canSeeHealth = computed(() => ["admin", "management", "operations"].includes(effectiveRole.value));
 
 // Admin/Management only -- Kalrav's explicit call: the OCR match summary,
 // discrepancy details, and Re-check button in a PO's invoice section are
 // hidden from everyone else (vendor, operations, finance). The invoice
 // copy itself (filename, status chip, remove) stays visible to all.
-const canViewInvoiceMatchDetails = computed(() => ["admin", "management"].includes(myRole.value));
+const canViewInvoiceMatchDetails = computed(() => ["admin", "management"].includes(effectiveRole.value));
 
 // Approved by Kalrav after testing -- now a normal visible tab for
 // admin/management/operations, same as everything else.
@@ -79,7 +90,7 @@ const SIDEBAR_BRAND = {
   admin: "Admin Console", management: "Connect",
   operations: "Operations Portal", finance: "Finance Portal",
 };
-const sidebarBrand = computed(() => SIDEBAR_BRAND[myRole.value] || "Admin Console");
+const sidebarBrand = computed(() => SIDEBAR_BRAND[effectiveRole.value] || "Admin Console");
 const ROLE_FALLBACK_NAME = { admin: "Admin", management: "Management", operations: "Operations", finance: "Finance" };
 
 const navItems = computed(() => {
@@ -276,7 +287,7 @@ async function signOut() {
   </div>
 
   <div v-else-if="ready" class="app-shell">
-    <SidebarNav v-model="activeNav" :brand="sidebarBrand" :lockup="myRole === 'management'" :items="navItems">
+    <SidebarNav v-model="activeNav" :brand="sidebarBrand" :lockup="effectiveRole === 'management'" :items="navItems">
       <template #account>
         <ProfileMenu :display-name="whoLine" :email="myEmail" :access="ROLE_LABELS[myRole] || myRole" :role="myRole" :vendors="poVendorOptions" :on-sign-out="signOut" />
       </template>

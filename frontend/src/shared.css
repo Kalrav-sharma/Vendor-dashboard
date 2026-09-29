@@ -219,7 +219,6 @@ button.link-btn {
   display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; padding: 4px;
   border: 1px solid var(--line); border-radius: 8px; background: var(--paper);
 }
-.appearance-picker.cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .appearance-option {
   min-width: 0; min-height: 42px; display: flex; align-items: center; justify-content: center; gap: 7px;
   padding: 8px 5px; border: 1px solid transparent; border-radius: 5px; background: transparent;
@@ -285,6 +284,11 @@ button.link-btn {
 .lsp-meter-stats { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 10px; font-size: 0.8rem; color: var(--muted); }
 .lsp-meter-stats b { color: var(--ink); }
 table { width: 100%; border-collapse: collapse; font-size: 0.86rem; min-width: 920px; }
+/* Opt-out for a table narrow enough to just reflow -- e.g. Carrier
+   Performance's table view (7 columns, all short). Drops the min-width
+   that forces every OTHER Last Mile table's necessary horizontal scroll
+   (Alerts alone has 13 columns), instead of removing it globally. */
+table.table-fluid { min-width: 0; }
 th { text-align: left; padding: 10px 12px; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); font-weight: 600; border-bottom: 1px solid var(--line); background: var(--paper); white-space: nowrap; vertical-align: middle; }
 /* A numeric column's header must right-align to match its data below it --
    .num already does this for td; th needs the same rule under the same

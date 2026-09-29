@@ -95,22 +95,22 @@ const kpiTiles = computed(() => {
         <div class="lsp-meter-stats">
           <span>On time <b class="mono">{{ r.on_time }}</b></span>
           <span>Late <b class="mono">{{ r.late }}</b></span>
-          <span title="Delivered shipments with no matching SERVICEABILITYRULES_DP rule for this lane -- graded neither on-time nor late, because there is no real promise to grade against (falls back to an assumed default). Not a data-quality error, and not counted in the on-time % above.">
-            Excluded <b class="mono">{{ r.excluded || 0 }}</b> <span class="muted-text">(assumed promise)</span>
-          </span>
           <span class="muted-text">{{ (r.courier_codes || []).length }} courier code(s)</span>
         </div>
       </div>
     </div>
 
-    <!-- Table view: the WCAG-clean equivalent, one click away. -->
+    <!-- Table view: the WCAG-clean equivalent, one click away. Only 7 narrow
+         columns -- table-fluid drops the shared min-width so it reflows to
+         the screen instead of forcing the horizontal scrollbar every other,
+         wider Last Mile table (e.g. Alerts' 13 columns) genuinely needs. -->
     <div v-else class="table-card"><div class="table-scroll">
-      <table>
+      <table class="table-fluid">
         <thead>
           <tr>
             <th>LSP</th><th class="num">Courier codes</th>
             <th class="num">Delivered</th><th class="num">On time</th><th class="num">Late</th>
-            <th class="num">On-time %</th><th class="num">Excluded</th>
+            <th class="num">On-time %</th>
           </tr>
         </thead>
         <tbody>
@@ -121,7 +121,6 @@ const kpiTiles = computed(() => {
             <td class="num mono">{{ r.on_time }}</td>
             <td class="num mono">{{ r.late }}</td>
             <td class="num mono" :class="pctClass(r.on_time_pct)">{{ fmtPct(r.on_time_pct) }}</td>
-            <td class="num mono" title="Delivered shipments with no matching SERVICEABILITYRULES_DP rule for this lane -- graded neither on-time nor late (falls back to an assumed default), and not counted in on-time %.">{{ r.excluded || 0 }}</td>
           </tr>
         </tbody>
       </table>
