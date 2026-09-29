@@ -41,7 +41,7 @@ import requests
 
 REQUEST_TIMEOUT = 30
 SOFTPAL_API = "https://eztrackwebapi159.softpal.in/V1/TrackingApiCommon_Softpal"
-TERMINAL_STATUSES = {"delivered"}  # current_status_name, lowercased
+TERMINAL_STATUSES = {"delivered", "pod uploaded"}  # current_status_name, lowercased
 
 
 def env(name):
