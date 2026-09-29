@@ -15,8 +15,7 @@ const props = defineProps({
   statusOptions: { type: Array, required: true },
   vendorOptions: { type: Array, default: null }, // [{code, label}] -- null hides the Vendor column entirely
   grnsByPo: { type: Object, required: true },
-  showKpis: { type: Boolean, default: false },   // vendor.html shows KPI cards; admin.html doesn't
-  showKpiTiles: { type: Boolean, default: null }, // overrides showKpis for just the top number-tile row; null = follow showKpis
+  showKpis: { type: Boolean, default: false },   // admin.html only -- the number-tile row + status-count pills above the table
   showBuckets: { type: Boolean, default: false }, // vendor.html shows the All/Invoice needed/Processing/PO complete tabs; admin.html doesn't
   vendorLabel: { type: Function, default: null }, // (code, rowName) => string -- required when vendorOptions is set
   onOpenPo: { type: Function, required: true },
@@ -56,8 +55,7 @@ function invoiceUploadStatus(poCode) {
 }
 
 const kpiTiles = computed(() => {
-  const show = props.showKpiTiles === null ? props.showKpis : props.showKpiTiles;
-  if (!show) return null;
+  if (!props.showKpis) return null;
   const openCount = props.rows.filter(p => !TERMINAL_STATUSES.has(p.status)).length;
   const totalOrdered = props.rows.reduce((s, p) => s + (Number(p.qty_ordered) || 0), 0);
   const totalReceived = props.rows.reduce((s, p) => s + (Number(p.qty_received) || 0), 0);
@@ -80,11 +78,13 @@ const statusPills = computed(() => {
   return Object.entries(counts).sort((a, b) => b[1] - a[1]);
 });
 
-// A PO's invoice PDF is "needed" the moment a GRN has named more invoice
-// numbers than the vendor has actually uploaded copies for -- same signal
-// as the per-row chip in the Invoice column, just rolled up into a bucket.
-// That check runs independent of status, so it wins over "PO complete":
-// a closed PO still missing its invoice copy stays actionable.
+// A PO needs an invoice the moment the vendor hasn't uploaded a single
+// invoice copy for it yet -- same "Invoice not yet shared" signal the
+// Dashboard tab's "Open POs" tile already uses. Once an invoice exists,
+// the PO only counts as complete once every uploaded invoice has actually
+// been paid (payment_status === "paid", same check the Payment Dashboard
+// uses) -- a closed/terminal PO status alone isn't enough, since payment
+// can settle well after the PO itself is marked COMPLETE.
 const BUCKETS = [
   { key: "all", label: "All" },
   { key: "invoice_needed", label: "Invoice needed" },
@@ -92,9 +92,10 @@ const BUCKETS = [
   { key: "complete", label: "PO complete" },
 ];
 function poBucket(p) {
-  if (invoiceUploadStatus(p.po_code).pending) return "invoice_needed";
-  if (TERMINAL_STATUSES.has(p.status)) return "complete";
-  return "processing";
+  const uploads = uploadsByPo[p.po_code] || [];
+  if (!uploads.length) return "invoice_needed";
+  const fullyPaid = uploads.every((u) => u.payment_status === "paid");
+  return TERMINAL_STATUSES.has(p.status) && fullyPaid ? "complete" : "processing";
 }
 const activeBucket = ref("all");
 const bucketCounts = computed(() => {

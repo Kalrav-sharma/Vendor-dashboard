@@ -310,7 +310,7 @@ async function signOut() {
           <PoTrackingTable
             :rows="filteredSorted" :filters="filters"
             :facility-options="facilityOptions" :status-options="statusOptions"
-            :grns-by-po="grnsByPo" :show-kpis="true" :show-kpi-tiles="false" :show-buckets="true"
+            :grns-by-po="grnsByPo" :show-buckets="true"
             :on-open-po="openPoDetailModal" :allow-invoice-upload="true" :uploader-label="myDisplayName"
           />
         </div>

@@ -71,21 +71,22 @@ export function useInvoiceUploads() {
     return { data, error };
   }
 
-  // Bulk, count-only fetch for the PO Tracking table's pending-invoice
-  // badge -- one query for every PO code not already known (whether from
-  // a prior call here or from a modal's own fetchInvoices), instead of a
-  // full per-PO detail fetch for rows nobody's opened yet. Placeholder
-  // entries hold only a length; opening that PO's modal later replaces
-  // them with the real rows via fetchInvoices, same reactive map either way.
+  // Bulk, light-columns fetch for the PO Tracking table's pending-invoice
+  // badge and invoice/payment bucketing -- one query for every PO code not
+  // already known (whether from a prior call here or from a modal's own
+  // fetchInvoices), instead of a full per-PO detail fetch for rows nobody's
+  // opened yet. Entries only carry po_code/payment_status; opening that
+  // PO's modal later replaces them with the real full rows via
+  // fetchInvoices, same reactive map either way.
   async function fetchUploadCounts(poCodes) {
     const needed = [...new Set(poCodes)].filter(code => code && !uploadsByPo[code]);
     if (!needed.length) return;
-    const { data, error } = await supabase.from("po_invoice_uploads").select("po_code").in("po_code", needed);
+    const { data, error } = await supabase.from("po_invoice_uploads").select("po_code, payment_status").in("po_code", needed);
     if (error) return;
-    const countByCode = {};
-    for (const row of data) countByCode[row.po_code] = (countByCode[row.po_code] || 0) + 1;
+    const rowsByCode = {};
+    for (const row of data) (rowsByCode[row.po_code] ??= []).push(row);
     for (const code of needed) {
-      uploadsByPo[code] = new Array(countByCode[code] || 0).fill(null);
+      uploadsByPo[code] = rowsByCode[code] || [];
     }
   }
 
