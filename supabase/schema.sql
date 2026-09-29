@@ -2409,6 +2409,25 @@ drop policy if exists spares_wh_inventory_select on public.spares_wh_inventory;
 create policy spares_wh_inventory_select on public.spares_wh_inventory
   for select using (public.is_internal_staff());
 
+-- Per-warehouse DRR from Jarvis 485614 (the query the sheet's 'DRR Raw' tab was a
+-- paste of): max(L30/30, L15/15) per SKU x planning warehouse (GGN excludes Pataudi,
+-- as in the sheet). Written by the local launchd sync_sla_portal.js (Jarvis is VPN-
+-- gated, so GitHub Actions can't); upserted then stale pairs deleted each run.
+-- Supersedes spares_sku_master.drr_* / total_drr, which are no longer synced.
+create table if not exists public.spares_drr (
+  sku text not null,
+  wh text not null check (wh in ('ggn', 'blr', 'bom', 'kol', 'hyd')),
+  drr numeric not null default 0,
+  l30_sales numeric not null default 0,
+  l15_sales numeric not null default 0,
+  synced_at timestamptz not null default now(),
+  primary key (sku, wh)
+);
+alter table public.spares_drr enable row level security;
+drop policy if exists spares_drr_select on public.spares_drr;
+create policy spares_drr_select on public.spares_drr
+  for select using (public.is_internal_staff());
+
 -- Appendix: manual status per SKU x facility (facility = Uniware code).
 create table if not exists public.spares_status_override (
   sku text not null,

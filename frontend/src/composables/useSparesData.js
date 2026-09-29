@@ -3,6 +3,7 @@
 //
 //   spares_sku_master      <- sheet "SKU list and uni data" (scripts/sync_spares.py)
 //   spares_wh_inventory    <- Uniware good/bad, every SKU x 7 facilities (same script)
+//   spares_drr             <- per-WH DRR from Jarvis 485614 (local sync_sla_portal.js)
 //   spares_status_override <- Appendix edits (browser-written, per SKU x facility)
 //   spares_vendor_override <- Appendix edits (browser-written, per SKU)
 //
@@ -43,6 +44,20 @@ const SUMMARY_EXCLUDED_CATEGORIES = new Set(["ik", "refresh", "dummy", "disconti
 
 export const DOI_TARGET = 60;
 
+// The sheet hand-set DRR 100 for these Refresh SKUs at GGN/BOM/HYD (their real DRR is
+// ~0-0.4); kept on moving DRR to Jarvis 485614, at the user's request (2026-09-29).
+const REFRESH_DRR_OVERRIDE = {
+  skus: new Set([
+    "UC/RO/N/PRECFIL/P/REFRESH",
+    "UC/NATIVE/HealthBooster/P/REFRESH",
+    "UC/NATIVE/PREFIL/ASSEMBLY/10/REFRESH",
+    "UC/NATIVE/LIFEBOOSTER",
+    "UC/NATIVE/SRT/REFRESH",
+  ]),
+  whs: new Set(["ggn", "bom", "hyd"]),
+  drr: 100,
+};
+
 export const BUCKETS = [
   { key: "stockout", label: "Stock out" },
   { key: "0-7", label: "0-7" },
@@ -68,10 +83,12 @@ function normVendor(v) {
   return !s || /^n\/?a$/i.test(s) ? "NA" : s;
 }
 
-async function fetchAll(table, orderCol) {
+async function fetchAll(table, ...orderCols) {
   const out = [];
   for (let from = 0; ; from += PAGE) {
-    const { data, error } = await supabase.from(table).select("*").order(orderCol).range(from, from + PAGE - 1);
+    let q = supabase.from(table).select("*");
+    for (const c of orderCols) q = q.order(c);
+    const { data, error } = await q.range(from, from + PAGE - 1);
     if (error) return { data: null, error };
     out.push(...data);
     if (data.length < PAGE) return { data: out, error: null };
@@ -81,6 +98,7 @@ async function fetchAll(table, orderCol) {
 export function useSparesData(editorLabel) {
   const master = ref([]);
   const inventory = ref([]);
+  const drrRows = ref([]);
   const statusOv = ref({}); // "sku|facility" -> row
   const vendorOv = ref({}); // sku -> row
   const loaded = ref(false);
@@ -88,17 +106,19 @@ export function useSparesData(editorLabel) {
   const saveError = ref("");
 
   async function refresh() {
-    const [m, inv, so, vo] = await Promise.all([
+    const [m, inv, dr, so, vo] = await Promise.all([
       fetchAll("spares_sku_master", "sku"),
       fetchAll("spares_wh_inventory", "id"),
+      fetchAll("spares_drr", "sku", "wh"),
       fetchAll("spares_status_override", "sku"),
       fetchAll("spares_vendor_override", "sku"),
     ]);
     if (!m.error) master.value = m.data;
     if (!inv.error) inventory.value = inv.data;
+    if (!dr.error) drrRows.value = dr.data;
     if (!so.error) statusOv.value = Object.fromEntries(so.data.map((r) => [`${r.sku}|${r.facility}`, r]));
     if (!vo.error) vendorOv.value = Object.fromEntries(vo.data.map((r) => [r.sku, r]));
-    loadError.value = m.error?.message || inv.error?.message || so.error?.message || vo.error?.message || "";
+    loadError.value = m.error?.message || inv.error?.message || dr.error?.message || so.error?.message || vo.error?.message || "";
     loaded.value = true;
   }
 
@@ -109,6 +129,12 @@ export function useSparesData(editorLabel) {
     for (const r of inventory.value) map.set(`${r.facility}|${r.sku}`, { good: +r.good_qty || 0, bad: +r.bad_qty || 0 });
     return map;
   });
+  const drrMap = computed(() => new Map(drrRows.value.map((r) => [`${r.sku}|${r.wh}`, +r.drr || 0])));
+  const drrOf = (sku, wh) => {
+    if (REFRESH_DRR_OVERRIDE.skus.has(sku) && REFRESH_DRR_OVERRIDE.whs.has(wh.key)) return REFRESH_DRR_OVERRIDE.drr;
+    return drrMap.value.get(`${sku}|${wh.key}`) || 0;
+  };
+
   const stockAt = (sku, facility) => stock.value.get(`${facility}|${sku}`) || { good: 0, bad: 0 };
 
   // Sheet SKUs in sheet order, then any other SKU stocked at a warehouse.
@@ -145,7 +171,7 @@ export function useSparesData(editorLabel) {
 
   function whFigures(sku, wh) {
     const m = masterBySku.value.get(sku);
-    const drr = +(m?.[`drr_${wh.key}`] || 0);
+    const drr = drrOf(sku, wh);
     const good = whGood(sku, wh);
     const inTransit = +(m?.[`in_transit_${wh.key}`] || 0);
     const delivery = m?.[`delivery_${wh.key}`] || null;
@@ -230,6 +256,7 @@ export function useSparesData(editorLabel) {
   }
 
   const sheetSyncedAt = computed(() => master.value.reduce((t, r) => (r.synced_at > t ? r.synced_at : t), "") || null);
+  const drrSyncedAt = computed(() => drrRows.value.reduce((t, r) => (r.synced_at > t ? r.synced_at : t), "") || null);
   const stockSyncedAt = computed(() => inventory.value.reduce((t, r) => (r.synced_at > t ? r.synced_at : t), "") || null);
 
   let intervalId = null;
@@ -243,6 +270,6 @@ export function useSparesData(editorLabel) {
     loaded, loadError, saveError, refresh, master, masterBySku, allSkus, stockAt,
     statusOf, isEdited, setStatus, resetStatus,
     vendorOf, sheetVendor, vendorEdited, vendorOptions, setVendor, resetVendor, categoryOf,
-    whOngoing, whFigures, supplyStatus, inSummaryScope, sheetSyncedAt, stockSyncedAt,
+    whOngoing, whFigures, supplyStatus, inSummaryScope, sheetSyncedAt, stockSyncedAt, drrSyncedAt,
   };
 }

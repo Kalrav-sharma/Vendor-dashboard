@@ -5,7 +5,10 @@
 import { ref, computed } from "vue";
 import { WAREHOUSES, BUCKETS } from "../../composables/useSparesData.js";
 
-const props = defineProps({ store: { type: Object, required: true } });
+const props = defineProps({
+  store: { type: Object, required: true },
+  title: { type: String, default: "Spares excluding IK & Discontinued" },
+});
 const s = props.store;
 
 const PILL = { stockout: "cell-critical", "0-7": "cell-critical", "8-15": "cell-open", "16-30": "cell-warn", "31-60": "cell-good", ">60": "" };
@@ -49,7 +52,7 @@ const fmtDrr = (n) => (n > 0 ? (+n).toFixed(1) : "–");
 
 <template>
   <section class="table-card hc-view">
-    <h3 class="card-caption">Spares excluding IK &amp; Discontinued</h3>
+    <h3 class="card-caption">{{ title }}</h3>
     <div class="table-scroll">
       <table class="hc-table">
         <colgroup><col style="width:14%"><col v-for="w in WAREHOUSES" :key="w.key"><col style="width:11%"><col style="width:9%"></colgroup>

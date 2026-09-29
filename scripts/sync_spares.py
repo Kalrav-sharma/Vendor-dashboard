@@ -2,13 +2,18 @@
 """
 Spares section feed: the "Spare automations" sheet + a live Uniware good/bad snapshot.
 
-    "SKU list and uni data" tab  -> spares_sku_master   (category, vendor, DRR, in transit,
+    "SKU list and uni data" tab  -> spares_sku_master   (category, vendor, in transit,
                                                          delivery date, next dispatch -- per WH)
     Uniware inventorySnapshot    -> spares_wh_inventory (good + bad, every SKU, 7 facilities)
 
 DOI and "Required qty basis 60 DOI" are deliberately NOT taken from the sheet: its PB_GGN /
 PB_KOL columns ignore Pataudi and Panchla stock, and the portal clubs them (GGN = GGN + Pataudi,
-KOL = KOL + Panchla). The frontend recomputes both from this table's stock and the sheet's DRR.
+KOL = KOL + Panchla). The frontend recomputes both from this table's stock and spares_drr.
+
+DRR is NOT read from the sheet any more (2026-09-29): its DRR block was SUMIFS over 'DRR Raw', a
+manual paste of Jarvis query 485614. That query now lands in spares_drr directly, written by the
+local launchd ~/.claude/scripts/sla_portal/sync_sla_portal.js (Jarvis is VPN-gated, unreachable
+from Actions). spares_sku_master.drr_* / total_drr are left at their defaults.
 
 Sheet columns are located from the tab's own two header rows (block title on row 2, warehouse
 code on row 3), never hardcoded -- a column inserted in the sheet must not silently shift one
@@ -16,7 +21,7 @@ block's numbers onto another's.
 
 "Every SKU at the warehouse": inventorySnapshot/get needs either an explicit SKU list or
 updatedSinceInMinutes. We do both and merge -- the explicit list (sheet SKUs + the Jarvis spares
-list in "DRR Raw" + our machine SKUs) guarantees every SKU the business tracks, and the
+list in spares_drr + our machine SKUs) guarantees every SKU the business tracks, and the
 updatedSinceInMinutes call picks up anything else lying in the warehouse. If Uniware rejects the
 latter, the run carries on with the explicit list and says so in the log.
 
@@ -27,6 +32,7 @@ Flags:
 Env: GOOGLE_SERVICE_ACCOUNT_JSON, UNIWARE_USERNAME, UNIWARE_PASSWORD, SUPABASE_URL,
 SUPABASE_SERVICE_ROLE_KEY.
 """
+import os
 import sys
 import time
 
@@ -44,7 +50,6 @@ from sync_uniware_inventory import (  # noqa: E402
 
 SPARES_SHEET_ID = "1Eb8fqROZLM2sw2_6GbWo75AqtzPK5dvTVc1vwV8FOz0"
 SKU_TAB = "SKU list and uni data"
-DRR_RAW_TAB = "DRR Raw"
 
 WH_KEYS = {"PB_GGN": "ggn", "PB_BLR": "blr", "PB_BOM": "bom", "PB_KOL": "kol", "PB_HYD": "hyd"}
 FACILITIES = [code for codes in WAREHOUSE_FACILITY_CODES.values() for code in codes]
@@ -117,7 +122,7 @@ def locate_columns(title_row, code_row):
         except ValueError:
             sys.exit(f"Column '{wanted}' not found in row 3 of '{SKU_TAB}'.")
 
-    for title, prefix in (("drr", "drr"), ("in transit", "in_transit"), ("delivery date", "delivery")):
+    for title, prefix in (("in transit", "in_transit"), ("delivery date", "delivery")):
         start, end = block(title)
         for i in range(start, end):
             if code_row[i] in WH_KEYS:
@@ -125,10 +130,6 @@ def locate_columns(title_row, code_row):
         missing = [k for k in WH_KEYS.values() if f"{prefix}_{k}" not in cols]
         if missing:
             sys.exit(f"Block '{title}' is missing warehouse column(s) {missing}.")
-        if title == "drr":
-            for i in range(start, end):
-                if code_row[i].lower() == "total drr":
-                    cols["total_drr"] = i
     cols["next_dispatch_date"] = block("next dispatch")[0]
     cols["next_dispatch_qty"] = block("dispatch qty")[0]
     return cols
@@ -160,31 +161,37 @@ def read_sheet(token):
             "sku": sku,
             "category": txt("category"),
             "sheet_vendor": txt("vendor"),
-            "total_drr": to_num(r[cols["total_drr"]]) if "total_drr" in cols else 0.0,
             "next_dispatch_date": txt("next_dispatch_date"),
             "next_dispatch_qty": to_num(r[cols["next_dispatch_qty"]]) if txt("next_dispatch_qty") else None,
             "sheet_order": n,
         }
         for k in WH_KEYS.values():
-            rec[f"drr_{k}"] = to_num(r[cols[f"drr_{k}"]])
             rec[f"in_transit_{k}"] = to_num(r[cols[f"in_transit_{k}"]])
             rec[f"delivery_{k}"] = txt(f"delivery_{k}")
-        if "total_drr" not in cols:
-            rec["total_drr"] = sum(rec[f"drr_{k}"] for k in WH_KEYS.values())
         out.append(rec)
     return out
 
 
-def read_drr_raw_skus(token):
-    rows = get_values(token, SPARES_SHEET_ID, f"'{DRR_RAW_TAB}'!A1:I5000")
-    if not rows:
+def read_drr_skus():
+    """SKUs in spares_drr (Jarvis 485614's spares list). Not fatal: without them the run still has
+    the sheet + machine SKUs, and updatedSince picks up anything that moved in the last day."""
+    url, key = os.environ.get("SUPABASE_URL"), os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+    if not url or not key:
+        print("WARN: no Supabase env; Uniware universe skips spares_drr SKUs.", file=sys.stderr)
         return set()
-    hdr = [(c or "").strip().upper() for c in rows[0]]
-    if "ITEM_TYPE_SKU" not in hdr:
-        print(f"WARN: '{DRR_RAW_TAB}' has no ITEM_TYPE_SKU column; skipping it.", file=sys.stderr)
-        return set()
-    i = hdr.index("ITEM_TYPE_SKU")
-    return {(pad_row(r, i + 1)[i] or "").strip() for r in rows[1:]} - {""}
+    headers = {"apikey": key, "Authorization": f"Bearer {key}"}
+    out, page = set(), 1000
+    for offset in range(0, 100000, page):
+        r = requests.get(f"{url}/rest/v1/spares_drr", headers=headers, timeout=REQUEST_TIMEOUT,
+                         params={"select": "sku", "order": "sku,wh", "offset": offset, "limit": page})
+        if not r.ok:
+            print(f"WARN: reading spares_drr failed ({r.status_code}): {r.text[:200]}", file=sys.stderr)
+            return out
+        rows = r.json()
+        out.update((x["sku"] or "").strip() for x in rows)
+        if len(rows) < page:
+            break
+    return out - {""}
 
 
 def snapshot_call(token, facility, body):
@@ -278,7 +285,7 @@ def main():
 
     inv_rows = []
     if not skip_uniware:
-        universe = {m["sku"] for m in master} | read_drr_raw_skus(gtoken) | set(UNIWARE_SKU_MAP)
+        universe = {m["sku"] for m in master} | read_drr_skus() | set(UNIWARE_SKU_MAP)
         print(f"Uniware: explicit SKU universe {len(universe)}")
         utoken = get_uniware_token()
         for facility in FACILITIES:
