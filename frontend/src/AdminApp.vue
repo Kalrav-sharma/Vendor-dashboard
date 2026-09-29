@@ -13,12 +13,15 @@ import { useTeam } from "./composables/useTeam.js";
 import { useModal } from "./composables/useModal.js";
 import { useInvoiceUploads } from "./composables/useInvoiceUploads.js";
 import { usePaymentFilters } from "./composables/usePaymentFilters.js";
+import { useSupportTickets } from "./composables/useSupportTickets.js";
 import { dedupeInvoiceNumbers, dedupeVendorOptions } from "./format.js";
 import SidebarNav from "./components/SidebarNav.vue";
 import PoTrackingTable from "./components/PoTrackingTable.vue";
 import SkuLevelTable from "./components/SkuLevelTable.vue";
 import DispatchPlanningTable from "./components/DispatchPlanningTable.vue";
 import PaymentDashboardTable from "./components/PaymentDashboardTable.vue";
+import TicketsTable from "./components/TicketsTable.vue";
+import TicketDetailModal from "./components/TicketDetailModal.vue";
 import ManageAccess from "./components/ManageAccess.vue";
 import RateFinder from "./components/RateFinder.vue";
 import SopSection from "./components/sop/SopSection.vue";
@@ -75,6 +78,8 @@ const canSeeSla = computed(() => ["admin", "management", "operations"].includes(
 const canSeeSpares = computed(() => ["admin", "management", "operations"].includes(effectiveRole.value));
 // Logistics Health Card -- the landing section (first in navItems, which login uses as the default).
 const canSeeHealth = computed(() => ["admin", "management", "operations"].includes(effectiveRole.value));
+// Same internal roles as PO Tracking -- triage of vendor-raised tickets.
+const canSeeTickets = computed(() => ["admin", "management", "operations"].includes(effectiveRole.value));
 
 // Admin/Management only -- Kalrav's explicit call: the OCR match summary,
 // discrepancy details, and Re-check button in a PO's invoice section are
@@ -106,6 +111,7 @@ const navItems = computed(() => {
   if (canSeeLastMile.value) items.push({ id: "last-mile", label: "Last Mile Tracking" });
   if (canSeeSla.value) items.push({ id: "sla", label: "SLA" });
   if (canSeeSpares.value) items.push({ id: "spares", label: "Spares" });
+  if (canSeeTickets.value) items.push({ id: "tickets", label: "Tickets" });
   return items;
 });
 
@@ -122,6 +128,7 @@ const pageTitle = computed(() => ({
   "last-mile": "Last Mile Tracking",
   "sla": "SLA",
   "spares": "Spares",
+  "tickets": "Tickets",
 }[activeNav.value]));
 
 const { currentPos, grnsByPo, poItemsByPo, grnItemsByPoSku, grnByCode, lastUpdated, invoicesForItem, refresh: refreshPos } = usePurchaseOrders();
@@ -185,6 +192,8 @@ const { filters: dispatchFilters, filteredSorted: dispatchFilteredSorted } = use
 const { allUploads, fetchAllUploads } = useInvoiceUploads();
 const { filters: paymentFilters, filteredSorted: paymentFilteredSorted, reconciliationOptions, paymentStatusOptions } = usePaymentFilters(allUploads, vendorLabel);
 
+const { tickets, fetchTickets, updateTicket } = useSupportTickets();
+
 const scopeLine = computed(() => {
   const total = currentPos.value.length;
   const shown = filteredSorted.value.length;
@@ -216,6 +225,15 @@ function openSkuDetailModal(key) {
   openModal(found.item_name || found.item_sku, SkuDetailModal, {
     agg: found, onOpenPo: openPoDetailModal, vendorLabelText: vendorLabel(found.vendor_code, found.vendor_name),
   }, `(${found.item_sku})`);
+}
+
+function openTicketDetailModal(id) {
+  const ticket = tickets.value.find((t) => t.id === id);
+  if (!ticket) return;
+  openModal("Ticket", TicketDetailModal, {
+    ticket, vendorLabelText: vendorLabel(ticket.vendor_code, ticket.vendor_name),
+    responderLabel: whoLine.value, onUpdateTicket: updateTicket,
+  }, `#${ticket.id}`);
 }
 
 function openManualDispatchModal() {
@@ -252,6 +270,7 @@ onMounted(async () => {
   await refreshVendors();
   if (canSeeManageAccess.value) await refreshTeam();
   await fetchAllUploads();
+  if (canSeeTickets.value) await fetchTickets();
   ready.value = true;
 });
 
@@ -269,6 +288,7 @@ async function handlePasswordChanged() {
   await refreshVendors();
   if (canSeeManageAccess.value) await refreshTeam();
   await fetchAllUploads();
+  if (canSeeTickets.value) await fetchTickets();
   ready.value = true;
 }
 
@@ -315,6 +335,7 @@ async function signOut() {
               <template v-else-if="activeNav === 'last-mile'">Warehouse-to-customer delivery visibility -- every open shipment, plus curated alerts, carrier performance, and worst-performing lanes across Blue Dart, Delhivery, DTDC and Shadowfax.</template>
               <template v-else-if="activeNav === 'sla'">Delivery SLA across the network -- weekly/monthly trends by city tier, plus the week's late-delivery root-cause analysis.</template>
               <template v-else-if="activeNav === 'spares'"></template>
+              <template v-else-if="activeNav === 'tickets'">Every ticket raised by a vendor, across all vendors. Click one to update its status or leave a response.</template>
             </div>
           </div>
         </header>
@@ -387,6 +408,10 @@ async function signOut() {
 
         <div v-if="canSeeSpares" v-show="activeNav === 'spares'">
           <SparesSection :editor-label="whoLine" />
+        </div>
+
+        <div v-if="canSeeTickets" v-show="activeNav === 'tickets'">
+          <TicketsTable :rows="tickets" :vendor-label="vendorLabel" :on-open-ticket="openTicketDetailModal" />
         </div>
 
         <footer class="page-foot">Data refreshes automatically every ~5 minutes from Uniware. {{ lastCheckedText }}</footer>

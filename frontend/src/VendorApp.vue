@@ -11,6 +11,7 @@ import { useShipmentTracking } from "./composables/useShipmentTracking.js";
 import { useModal } from "./composables/useModal.js";
 import { useInvoiceUploads } from "./composables/useInvoiceUploads.js";
 import { usePaymentFilters } from "./composables/usePaymentFilters.js";
+import { useSupportTickets } from "./composables/useSupportTickets.js";
 import { dedupeInvoiceNumbers, dedupeVendorOptions, fmtDateOnly, fmtNum, TERMINAL_STATUSES, trackingBucket } from "./format.js";
 import DashboardOverview from "./components/DashboardOverview.vue";
 import MyPerformance from "./components/MyPerformance.vue";
@@ -18,6 +19,7 @@ import SidebarNav from "./components/SidebarNav.vue";
 import PoTrackingTable from "./components/PoTrackingTable.vue";
 import DispatchPlanningTable from "./components/DispatchPlanningTable.vue";
 import PaymentDashboardTable from "./components/PaymentDashboardTable.vue";
+import RaiseTicketTab from "./components/RaiseTicketTab.vue";
 import AppModal from "./components/AppModal.vue";
 import PoDetailModal from "./components/PoDetailModal.vue";
 import SkuDetailModal from "./components/SkuDetailModal.vue";
@@ -38,6 +40,7 @@ const pageTitle = computed(() => {
     "dispatch-planning": "Dispatch Planning",
     "payment-dashboard": "Payments",
     "my-performance": "My Performance",
+    "raise-ticket": "Raise a Ticket",
   }[activeNav.value];
 });
 const todayLabel = computed(() => fmtDateOnly(new Date().toISOString().slice(0, 10)));
@@ -47,6 +50,7 @@ const todayLabel = computed(() => fmtDateOnly(new Date().toISOString().slice(0, 
 // path; a real vendor login never has this set and RLS alone scopes them,
 // exactly as before this existed.
 const previewVendorCode = getPreviewVendorCode();
+const myVendorCode = ref(""); // this login's own vendor_code (or the previewed one, for an admin) -- tags a raised ticket
 // Populated only when actually previewing as admin (see onMounted) -- this
 // page's own currentPos below is deliberately scoped to just the vendor
 // being previewed, so it can't supply a full vendor list the way
@@ -88,6 +92,9 @@ const { filters: dispatchFilters, filteredSorted: dispatchFilteredSorted } = use
 
 const { allUploads, fetchAllUploads } = useInvoiceUploads();
 const { filters: paymentFilters, filteredSorted: paymentFilteredSorted, reconciliationOptions, paymentStatusOptions } = usePaymentFilters(allUploads);
+
+const { tickets, fetchTickets, raiseTicket } = useSupportTickets();
+const poCodeOptions = computed(() => currentPos.value.map((p) => p.po_code));
 
 // --- Dashboard tab ---
 const DASH_ICONS = {
@@ -300,7 +307,8 @@ onMounted(async () => {
     ? (previewedVendorName || previewVendorCode || "Vendor")
     : (ctx.profile.vendor_name || ctx.profile.email || "Vendor");
   myEmail.value = ctx.profile.email || "";
-  await fetchAllUploads(previewVendorCode);
+  myVendorCode.value = previewingAsAdmin ? (previewVendorCode || "") : (ctx.profile.vendor_code || "");
+  await Promise.all([fetchAllUploads(previewVendorCode), fetchTickets(previewVendorCode)]);
   ready.value = true;
 });
 
@@ -345,6 +353,7 @@ async function signOut() {
         { id: 'dispatch-planning', label: 'Dispatch Planning' },
         { id: 'payment-dashboard', label: 'Payments' },
         { id: 'my-performance', label: 'My Performance' },
+        { id: 'raise-ticket', label: 'Raise a Ticket' },
       ]"
     >
       <template #account>
@@ -363,6 +372,7 @@ async function signOut() {
               <template v-else-if="activeNav === 'dispatch-planning'">Estimated dispatch date and quantity per SKU awaiting dispatch, plus live Bluedart status for every shipment you've already confirmed. Click a PO to see its details.</template>
               <template v-else-if="activeNav === 'payment-dashboard'">Every invoice you've uploaded, with its reconciliation and payment status. Click a PO to see its details.</template>
               <template v-else-if="activeNav === 'my-performance'">Your fulfillment and payment-health scorecard, all-time.</template>
+              <template v-else-if="activeNav === 'raise-ticket'">Raise an issue with our team and track its status here.</template>
             </div>
           </div>
         </header>
@@ -399,6 +409,14 @@ async function signOut() {
 
         <div v-show="activeNav === 'my-performance'">
           <MyPerformance :fulfillment="perfFulfillmentScorecard" :payment-health="perfPaymentHealthScorecard" />
+        </div>
+
+        <div v-show="activeNav === 'raise-ticket'">
+          <RaiseTicketTab
+            :tickets="tickets" :po-code-options="poCodeOptions"
+            :vendor-code="myVendorCode" :vendor-name="myDisplayName" :submitter-name="myDisplayName"
+            :on-raise-ticket="raiseTicket"
+          />
         </div>
 
         <footer class="page-foot">Data refreshes automatically every ~5 minutes from Uniware. {{ lastCheckedText }}</footer>
