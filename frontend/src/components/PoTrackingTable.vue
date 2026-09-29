@@ -196,9 +196,18 @@ const bucketedRows = computed(() =>
           <td class="mono">{{ p.po_code }}</td>
           <td>
             <div v-if="showBuckets && poBucket(p) === 'processing'" class="substep-boxes">
-              <span class="chip" :class="grnComplete(p) ? 'chip-good' : 'chip-critical'">GRN Complete</span>
-              <span class="chip" :class="reconciliationComplete(p.po_code) ? 'chip-good' : 'chip-critical'">Reconciliation Complete</span>
-              <span class="chip" :class="paymentBooked(p.po_code) ? 'chip-good' : 'chip-critical'">Payment Booked</span>
+              <span
+                class="substep-box" :class="grnComplete(p) ? 'substep-good' : 'substep-critical'"
+                :title="grnComplete(p) ? 'GRN Complete' : 'GRN Pending'"
+              ></span>
+              <span
+                class="substep-box" :class="reconciliationComplete(p.po_code) ? 'substep-good' : 'substep-critical'"
+                :title="reconciliationComplete(p.po_code) ? 'Reconciliation Complete' : 'Reconciliation Pending'"
+              ></span>
+              <span
+                class="substep-box" :class="paymentBooked(p.po_code) ? 'substep-good' : 'substep-critical'"
+                :title="paymentBooked(p.po_code) ? 'Payment Booked' : 'Payment Not Booked'"
+              ></span>
             </div>
             <StatusChip v-else :status="p.status" />
           </td>
