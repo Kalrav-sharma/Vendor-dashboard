@@ -93,6 +93,13 @@ function letsTransportEstimate(row) {
   return letsTransportEstimatedDeliveryDate(row.dispatched_date, row.tracking?.origin, row.tracking?.destination);
 }
 
+// One Expected delivery column for every courier: the courier's own
+// value when it has one, falling back to the TAT calculation above only
+// for Lets Transport (the only courier whose field is reliably blank).
+function expectedDelivery(row) {
+  return row.tracking?.expected_delivery_date || letsTransportEstimate(row);
+}
+
 function trackingBucket(row) {
   const status = row.tracking?.status_type;
   if (row.courier === "bluedart") {
@@ -211,7 +218,7 @@ async function handleCancelPlan(row) {
           <th v-if="vendorOptions">Vendor</th>
           <th>PO code</th><th>SKU</th><th>Item</th>
           <th class="num">Qty</th><th>Dispatch date</th>
-          <th>AWB / Tracking ID</th><th>Courier</th><th>Status</th><th>Route</th><th>Expected delivery</th><th>Actual delivery</th><th>Est. delivery (LT)</th><th>Last scan</th>
+          <th>AWB / Tracking ID</th><th>Courier</th><th>Status</th><th>Route</th><th>Expected delivery</th><th>Actual delivery</th><th>Last scan</th>
           <th v-if="allowConfirmDispatch"></th>
         </tr>
         <tr class="filter-row">
@@ -243,13 +250,13 @@ async function handleCancelPlan(row) {
               <option value="RL">Redirected</option>
             </select>
           </td>
-          <td></td><td></td><td></td><td></td><td></td>
+          <td></td><td></td><td></td><td></td>
           <td v-if="allowConfirmDispatch"></td>
         </tr>
       </thead>
       <tbody>
         <tr v-if="!rows.length">
-          <td :colspan="(vendorOptions ? 14 : 13) + (allowConfirmDispatch ? 1 : 0)" class="empty-state">Nothing here yet -- rows appear once a vendor fills in an estimated dispatch date and quantity for a SKU, and stay once dispatched with their live shipment status.</td>
+          <td :colspan="(vendorOptions ? 13 : 12) + (allowConfirmDispatch ? 1 : 0)" class="empty-state">Nothing here yet -- rows appear once a vendor fills in an estimated dispatch date and quantity for a SKU, and stay once dispatched with their live shipment status.</td>
         </tr>
         <tr v-for="row in rows" :key="keyFor(row)">
           <td v-if="vendorOptions">{{ vendorLabel(row.vendor_code) }}</td>
@@ -282,13 +289,10 @@ async function handleCancelPlan(row) {
           <td v-if="row.kind === 'shipped'">{{ row.tracking ? `${row.tracking.origin || "–"} → ${row.tracking.destination || "–"}` : "–" }}</td>
           <td v-else class="cell-empty">–</td>
 
-          <td v-if="row.kind === 'shipped'" class="mono">{{ row.tracking?.expected_delivery_date ? fmtDateOnly(row.tracking.expected_delivery_date) : "–" }}</td>
+          <td v-if="row.kind === 'shipped'" class="mono">{{ expectedDelivery(row) ? fmtDateOnly(expectedDelivery(row)) : "–" }}</td>
           <td v-else class="cell-empty">–</td>
 
           <td v-if="row.kind === 'shipped'" class="mono">{{ deliveredAt(row) ? fmtDate(deliveredAt(row)) : "–" }}</td>
-          <td v-else class="cell-empty">–</td>
-
-          <td v-if="row.kind === 'shipped'" class="mono">{{ letsTransportEstimate(row) ? fmtDateOnly(letsTransportEstimate(row)) : "–" }}</td>
           <td v-else class="cell-empty">–</td>
 
           <td v-if="row.kind === 'shipped'">
