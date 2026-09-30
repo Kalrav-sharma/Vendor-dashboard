@@ -12,7 +12,7 @@ import { useModal } from "./composables/useModal.js";
 import { useInvoiceUploads } from "./composables/useInvoiceUploads.js";
 import { usePaymentFilters } from "./composables/usePaymentFilters.js";
 import { useSupportTickets } from "./composables/useSupportTickets.js";
-import { dedupeInvoiceNumbers, dedupeVendorOptions, fmtDateOnly, fmtNum, trackingBucket } from "./format.js";
+import { dedupeInvoiceNumbers, dedupeVendorOptions, fmtDateOnly, fmtNum } from "./format.js";
 import DashboardOverview from "./components/DashboardOverview.vue";
 import MyPerformance from "./components/MyPerformance.vue";
 import SidebarNav from "./components/SidebarNav.vue";
@@ -99,7 +99,6 @@ const poCodeOptions = computed(() => currentPos.value.map((p) => p.po_code));
 // --- Dashboard tab ---
 const DASH_ICONS = {
   document: '<svg viewBox="0 0 20 20"><path d="M6 2.5h6l3 3v12a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-14a1 1 0 0 1 1-1Z"/><path d="M12 2.5V6h3.5"/></svg>',
-  clipboard: '<svg viewBox="0 0 20 20"><rect x="5" y="3.5" width="10" height="14" rx="1.5"/><rect x="7.5" y="2" width="5" height="3" rx="1"/><path d="M7.5 9h5M7.5 12h5M7.5 15h3"/></svg>',
   truck: '<svg viewBox="0 0 20 20"><path d="M2 6h9v8H2Z"/><path d="M11 9h3l3 3v2h-6V9Z"/><circle cx="6" cy="16" r="1.5"/><circle cx="14" cy="16" r="1.5"/></svg>',
   check: '<svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="7.5"/><path d="M6.5 10.2 8.8 12.5 13.5 7.5"/></svg>',
   percent: '<svg viewBox="0 0 20 20"><circle cx="6" cy="6" r="2"/><circle cx="14" cy="14" r="2"/><path d="M15 5 5 15"/></svg>',
@@ -133,9 +132,15 @@ const posNeedingInvoice = computed(() =>
 const posWithPaymentNoInvoice = computed(() =>
   currentPos.value.filter((p) => !poCodesWithInvoice.value.has(p.po_code) && !!p.payment_status));
 const dashOpenPos = computed(() => posNeedingInvoice.value.length);
-const dashDocketPending = computed(() => new Set(pendingDispatchRows.value.map((r) => r.po_code)).size);
-const dashInTransit = computed(() =>
-  new Set(shippedDispatchRows.value.filter((r) => trackingBucket(r) === "in_transit").map((r) => r.po_code)).size);
+// "Supplied" = the vendor has confirmed at least one dispatch against the
+// PO (shippedDispatchRows), regardless of tracking bucket -- replaces the
+// old separate Docket pending / In transit tiles with one lifecycle stage:
+// goods are out the door but the PO's own payment_status (Finance's
+// ledger, not the per-invoice one) isn't "paid" yet.
+const dashInProgress = computed(() => {
+  const shippedPoCodes = new Set(shippedDispatchRows.value.map((r) => r.po_code));
+  return currentPos.value.filter((p) => shippedPoCodes.has(p.po_code) && p.payment_status !== "paid").length;
+});
 const NINETY_DAYS_MS = 90 * 24 * 60 * 60 * 1000;
 const dashPoComplete = computed(() => {
   const cutoff = Date.now() - NINETY_DAYS_MS;
@@ -162,8 +167,7 @@ const dashAvgTatDays = computed(() => {
 
 const dashKpiTiles = computed(() => [
   { key: "open", label: "Open POs", value: dashOpenPos.value, sublabel: "Invoice not yet shared", icon: DASH_ICONS.document, colorVar: "--open" },
-  { key: "docket", label: "Docket pending", value: dashDocketPending.value, sublabel: "Invoice shared · add docket", icon: DASH_ICONS.clipboard, colorVar: "--info" },
-  { key: "transit", label: "In transit", value: dashInTransit.value, sublabel: "Tracking confirmed", icon: DASH_ICONS.truck, colorVar: "--accent" },
+  { key: "progress", label: "In progress", value: dashInProgress.value, sublabel: "Supplied · payment pending", icon: DASH_ICONS.truck, colorVar: "--accent" },
   { key: "complete", label: "PO complete", value: dashPoComplete.value, sublabel: "Closed · last 3 mo", icon: DASH_ICONS.check, colorVar: "--good" },
   {
     key: "fillrate", label: "Fill rate",
