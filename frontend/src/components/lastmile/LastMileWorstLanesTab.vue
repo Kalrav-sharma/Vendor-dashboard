@@ -44,7 +44,7 @@ const kpiTiles = computed(() => {
     // lanes that also clear the minimum graded volume, so lanes.length was
     // "how many made that curated list", never the real count of (LSP,
     // city) lanes actually in use across every carrier.
-    { label: "Total lanes", value: run?.total_lanes_active ?? "–" },
+    { label: "Total lanes", value: run.value?.total_lanes_active ?? "–" },
     { label: "Below 70% on-time", value: critical, cls: critical > 0 ? "critical" : "" },
     { label: "Average on-time % (lanes shown)", value: avgOnTimePct == null ? "–" : `${avgOnTimePct}%`,
       cls: avgOnTimePct != null && avgOnTimePct < 80 ? "critical" : "good" },
