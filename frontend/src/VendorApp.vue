@@ -12,7 +12,7 @@ import { useModal } from "./composables/useModal.js";
 import { useInvoiceUploads } from "./composables/useInvoiceUploads.js";
 import { usePaymentFilters } from "./composables/usePaymentFilters.js";
 import { useSupportTickets } from "./composables/useSupportTickets.js";
-import { dedupeInvoiceNumbers, dedupeVendorOptions, fmtDateOnly, fmtNum, trackingBucket } from "./format.js";
+import { dedupeInvoiceNumbers, dedupeVendorOptions, fmtDateOnly, fmtNum, trackingBucket, TERMINAL_STATUSES } from "./format.js";
 import DashboardOverview from "./components/DashboardOverview.vue";
 import MyPerformance from "./components/MyPerformance.vue";
 import SidebarNav from "./components/SidebarNav.vue";
@@ -142,11 +142,24 @@ const dashInProgress = computed(() => {
   const shippedPoCodes = new Set(shippedDispatchRows.value.map((r) => r.po_code));
   return currentPos.value.filter((p) => shippedPoCodes.has(p.po_code) && p.payment_status !== "paid").length;
 });
-const NINETY_DAYS_MS = 90 * 24 * 60 * 60 * 1000;
-const dashPoComplete = computed(() => {
-  const cutoff = Date.now() - NINETY_DAYS_MS;
-  return currentPos.value.filter((p) => p.status === "COMPLETE" && p.created_at && new Date(p.created_at).getTime() >= cutoff).length;
-});
+// Same "complete" definition PO Tracking's own bucket uses (see poBucket()
+// in PoTrackingTable.vue) -- terminal status AND every uploaded invoice
+// paid, or Finance's own payment_status when nothing was uploaded through
+// the portal at all. This tile used to count raw status === "COMPLETE"
+// alone, which could show far more POs "complete" than PO Tracking's own
+// PO-complete bucket did for the same vendor (2026-09-30, GELTRON: this
+// tile said 6, PO Tracking's bucket said 1 -- COMPLETE status alone says
+// nothing about whether payment actually settled).
+function isPoComplete(p) {
+  const uploads = allUploads.value.filter((u) => u.po_code === p.po_code);
+  const fullyPaid = uploads.length ? uploads.every((u) => u.payment_status === "paid") : p.payment_status === "paid";
+  return TERMINAL_STATUSES.has(p.status) && fullyPaid;
+}
+// Fixed window start (not a rolling N days), requested 2026-09-30 --
+// August 1st of the current year.
+const dashCompleteWindowStart = new Date(new Date().getFullYear(), 7, 1);
+const dashPoComplete = computed(() =>
+  currentPos.value.filter((p) => isPoComplete(p) && p.created_at && new Date(p.created_at) >= dashCompleteWindowStart).length);
 const dashFillRatePct = computed(() => {
   const totalOrdered = currentPos.value.reduce((s, p) => s + (Number(p.qty_ordered) || 0), 0);
   const totalReceived = currentPos.value.reduce((s, p) => s + (Number(p.qty_received) || 0), 0);
@@ -169,7 +182,7 @@ const dashAvgTatDays = computed(() => {
 const dashKpiTiles = computed(() => [
   { key: "open", label: "Open POs", value: dashOpenPos.value, sublabel: "Invoice not yet shared", icon: DASH_ICONS.document, colorVar: "--open", nav: "po-tracking", bucket: "invoice_needed" },
   { key: "progress", label: "In progress", value: dashInProgress.value, sublabel: "Supplied · payment pending", icon: DASH_ICONS.truck, colorVar: "--accent", nav: "po-tracking", bucket: "processing" },
-  { key: "complete", label: "PO complete", value: dashPoComplete.value, sublabel: "Closed · last 3 mo", icon: DASH_ICONS.check, colorVar: "--good", nav: "po-tracking", bucket: "complete" },
+  { key: "complete", label: "PO complete", value: dashPoComplete.value, sublabel: "Closed · since Aug 1", icon: DASH_ICONS.check, colorVar: "--good", nav: "po-tracking", bucket: "complete" },
 ]);
 
 // Dashboard's "Delivery health" panel -- the headline slice of the My
@@ -234,13 +247,12 @@ const dashActions = computed(() => {
 });
 
 // --- My Performance tab ---
-// PO completion rate -- currentPos is already the same visible/hidden-
-// filtered set every other PO count on this page uses (see visiblePos()
-// in format.js), so this reads consistently with Dashboard's "PO complete"
-// tile, just as an all-time rate instead of a 90-day count.
+// PO completion rate -- same isPoComplete() definition as Dashboard's "PO
+// complete" tile, just as an all-time rate across every visible PO
+// (see visiblePos() in format.js) instead of that tile's since-Aug-1 count.
 const perfPoCompletionPct = computed(() => {
   if (!currentPos.value.length) return null;
-  const complete = currentPos.value.filter((p) => p.status === "COMPLETE").length;
+  const complete = currentPos.value.filter((p) => isPoComplete(p)).length;
   return (complete / currentPos.value.length) * 100;
 });
 

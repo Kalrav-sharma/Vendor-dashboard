@@ -6,7 +6,7 @@ import InvoiceUploadModal from "./InvoiceUploadModal.vue";
 import DownloadPdfButton from "./DownloadPdfButton.vue";
 import InvoiceUploadButton from "./InvoiceUploadButton.vue";
 import { useInvoiceUploads } from "../composables/useInvoiceUploads.js";
-import { fmtNum, fmtMoney, TERMINAL_STATUSES, dedupeInvoiceNumbers } from "../format.js";
+import { fmtNum, fmtMoney, fmtDateOnly, TERMINAL_STATUSES, dedupeInvoiceNumbers } from "../format.js";
 import SkuLevelTable from "./SkuLevelTable.vue";
 
 const props = defineProps({
@@ -216,7 +216,7 @@ const showingSkuData = computed(() => props.showBuckets && activeBucket.value ==
         <thead>
           <tr>
             <th v-if="vendorOptions">Vendor</th>
-            <th>Facility</th><th>PO code</th><th>Status</th>
+            <th>Facility</th><th>PO code</th><th>Created</th><th>Status</th>
             <th class="num">Qty ordered</th><th class="num">Received</th><th class="num">PO value</th>
             <th>GRN / invoice</th><th class="col-tight">{{ showRequestPo ? "Request PO" : "PO" }}</th><th class="col-tight">Invoice</th>
           </tr>
@@ -234,6 +234,7 @@ const showingSkuData = computed(() => props.showBuckets && activeBucket.value ==
               </select>
             </td>
             <td><input v-model="filters.poCode" type="text" placeholder="Filter…"></td>
+            <td><input v-model="filters.created" type="text" placeholder="Filter…"></td>
             <td>
               <select v-model="filters.status">
                 <option value="">All</option>
@@ -250,12 +251,13 @@ const showingSkuData = computed(() => props.showBuckets && activeBucket.value ==
         </thead>
         <tbody>
           <tr v-if="!bucketedRows.length">
-            <td :colspan="vendorOptions ? 10 : 9" class="empty-state">No purchase orders match these filters.</td>
+            <td :colspan="vendorOptions ? 11 : 10" class="empty-state">No purchase orders match these filters.</td>
           </tr>
           <tr v-for="p in bucketedRows" :key="p.po_code" class="clickable-row" @click="onOpenPo(p.po_code)">
             <td v-if="vendorOptions">{{ vendorLabel(p.vendor_code, p.vendor_name) }}</td>
             <td class="fac-code">{{ p.facility }}</td>
             <td class="mono">{{ p.po_code }}</td>
+            <td class="mono">{{ fmtDateOnly(p.created_at) }}</td>
             <td>
               <div v-if="showBuckets && poBucket(p) === 'processing'" class="substep-boxes">
                 <span

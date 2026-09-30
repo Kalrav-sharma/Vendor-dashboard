@@ -13,11 +13,11 @@
 // as the template structure doesn't change, so filters can just be plain
 // reactive state.
 import { reactive, computed } from "vue";
-import { fmtNum, fmtMoney, STATUS_META, poSortComparator, dedupeInvoiceNumbers } from "../format.js";
+import { fmtNum, fmtMoney, fmtDateOnly, STATUS_META, poSortComparator, dedupeInvoiceNumbers } from "../format.js";
 
 export function usePoFilters(currentPos, grnsByPo, resolveVendorLabel) {
   const filters = reactive({
-    search: "", vendor: "", facility: "", poCode: "",
+    search: "", vendor: "", facility: "", poCode: "", created: "",
     status: "", qtyOrdered: "", qtyReceived: "", poValue: "", grn: "",
   });
 
@@ -28,6 +28,7 @@ export function usePoFilters(currentPos, grnsByPo, resolveVendorLabel) {
       vendor: resolveVendorLabel ? resolveVendorLabel(p.vendor_code, p.vendor_name) : "",
       facility: p.facility || "",
       poCode: p.po_code || "",
+      created: fmtDateOnly(p.created_at),
       status: (STATUS_META[p.status] || [p.status])[0] || "",
       qtyOrdered: fmtNum(p.qty_ordered),
       qtyReceived: fmtNum(p.qty_received),
@@ -42,7 +43,7 @@ export function usePoFilters(currentPos, grnsByPo, resolveVendorLabel) {
     if (resolveVendorLabel && f.vendor && p.vendor_code !== f.vendor) return false;
     if (f.facility && fields.facility !== f.facility) return false;
     if (f.status && fields.status !== f.status) return false;
-    for (const key of ["poCode", "qtyOrdered", "qtyReceived", "poValue", "grn"]) {
+    for (const key of ["poCode", "created", "qtyOrdered", "qtyReceived", "poValue", "grn"]) {
       if (f[key] && !fields[key].toLowerCase().includes(f[key].toLowerCase())) return false;
     }
     if (f.search) {
