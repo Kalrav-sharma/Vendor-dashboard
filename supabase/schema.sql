@@ -2655,4 +2655,42 @@ create policy support_tickets_update on public.support_tickets
   for update
   using (public.is_internal_staff())
   with check (public.is_internal_staff());
+
+-- Auto-raises a po_request ticket the moment a new PO lands, so staff
+-- have a standing reminder to email the vendor a copy without the vendor
+-- needing to ask first. SECURITY DEFINER so this fires regardless of who/
+-- what triggered the underlying purchase_orders insert (normally
+-- service_role via the Uniware sync, which bypasses RLS anyway) -- same
+-- reasoning as queue_new_po_email() above, and this ticket coexists with
+-- that same email-reminder cascade rather than replacing it: the vendor's
+-- own "Request PO" button on PO Tracking still works and shows normally
+-- regardless of whether this auto-ticket is still open, so if staff
+-- haven't gotten to it, the vendor has their own timely escalation path.
+create or replace function public.queue_po_request_ticket()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  -- Same recency guard as queue_new_po_email() -- backfilling a brand-new
+  -- vendor's whole PO history shouldn't raise one ticket per historical PO.
+  if new.created_at is not null and new.created_at >= now() - interval '4 days' then
+    insert into public.support_tickets (vendor_code, vendor_name, category, po_code, subject, description, created_by_name)
+    values (
+      new.vendor_code, new.vendor_name, 'po_request', new.po_code,
+      'PO copy needed — ' || new.po_code,
+      'New purchase order raised -- please email a copy to the vendor.',
+      'System'
+    );
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_queue_po_request_ticket on public.purchase_orders;
+create trigger trg_queue_po_request_ticket
+  after insert on public.purchase_orders
+  for each row
+  execute function public.queue_po_request_ticket();
 -- ---------------------------------------------------------------------

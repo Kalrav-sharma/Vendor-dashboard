@@ -111,7 +111,7 @@ const navItems = computed(() => {
   if (canSeeLastMile.value) items.push({ id: "last-mile", label: "Last Mile Tracking" });
   if (canSeeSla.value) items.push({ id: "sla", label: "SLA" });
   if (canSeeSpares.value) items.push({ id: "spares", label: "Spares" });
-  if (canSeeTickets.value) items.push({ id: "tickets", label: "Tickets" });
+  if (canSeeTickets.value) items.push({ id: "tickets", label: "Tickets", badge: openTicketsCount.value || null });
   return items;
 });
 
@@ -193,6 +193,7 @@ const { allUploads, fetchAllUploads } = useInvoiceUploads();
 const { filters: paymentFilters, filteredSorted: paymentFilteredSorted, reconciliationOptions, paymentStatusOptions } = usePaymentFilters(allUploads, vendorLabel);
 
 const { tickets, fetchTickets, updateTicket } = useSupportTickets();
+const openTicketsCount = computed(() => tickets.value.filter((t) => t.status !== "resolved").length);
 
 const scopeLine = computed(() => {
   const total = currentPos.value.length;

@@ -133,11 +133,16 @@ a { color: var(--accent); }
 .brand.lockup .sidebar-logo { height: var(--lockup-h); margin-bottom: calc(var(--lockup-h) * 0.6); }
 .brand.lockup .sidebar-wordmark { height: var(--lockup-h); margin-left: calc(var(--lockup-h) * 325 / 96); }
 .nav-item {
-  display: block; width: 100%; text-align: left; padding: 10px 20px; background: none; border: none;
+  display: flex; align-items: center; justify-content: space-between; width: 100%; text-align: left;
+  padding: 10px 20px; background: none; border: none;
   color: var(--muted); font-size: 0.84rem; font-family: inherit; cursor: pointer; border-left: 3px solid transparent;
 }
 .nav-item:hover { color: var(--ink); background: color-mix(in srgb, var(--accent) 6%, transparent); }
 .nav-item.active { color: var(--ink); font-weight: 600; border-left-color: var(--accent); background: var(--accent-soft); }
+.nav-badge {
+  background: var(--critical); color: #fff; font-size: 0.7rem; font-weight: 700; line-height: 1;
+  padding: 3px 7px; border-radius: 999px; font-family: "IBM Plex Mono", monospace;
+}
 .sidebar-account { margin-top: auto; padding: 16px 0 4px; }
 .main-content { flex: 1; min-width: 0; }
 

@@ -6,7 +6,7 @@ import InvoiceUploadModal from "./InvoiceUploadModal.vue";
 import DownloadPdfButton from "./DownloadPdfButton.vue";
 import InvoiceUploadButton from "./InvoiceUploadButton.vue";
 import { useInvoiceUploads } from "../composables/useInvoiceUploads.js";
-import { fmtNum, fmtMoney, fmtDateOnly, TERMINAL_STATUSES, dedupeInvoiceNumbers, ticketStatusLabel, ticketStatusClass } from "../format.js";
+import { fmtNum, fmtMoney, TERMINAL_STATUSES, dedupeInvoiceNumbers } from "../format.js";
 import SkuLevelTable from "./SkuLevelTable.vue";
 
 const props = defineProps({
@@ -131,10 +131,12 @@ function paymentBooked(poCode) {
 
 // The latest po_request ticket for this PO, whatever its status --
 // `poRequestTickets` is already newest-first (see useSupportTickets.js),
-// so the first match is the most recent request. Shown instead of a bare
-// "Request PO" button so the outcome (including staff's response once
-// resolved) stays visible here, not just on the Raise a Ticket tab --
-// a fresh request is still one click away via "Request again".
+// so the first match is the most recent request. A new PO auto-raises
+// one of these the moment it's synced in (see queue_po_request_ticket()
+// in schema.sql) -- but the button below still shows normally regardless
+// of whether one's open, so the vendor always has their own timely
+// escalation path if staff haven't gotten to it yet. Only once it's
+// actually resolved does this cell show that instead of the button.
 function latestPoRequest(poCode) {
   return props.poRequestTickets.find((t) => t.po_code === poCode && t.category === "po_request");
 }
@@ -275,15 +277,12 @@ const showingSkuData = computed(() => props.showBuckets && activeBucket.value ==
           </td>
           <td class="col-tight">
             <template v-if="showRequestPo">
-              <template v-if="latestPoRequest(p.po_code)">
-                <span
-                  class="chip" :class="`chip-${ticketStatusClass(latestPoRequest(p.po_code).status)}`"
-                  :title="`Requested ${fmtDateOnly(latestPoRequest(p.po_code).created_at)}`"
-                >{{ ticketStatusLabel(latestPoRequest(p.po_code).status) }}</span>
-                <div v-if="latestPoRequest(p.po_code).admin_response" class="grn-amt">{{ latestPoRequest(p.po_code).admin_response }}</div>
+              <template v-if="latestPoRequest(p.po_code)?.status === 'resolved'">
+                <span class="chip chip-good">
+                  Resolved{{ latestPoRequest(p.po_code).admin_response ? `, ${latestPoRequest(p.po_code).admin_response}` : "" }}
+                </span>
                 <button
-                  v-if="latestPoRequest(p.po_code).status === 'resolved'" type="button"
-                  class="link-btn-inline" style="display: block; margin-top: 2px;"
+                  type="button" class="link-btn-inline" style="display: block; margin-top: 2px;"
                   :disabled="requestingCodes.has(p.po_code)" @click.stop="handleRequestPo(p.po_code)"
                 >{{ requestingCodes.has(p.po_code) ? "Requesting…" : "Request again" }}</button>
               </template>
