@@ -38,6 +38,7 @@ thead .sp-sticky { background: var(--paper); z-index: 2; }
 
 .sp-doi { display: inline-block; min-width: 34px; padding: 1px 6px; border-radius: 5px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .sp-doi.cell-warn { background: var(--warn-soft); color: var(--warn); }
+.sp-doi.sp-doi-dim { opacity: 0.3; }
 
 /* status tags */
 .sp-tag { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 0.7rem; font-weight: 600; white-space: nowrap; }

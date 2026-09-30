@@ -78,9 +78,12 @@ export function bucketOf(good, drr) {
   return ">60";
 }
 
+// Sheet / Appendix names arrive in any casing ("lexcru" vs "Lexcru", "accord"): capitalize
+// all-lowercase words so they merge; words that already carry capitals (RK, UC) are kept.
 function normVendor(v) {
-  const s = (v || "").trim();
-  return !s || /^n\/?a$/i.test(s) ? "NA" : s;
+  const s = (v || "").trim().replace(/\s+/g, " ");
+  if (!s || /^n\/?a$/i.test(s)) return "NA";
+  return s.split(" ").map((w) => (w === w.toLowerCase() ? w.charAt(0).toUpperCase() + w.slice(1) : w)).join(" ");
 }
 
 async function fetchAll(table, ...orderCols) {
@@ -153,15 +156,19 @@ export function useSparesData(editorLabel) {
   const statusOf = (sku, facility) => statusOv.value[`${sku}|${facility}`]?.status || autoStatus(sku);
   const isEdited = (sku, facility) => !!statusOv.value[`${sku}|${facility}`];
 
-  const sheetVendor = (sku) => normVendor(masterBySku.value.get(sku)?.sheet_vendor);
-  const vendorOf = (sku) => (vendorOv.value[sku] ? normVendor(vendorOv.value[sku].vendor) : sheetVendor(sku));
-  const vendorEdited = (sku) => !!vendorOv.value[sku];
-  const vendorOptions = computed(() => {
-    const s = new Set();
-    for (const r of master.value) if (normVendor(r.sheet_vendor) !== "NA") s.add(normVendor(r.sheet_vendor));
-    for (const r of Object.values(vendorOv.value)) if (normVendor(r.vendor) !== "NA") s.add(normVendor(r.vendor));
-    return [...s].sort((a, b) => a.localeCompare(b));
+  // lowercase -> first spelling seen, so a stray "LEXCRU" still merges into "Lexcru" everywhere.
+  const vendorCanon = computed(() => {
+    const s = new Map();
+    const add = (v) => { const n = normVendor(v); if (n !== "NA" && !s.has(n.toLowerCase())) s.set(n.toLowerCase(), n); };
+    for (const r of master.value) add(r.sheet_vendor);
+    for (const r of Object.values(vendorOv.value)) add(r.vendor);
+    return s;
   });
+  const canonVendor = (v) => { const n = normVendor(v); return vendorCanon.value.get(n.toLowerCase()) || n; };
+  const sheetVendor = (sku) => canonVendor(masterBySku.value.get(sku)?.sheet_vendor);
+  const vendorOf = (sku) => (vendorOv.value[sku] ? canonVendor(vendorOv.value[sku].vendor) : sheetVendor(sku));
+  const vendorEdited = (sku) => !!vendorOv.value[sku];
+  const vendorOptions = computed(() => [...vendorCanon.value.values()].sort((a, b) => a.localeCompare(b)));
   const categoryOf = (sku) => (masterBySku.value.get(sku)?.category || "").trim();
 
   // ---- clubbed planning-warehouse figures -----------------------------------------------

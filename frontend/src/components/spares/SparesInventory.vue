@@ -4,13 +4,15 @@
 // next dispatch come from the sheet; DOI and Required qty are recomputed on clubbed Uniware
 // good stock (GGN+Pataudi, KOL+Panchla) -- the sheet's own figures ignore Pataudi/Panchla.
 import { ref, computed, watch } from "vue";
-import { WAREHOUSES, DOI_TARGET } from "../../composables/useSparesData.js";
+import { WAREHOUSES, DOI_TARGET, BUCKETS } from "../../composables/useSparesData.js";
 
 const props = defineProps({ store: { type: Object, required: true } });
 const s = props.store;
 
 const q = ref("");
 const vendorFilter = ref("All");
+// Summary's DOI buckets: a SKU matches if any of its Ongoing warehouses falls in the bucket.
+const doiFilter = ref("All");
 
 // Every Ongoing row before the vendor filter -- the filter's own options come from these, so a
 // vendor typed in Appendix (existing or brand new) shows up here as soon as it's saved.
@@ -44,7 +46,10 @@ const vendorChoices = computed(() => {
 });
 watch(vendorChoices, (v) => { if (vendorFilter.value !== "All" && !v.includes(vendorFilter.value)) vendorFilter.value = "All"; });
 
-const rows = computed(() => (vendorFilter.value === "All" ? ongoingRows.value : ongoingRows.value.filter((r) => r.vendor === vendorFilter.value)));
+const rows = computed(() => ongoingRows.value.filter((r) =>
+  (vendorFilter.value === "All" || r.vendor === vendorFilter.value) &&
+  (doiFilter.value === "All" || r.cells.some((c) => c && c.bucket === doiFilter.value))));
+const doiDim = (c) => doiFilter.value !== "All" && c.bucket !== doiFilter.value;
 
 const doiClass = (c) => {
   if (!c || c.doi == null) return "";
@@ -72,6 +77,10 @@ const deliveryText = (c) => {
       <select v-model="vendorFilter" class="sp-select">
         <option value="All">All vendors</option>
         <option v-for="v in vendorChoices" :key="v" :value="v">{{ v }}</option>
+      </select>
+      <select v-model="doiFilter" class="sp-select">
+        <option value="All">All DOI</option>
+        <option v-for="b in BUCKETS" :key="b.key" :value="b.key">{{ b.key === "stockout" ? b.label : `${b.label} DOI` }}</option>
       </select>
       <input v-model="q" class="sp-search" type="search" placeholder="Search SKU ID" />
     </div>
@@ -111,7 +120,7 @@ const deliveryText = (c) => {
             <td class="num hc-num"><b>{{ fmtDrr(r.totalDrr) }}</b></td>
 
             <td v-for="(c, i) in r.cells" :key="'o' + i" class="c" :class="{ gl: i === 0 }">
-              <span v-if="c" class="sp-doi" :class="doiClass(c)">{{ fmtDoi(c) }}</span><span v-else class="dash">–</span>
+              <span v-if="c" class="sp-doi" :class="[doiClass(c), { 'sp-doi-dim': doiDim(c) }]">{{ fmtDoi(c) }}</span><span v-else class="dash">–</span>
             </td>
 
             <td v-for="(c, i) in r.cells" :key="'t' + i" class="num hc-num" :class="{ gl: i === 0 }">
@@ -134,7 +143,7 @@ const deliveryText = (c) => {
             </td>
             <td class="num hc-num"><b>{{ fmt(r.totalRequired) }}</b></td>
           </tr>
-          <tr v-if="!rows.length"><td :colspan="30" class="dim">No Ongoing spares{{ q || vendorFilter !== "All" ? " match these filters" : "" }}.</td></tr>
+          <tr v-if="!rows.length"><td :colspan="30" class="dim">No Ongoing spares{{ q || vendorFilter !== "All" || doiFilter !== "All" ? " match these filters" : "" }}.</td></tr>
         </tbody>
       </table>
     </div>
