@@ -22,7 +22,11 @@ async function handleSubmit() {
   }
 
   submitting.value = true;
-  const { data, error } = await supabase.functions.invoke("vendor-change-email", {
+  // Deployed under this exact (capitalized) name in Supabase -- every other
+  // Edge Function in this project is all-lowercase, but this one already
+  // went live as "Vendor-Change-Email" and function names are case-sensitive
+  // in the URL, so the call here has to match rather than the convention.
+  const { data, error } = await supabase.functions.invoke("Vendor-Change-Email", {
     body: { new_email: newEmail.value.trim() },
   });
   if (error || !data?.ok) {

@@ -25,7 +25,11 @@
 //   -> { ok: true } on success.
 //   -> { error: "..." } on failure (bad/duplicate email, not a vendor, etc).
 //
-// Deploy with: supabase functions deploy vendor-change-email
+// Deployed on Supabase under the name "Vendor-Change-Email" (capitalized --
+// unlike every other function here, which is all-lowercase; function names
+// are case-sensitive in the invoke URL, so the frontend's
+// supabase.functions.invoke() call in SetVendorEmailForm.vue matches that
+// exact capitalization, not this folder's name).
 // Required secrets: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY (SUPABASE_URL
 // and SUPABASE_ANON_KEY are auto-injected by the platform).
 
