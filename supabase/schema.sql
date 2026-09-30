@@ -2417,10 +2417,11 @@ grant select, insert, update, delete on public.sla_pincode_revised to authentica
 -- "SKU list and uni data" tab plus a live Uniware good/bad snapshot.
 --
 -- spares_sku_master / spares_wh_inventory are synced (service_role only,
--- scripts/sync_spares.py). spares_status_override / spares_vendor_override are
--- the Appendix's manual edits and are the ONLY tables in this block the browser
--- writes. Effective status is resolved in the frontend: override if present,
--- else sheet category Discontinued -> Obsolete, else in sheet -> Ongoing, else NA.
+-- scripts/sync_spares.py). spares_status_override / spares_vendor_override /
+-- spares_category_override are the Appendix's manual edits and are the ONLY
+-- tables in this block the browser writes. Effective status is resolved in the
+-- frontend: override if present, else effective category (override, else sheet)
+-- Discontinued -> Obsolete, else in sheet -> Ongoing, else NA.
 -- So a row nobody has edited keeps following the sheet; an edit wins for good
 -- (deleting the override = "reset to auto").
 -- =======================================================================
@@ -2540,6 +2541,29 @@ drop policy if exists spares_vendor_override_delete on public.spares_vendor_over
 create policy spares_vendor_override_delete on public.spares_vendor_override
   for delete using (public.is_internal_staff());
 grant select, insert, update, delete on public.spares_vendor_override to authenticated;
+
+-- Appendix: manual category, one per SKU. Used everywhere the sheet category is
+-- (Summary scope, Discontinued -> Obsolete auto-status).
+create table if not exists public.spares_category_override (
+  sku text primary key,
+  category text not null,
+  updated_by text,
+  updated_at timestamptz not null default now()
+);
+alter table public.spares_category_override enable row level security;
+drop policy if exists spares_category_override_select on public.spares_category_override;
+create policy spares_category_override_select on public.spares_category_override
+  for select using (public.is_internal_staff());
+drop policy if exists spares_category_override_insert on public.spares_category_override;
+create policy spares_category_override_insert on public.spares_category_override
+  for insert with check (public.is_internal_staff());
+drop policy if exists spares_category_override_update on public.spares_category_override;
+create policy spares_category_override_update on public.spares_category_override
+  for update using (public.is_internal_staff()) with check (public.is_internal_staff());
+drop policy if exists spares_category_override_delete on public.spares_category_override;
+create policy spares_category_override_delete on public.spares_category_override
+  for delete using (public.is_internal_staff());
+grant select, insert, update, delete on public.spares_category_override to authenticated;
 
 -- Rate-limit counter for the vendor-code-auth Edge Function (public,
 -- pre-login sign-in via vendor_code+password instead of email). Service-
