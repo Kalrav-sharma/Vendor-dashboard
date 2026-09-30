@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import { fmtMoney, fmtDateOnly, paymentStatusLabel, paymentStatusClass } from "../format.js";
 import ReconciliationChip from "./ReconciliationChip.vue";
 import PaymentStatusChip from "./PaymentStatusChip.vue";
@@ -21,6 +21,10 @@ const props = defineProps({
   showBuckets: { type: Boolean, default: false }, // vendor.html's All/CN Required/Invoice Copy Needed/No Action Needed/Paid tabs
   posNeedingInvoice: { type: Array, default: () => [] }, // POs with no invoice uploaded yet at all -- vendor-only, see posNeedingInvoice in VendorApp.vue
   posWithPayment: { type: Array, default: () => [] }, // POs with no invoice uploaded but Finance already has a payment record for them (posWithPaymentNoInvoice in VendorApp.vue) -- vendor-only
+  // vendor.html only -- { bucket } set by a Dashboard shortcut ("5 POs need
+  // an invoice") to land on that bucket; a fresh object each time, so
+  // re-clicking the same shortcut re-applies it after a manual tab change.
+  focusBucket: { type: Object, default: null },
 });
 
 function invoiceNumber(row) { return row.match_details?.extracted?.invoice_number || "–"; }
@@ -152,6 +156,7 @@ const noActionRows = computed(() => props.rows.filter((r) => !isPaid(r) && r.mat
 const posPaymentPaid = computed(() => props.posWithPayment.filter((p) => p.payment_status === "paid"));
 const posPaymentPending = computed(() => props.posWithPayment.filter((p) => p.payment_status !== "paid"));
 const activeBucket = ref("all");
+watch(() => props.focusBucket, (f) => { if (f?.bucket) activeBucket.value = f.bucket; });
 const bucketCounts = computed(() => ({
   all: props.rows.length + props.posNeedingInvoice.length + props.posWithPayment.length,
   cn_required: cnRequiredRows.value.length,

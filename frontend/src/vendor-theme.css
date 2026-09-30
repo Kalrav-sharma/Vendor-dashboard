@@ -1,0 +1,234 @@
+/* --- Vendor Portal theme (vendor.html only -- imported by vendor-main.js,
+   never by admin). Everything is scoped under .vendor-shell so the shared
+   classes in shared.css keep their exact look on admin.html; this file only
+   layers the vendor-facing identity on top: a night-violet sidebar, lifted
+   cards, and the Dashboard's attention list / meters. Colours stay on the
+   shared.css tokens (Native purple + the audited status hues); the only new
+   tokens are the sidebar's and the elevation shadows. --- */
+:root {
+  --v-side-bg: #1D1535;
+  --v-side-ink: #F3EFFD;
+  --v-side-muted: #ADA2CF;
+  --v-side-line: rgba(255, 255, 255, 0.08);
+  --v-side-hover: rgba(255, 255, 255, 0.06);
+  --v-side-active: rgba(154, 124, 242, 0.24);
+  --v-side-bar: #B89DFF;
+  --v-elev: 0 1px 2px rgba(29, 21, 53, 0.05), 0 2px 10px rgba(29, 21, 53, 0.04);
+  --v-elev-hover: 0 8px 22px rgba(78, 48, 180, 0.13);
+  --v-head-bg: #F8F6FD;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --v-side-bg: #100C1B;
+    --v-side-line: rgba(255, 255, 255, 0.06);
+    --v-elev: 0 1px 2px rgba(0, 0, 0, 0.3);
+    --v-elev-hover: 0 8px 22px rgba(0, 0, 0, 0.45);
+    --v-head-bg: #1C1926;
+  }
+}
+:root[data-theme="dark"] {
+  --v-side-bg: #100C1B;
+  --v-side-line: rgba(255, 255, 255, 0.06);
+  --v-elev: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --v-elev-hover: 0 8px 22px rgba(0, 0, 0, 0.45);
+  --v-head-bg: #1C1926;
+}
+
+/* --- Sidebar --- */
+.vendor-shell .sidebar { width: 216px; background: var(--v-side-bg); border-right: none; padding: 22px 0 14px; }
+.vendor-shell .sidebar .brand { padding: 0 22px 18px; border-bottom: 1px solid var(--v-side-line); margin-bottom: 12px; }
+/* Logo artwork is black on transparent -- always white on this sidebar. */
+.vendor-shell .sidebar .brand-logo { filter: invert(1); }
+.vendor-shell .sidebar-app-name { color: var(--v-side-muted); font-weight: 500; font-size: 0.8rem; letter-spacing: 0.01em; }
+.vendor-shell .nav-item,
+.vendor-shell .profile-trigger {
+  width: calc(100% - 20px); margin: 1px 10px; padding: 9px 12px; border-left: none; border-radius: 8px;
+  color: var(--v-side-muted); transition: background 0.15s, color 0.15s;
+}
+.vendor-shell .nav-item:hover,
+.vendor-shell .profile-trigger:hover { color: var(--v-side-ink); background: var(--v-side-hover); }
+.vendor-shell .nav-item.active { color: #fff; background: var(--v-side-active); font-weight: 600; box-shadow: inset 3px 0 0 var(--v-side-bar); }
+.vendor-shell .nav-item:focus-visible,
+.vendor-shell .profile-trigger:focus-visible { outline: 2px solid var(--v-side-bar); outline-offset: -2px; }
+.nav-item-label { display: inline-flex; align-items: center; gap: 10px; }
+.vendor-shell .nav-icon { display: inline-flex; flex-shrink: 0; }
+.vendor-shell .nav-icon svg,
+.vendor-shell .dash-kpi-icon svg,
+.vendor-shell .v-action-cta svg,
+.vendor-shell .v-text-btn svg,
+.vendor-shell .v-allclear-icon svg {
+  fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round;
+}
+.vendor-shell .nav-icon svg { width: 17px; height: 17px; }
+.vendor-shell .nav-item.active .nav-icon { color: var(--v-side-bar); }
+.vendor-shell .sidebar-account { border-top: 1px solid var(--v-side-line); margin-top: auto; padding-top: 12px; }
+.vendor-shell .profile-trigger-icon { background: var(--v-side-active); color: var(--v-side-ink); width: 24px; height: 24px; }
+.vendor-shell .profile-trigger-icon svg { width: 13px; height: 13px; }
+
+@media (max-width: 700px) {
+  /* One horizontally scrolling strip, not a stacked list pushing the page down. */
+  .vendor-shell .sidebar { width: 100%; padding: 8px 6px; flex-direction: row; align-items: center; }
+  .vendor-shell .nav-item { width: auto; margin: 0 2px; flex-shrink: 0; border-bottom: none; }
+  .vendor-shell .nav-item.active { box-shadow: inset 0 -3px 0 var(--v-side-bar); }
+  .vendor-shell .sidebar-account { border-top: none; margin-top: 0; padding: 0 4px; }
+  .vendor-shell .profile-trigger { width: auto; margin: 0; }
+}
+
+/* --- Page chrome --- */
+.vendor-shell .wrap { padding-top: 34px; }
+.vendor-shell header.page-head { border-bottom: none; padding-bottom: 0; margin-bottom: 24px; }
+.vendor-shell h1 { font-size: 1.65rem; font-weight: 700; letter-spacing: -0.02em; }
+.vendor-shell .scope { max-width: 72ch; line-height: 1.5; }
+
+/* A tab panel fades in when it's switched to -- v-show flips display, which
+   restarts a CSS animation on its own, so no Vue transition is needed. */
+.vendor-shell .tab-panel { animation: v-tab-in 0.22s ease-out; }
+@keyframes v-tab-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .vendor-shell .tab-panel { animation: none; } }
+
+/* --- Cards: one elevation language for panels, tables and tiles --- */
+.vendor-shell .panel,
+.vendor-shell .table-card,
+.vendor-shell .kpis { border-radius: 14px; box-shadow: var(--v-elev); }
+.vendor-shell .panel h2 { font-size: 1rem; font-weight: 600; }
+.vendor-shell th { background: var(--v-head-bg); text-transform: none; letter-spacing: 0; font-size: 0.76rem; color: var(--muted); }
+.vendor-shell .filter-row td { background: var(--v-head-bg); }
+.vendor-shell tbody tr { transition: background 0.12s; }
+/* Codes, SKUs, dates and AWBs never break mid-token ("RO-MEM-/80") -- a wide
+   table scrolls sideways inside .table-scroll instead. */
+.vendor-shell td.mono, .vendor-shell td.fac-code { white-space: nowrap; }
+.vendor-shell tbody tr.clickable-row:hover { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+.vendor-shell tbody tr.clickable-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+.vendor-shell .kpi { padding: 16px 18px; }
+.vendor-shell .kpi .label { text-transform: none; letter-spacing: 0; font-size: 0.78rem; font-weight: 500; }
+.vendor-shell .kpi .value { font-size: 1.4rem; }
+
+/* --- Bucket tabs: segmented, the active one filled --- */
+.vendor-shell .bucket-tabs { gap: 6px; margin-bottom: 16px; }
+.vendor-shell .bucket-tab { border-radius: 999px; padding: 7px 8px 7px 14px; box-shadow: var(--v-elev); }
+.vendor-shell .bucket-tab .bucket-count {
+  min-width: 24px; padding: 2px 7px; border-radius: 999px; text-align: center; font-size: 0.74rem;
+  background: var(--paper); color: var(--muted);
+}
+.vendor-shell .bucket-tab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.vendor-shell .bucket-tab.active .bucket-count { background: rgba(255, 255, 255, 0.22); color: #fff; }
+.vendor-shell .bucket-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* --- Search fields --- */
+.vendor-shell .field input, .vendor-shell .field select, .vendor-shell .field textarea { background: var(--surface); border-color: var(--line-strong); border-radius: 9px; }
+.vendor-shell .field input:hover, .vendor-shell .field select:hover, .vendor-shell .field textarea:hover { border-color: var(--accent); }
+
+/* --- Row actions: "Request PO" reads as a button, not a stray link --- */
+.vendor-shell td.col-tight > .link-btn-inline {
+  font-family: inherit; font-size: 0.76rem; font-weight: 600; text-decoration: none; white-space: nowrap;
+  padding: 5px 11px; border-radius: 999px; border: 1px solid var(--line-strong); background: var(--surface);
+  transition: background 0.15s, border-color 0.15s;
+}
+.vendor-shell td.col-tight > .link-btn-inline:hover { background: var(--accent-soft); border-color: var(--accent); }
+.vendor-shell td.col-tight > .link-btn-inline:disabled { opacity: 0.6; cursor: default; }
+.vendor-shell .link-btn-inline { text-decoration-color: color-mix(in srgb, var(--accent) 40%, transparent); }
+.vendor-shell .link-btn-inline:hover { text-decoration-color: var(--accent); }
+.vendor-shell .icon-btn { padding: 7px; margin: -7px; border-radius: 8px; }
+.vendor-shell .icon-btn:hover { background: var(--accent-soft); }
+.vendor-shell .chip { border-radius: 999px; padding: 3px 10px; }
+.vendor-shell .substep-box { width: 12px; height: 12px; border-radius: 3px; }
+.substep-caption { color: var(--muted); font-size: 0.72rem; margin-left: 4px; white-space: nowrap; }
+
+/* --- Primary button --- */
+.vendor-shell button.primary-btn { border-radius: 9px; transition: background 0.15s, box-shadow 0.15s; }
+.vendor-shell button.primary-btn:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 88%, #000); box-shadow: var(--v-elev-hover); }
+.vendor-shell button.primary-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* --- Modal --- */
+.vendor-shell .modal-overlay { background: rgba(20, 14, 38, 0.55); backdrop-filter: blur(3px); }
+.vendor-shell .modal-box { border-radius: 16px; animation: v-modal-in 0.18s ease-out; }
+@keyframes v-modal-in { from { opacity: 0; transform: translateY(8px) scale(0.99); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .vendor-shell .modal-box { animation: none; } }
+
+/* === Dashboard === */
+.v-dash-top { display: grid; grid-template-columns: minmax(0, 1.75fr) minmax(0, 1fr); gap: 16px; margin-bottom: 16px; }
+.v-dash-top .panel { margin-bottom: 0; }
+@media (max-width: 900px) { .v-dash-top { grid-template-columns: 1fr; } }
+.v-panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.vendor-shell .v-panel-head h2 { margin: 0; }
+
+/* "Needs your attention" -- each row is one shortcut; the tone colours the
+   count badge and a thin left edge only, so a long list stays calm. */
+.v-action-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.v-action {
+  --tone: var(--accent); --tone-soft: var(--accent-soft);
+  width: 100%; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 14px;
+  padding: 12px 14px; border: 1px solid var(--line); border-left: 3px solid var(--tone); border-radius: 10px;
+  background: var(--surface); color: var(--ink); font: inherit; text-align: left; cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+}
+.v-action.tone-critical { --tone: var(--critical); --tone-soft: var(--critical-soft); }
+.v-action.tone-open { --tone: var(--open); --tone-soft: var(--open-soft); }
+.v-action:hover { background: color-mix(in srgb, var(--tone-soft) 45%, var(--surface)); border-color: var(--tone); box-shadow: var(--v-elev); }
+.v-action:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.v-action-count {
+  min-width: 40px; height: 40px; padding: 0 8px; border-radius: 10px; display: flex; align-items: center; justify-content: center;
+  background: var(--tone-soft); color: var(--tone); font-family: "IBM Plex Mono", monospace; font-weight: 600; font-size: 1.05rem;
+}
+.v-action-text { display: grid; gap: 2px; min-width: 0; }
+.v-action-text b { font-weight: 600; font-size: 0.9rem; }
+.v-action-text span { color: var(--muted); font-size: 0.78rem; }
+.v-action-cta { display: inline-flex; align-items: center; gap: 4px; color: var(--accent); font-size: 0.8rem; font-weight: 600; white-space: nowrap; }
+.v-action-cta svg, .v-text-btn svg { width: 14px; height: 14px; transition: transform 0.15s; }
+.v-action:hover .v-action-cta svg, .v-text-btn:hover svg { transform: translateX(2px); }
+@media (max-width: 560px) { .v-action { grid-template-columns: auto minmax(0, 1fr); } .v-action-cta { display: none; } }
+
+.v-allclear { display: flex; align-items: center; gap: 14px; padding: 14px; border-radius: 10px; background: var(--good-soft); }
+.v-allclear-icon { width: 36px; height: 36px; border-radius: 50%; background: var(--good); color: #fff; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.v-allclear-icon svg { width: 18px; height: 18px; stroke-width: 2.2; }
+
+.v-health { display: flex; flex-direction: column; gap: 16px; }
+.vendor-shell .v-health h2 { margin: 0; }
+.v-health-metric { display: grid; gap: 8px; }
+.v-health-row { display: flex; justify-content: space-between; align-items: baseline; font-size: 0.86rem; }
+.v-health-row b { font-size: 1.35rem; font-weight: 600; }
+
+/* Meter with a target tick. Fill is the neutral accent (same reasoning as
+   shared.css's .meter-fill); pass/fail rides the figure's own text colour. */
+.v-meter { position: relative; height: 8px; border-radius: 999px; background: var(--line); }
+.v-meter-fill { height: 100%; border-radius: 999px; background: var(--accent); transition: width 0.5s ease-out; }
+.v-meter-target { position: absolute; top: -4px; bottom: -4px; width: 2px; margin-left: -1px; border-radius: 1px; background: var(--ink); opacity: 0.55; }
+@media (prefers-reduced-motion: reduce) { .v-meter-fill { transition: none; } }
+
+.v-text-btn {
+  display: inline-flex; align-items: center; gap: 4px; align-self: flex-start; padding: 0; border: none; background: none;
+  color: var(--accent); font: inherit; font-size: 0.8rem; font-weight: 600; cursor: pointer;
+}
+.v-text-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+.v-health .v-text-btn { margin-top: auto; }
+
+/* KPI tiles are shortcuts now -- a real <button>, so reset its defaults. */
+.vendor-shell .dash-kpis { grid-template-columns: repeat(3, 1fr); margin-bottom: 16px; }
+@media (max-width: 560px) { .vendor-shell .dash-kpis { grid-template-columns: 1fr; } }
+.vendor-shell .dash-kpi {
+  font: inherit; color: var(--ink); text-align: left; cursor: pointer; width: 100%;
+  border-top: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; box-shadow: var(--v-elev);
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
+}
+.vendor-shell .dash-kpi:hover { border-color: var(--tile-color); box-shadow: var(--v-elev-hover); transform: translateY(-1px); }
+.vendor-shell .dash-kpi:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { .vendor-shell .dash-kpi:hover { transform: none; } }
+.vendor-shell .dash-kpi-label { text-transform: none; letter-spacing: 0; font-size: 0.82rem; font-weight: 500; }
+.vendor-shell .dash-kpi-icon {
+  width: 32px; height: 32px; border-radius: 9px; align-items: center; justify-content: center;
+  background: color-mix(in srgb, var(--tile-color) 13%, transparent);
+}
+.vendor-shell .dash-kpi-value { font-size: 1.7rem; color: var(--tile-color); }
+
+.v-card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 18px; border-bottom: 1px solid var(--line); }
+.v-card-head h2 { font-size: 1rem; font-weight: 600; margin: 0; }
+.vendor-shell .v-po-code { color: var(--accent); font-weight: 500; }
+
+/* === My Performance scorecard: left-aligned tiles with a meter each === */
+.vendor-shell .dash-scorecard { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+.vendor-shell .dash-scorecard-tile { text-align: left; padding: 16px 18px; border-radius: 12px; display: grid; gap: 8px; align-content: start; }
+.vendor-shell .dash-scorecard-label { margin: 0; font-size: 0.84rem; font-weight: 500; }
+.vendor-shell .dash-scorecard-value { font-size: 1.7rem; font-weight: 600; }
+.vendor-shell .dash-scorecard-sub { margin: 0; }
+.vendor-shell .dash-scorecard-tile .v-meter { background: color-mix(in srgb, var(--line) 70%, var(--line-strong)); }

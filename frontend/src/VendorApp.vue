@@ -12,7 +12,7 @@ import { useModal } from "./composables/useModal.js";
 import { useInvoiceUploads } from "./composables/useInvoiceUploads.js";
 import { usePaymentFilters } from "./composables/usePaymentFilters.js";
 import { useSupportTickets } from "./composables/useSupportTickets.js";
-import { dedupeInvoiceNumbers, dedupeVendorOptions, fmtDateOnly, fmtNum } from "./format.js";
+import { dedupeInvoiceNumbers, dedupeVendorOptions, fmtDateOnly, fmtNum, trackingBucket } from "./format.js";
 import DashboardOverview from "./components/DashboardOverview.vue";
 import MyPerformance from "./components/MyPerformance.vue";
 import SidebarNav from "./components/SidebarNav.vue";
@@ -101,7 +101,6 @@ const DASH_ICONS = {
   document: '<svg viewBox="0 0 20 20"><path d="M6 2.5h6l3 3v12a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-14a1 1 0 0 1 1-1Z"/><path d="M12 2.5V6h3.5"/></svg>',
   truck: '<svg viewBox="0 0 20 20"><path d="M2 6h9v8H2Z"/><path d="M11 9h3l3 3v2h-6V9Z"/><circle cx="6" cy="16" r="1.5"/><circle cx="14" cy="16" r="1.5"/></svg>',
   check: '<svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="7.5"/><path d="M6.5 10.2 8.8 12.5 13.5 7.5"/></svg>',
-  percent: '<svg viewBox="0 0 20 20"><circle cx="6" cy="6" r="2"/><circle cx="14" cy="14" r="2"/><path d="M15 5 5 15"/></svg>',
 };
 
 // A PO "has an invoice shared" once any upload exists for it, regardless of
@@ -166,30 +165,68 @@ const dashAvgTatDays = computed(() => {
 });
 
 const dashKpiTiles = computed(() => [
-  { key: "open", label: "Open POs", value: dashOpenPos.value, sublabel: "Invoice not yet shared", icon: DASH_ICONS.document, colorVar: "--open" },
-  { key: "progress", label: "In progress", value: dashInProgress.value, sublabel: "Supplied · payment pending", icon: DASH_ICONS.truck, colorVar: "--accent" },
-  { key: "complete", label: "PO complete", value: dashPoComplete.value, sublabel: "Closed · last 3 mo", icon: DASH_ICONS.check, colorVar: "--good" },
-  {
-    key: "fillrate", label: "Fill rate",
-    value: dashFillRatePct.value == null ? "–" : `${dashFillRatePct.value.toFixed(1)}%`,
-    sublabel: "Target 90%", icon: DASH_ICONS.percent,
-    colorVar: dashFillRatePct.value == null ? "--muted" : dashFillRatePct.value >= 90 ? "--good" : "--critical",
-  },
+  { key: "open", label: "Open POs", value: dashOpenPos.value, sublabel: "Invoice not yet shared", icon: DASH_ICONS.document, colorVar: "--open", nav: "po-tracking", bucket: "invoice_needed" },
+  { key: "progress", label: "In progress", value: dashInProgress.value, sublabel: "Supplied · payment pending", icon: DASH_ICONS.truck, colorVar: "--accent", nav: "po-tracking", bucket: "processing" },
+  { key: "complete", label: "PO complete", value: dashPoComplete.value, sublabel: "Closed · last 3 mo", icon: DASH_ICONS.check, colorVar: "--good", nav: "po-tracking", bucket: "complete" },
 ]);
 
-const dashScorecardTiles = computed(() => {
-  const fillOk = dashFillRatePct.value != null && dashFillRatePct.value >= 90;
+// Dashboard's "Delivery health" panel -- the headline slice of the My
+// Performance scorecard, with the same targets.
+const dashHealth = computed(() => {
+  const fill = dashFillRatePct.value;
+  const done = perfPoCompletionPct.value;
   return [
     {
-      key: "tat", label: "Avg TAT",
-      value: dashAvgTatDays.value == null ? "–" : `${dashAvgTatDays.value.toFixed(0)}d`,
-      sublabel: dashAvgTatDays.value == null ? "No dispatched shipments yet" : "", cls: "",
+      key: "fillrate", label: "Fill rate", value: fill == null ? "–" : `${fill.toFixed(1)}%`,
+      cls: fill == null ? "" : fill >= 90 ? "good" : "critical",
+      meter: fill == null ? null : { pct: fill, target: 90 }, sub: "Units received vs. ordered · target 90%",
     },
     {
-      key: "fillrate", label: "Fill rate",
-      value: dashFillRatePct.value == null ? "–" : `${dashFillRatePct.value.toFixed(1)}%`,
-      sublabel: dashFillRatePct.value == null ? "" : (fillOk ? "On target" : "Target: ≥90%"),
-      cls: dashFillRatePct.value == null ? "" : (fillOk ? "good" : "critical"),
+      key: "completion", label: "PO completion", value: done == null ? "–" : `${done.toFixed(1)}%`,
+      cls: done == null ? "" : done >= 90 ? "good" : "critical",
+      meter: done == null ? null : { pct: done, target: 90 }, sub: "POs fully closed · target 90%",
+    },
+    {
+      key: "tat", label: "Avg turnaround", value: dashAvgTatDays.value == null ? "–" : `${dashAvgTatDays.value.toFixed(0)} days`,
+      sub: dashAvgTatDays.value == null ? "No dispatched shipments yet" : "PO created → dispatched",
+    },
+  ];
+});
+
+// "Needs your attention" -- every open item that's waiting on the vendor,
+// each one a shortcut to the tab (and bucket) where it gets resolved.
+// Same definitions the destination tabs already use, so the count here
+// matches what the vendor lands on: posNeedingInvoice is the Payments
+// tab's "Invoice Copy Needed" bucket; a mismatch without a credit note yet
+// is its "CN Required" bucket (minus ones already answered); overdue plans
+// and exceptions mirror DispatchPlanningTable's own KPI tiles.
+const todayStart = new Date(new Date().toDateString());
+const plural = (n, one, many) => (n === 1 ? one : many);
+const dashActions = computed(() => {
+  const invoices = posNeedingInvoice.value.length;
+  const creditNotes = allUploads.value.filter((u) => u.match_status === "mismatch" && !u.credit_note_storage_path).length;
+  const overduePlans = pendingDispatchRows.value.filter((r) => new Date(r.estimated_dispatch_date) < todayStart).length;
+  const exceptions = shippedDispatchRows.value.filter((r) => trackingBucket(r) === "exception").length;
+  return [
+    {
+      key: "invoices", count: invoices, tone: "critical", nav: "payment-dashboard", bucket: "invoice_copy_needed",
+      title: plural(invoices, "PO waiting for an invoice copy", "POs waiting for an invoice copy"),
+      sub: "Upload the invoice PDF so it can be reconciled and paid", cta: "Upload invoices",
+    },
+    {
+      key: "credit", count: creditNotes, tone: "critical", nav: "payment-dashboard", bucket: "cn_required",
+      title: plural(creditNotes, "Invoice needs a credit note", "Invoices need a credit note"),
+      sub: "Reconciliation found a mismatch with the GRN", cta: "Review mismatches",
+    },
+    {
+      key: "overdue", count: overduePlans, tone: "open", nav: "dispatch-planning",
+      title: plural(overduePlans, "Dispatch plan past its date", "Dispatch plans past their date"),
+      sub: "Dispatch the stock, or update the estimate on the PO", cta: "Open dispatch plan",
+    },
+    {
+      key: "exceptions", count: exceptions, tone: "open", nav: "dispatch-planning",
+      title: plural(exceptions, "Shipment with a delivery exception", "Shipments with a delivery exception"),
+      sub: "Undelivered or returned — check with the courier", cta: "See shipments",
     },
   ];
 });
@@ -238,9 +275,11 @@ const perfFulfillmentScorecard = computed(() => {
     { key: "tat", label: "Avg TAT", value: dashAvgTatDays.value == null ? "–" : `${dashAvgTatDays.value.toFixed(0)}d`,
       sublabel: dashAvgTatDays.value == null ? "No dispatched shipments yet" : "PO created → dispatched", cls: "" },
     { key: "fillrate", label: "Fill rate", value: dashFillRatePct.value == null ? "–" : `${dashFillRatePct.value.toFixed(1)}%`,
-      sublabel: dashFillRatePct.value == null ? "" : (fillOk ? "On target" : "Target: ≥90%"), cls: dashFillRatePct.value == null ? "" : (fillOk ? "good" : "critical") },
+      sublabel: dashFillRatePct.value == null ? "" : (fillOk ? "On target" : "Target: ≥90%"), cls: dashFillRatePct.value == null ? "" : (fillOk ? "good" : "critical"),
+      meter: dashFillRatePct.value == null ? null : { pct: dashFillRatePct.value, target: 90 } },
     { key: "completion", label: "PO completion rate", value: perfPoCompletionPct.value == null ? "–" : `${perfPoCompletionPct.value.toFixed(1)}%`,
-      sublabel: perfPoCompletionPct.value == null ? "" : (completeOk ? "On target" : "Target: ≥90%"), cls: perfPoCompletionPct.value == null ? "" : (completeOk ? "good" : "critical") },
+      sublabel: perfPoCompletionPct.value == null ? "" : (completeOk ? "On target" : "Target: ≥90%"), cls: perfPoCompletionPct.value == null ? "" : (completeOk ? "good" : "critical"),
+      meter: perfPoCompletionPct.value == null ? null : { pct: perfPoCompletionPct.value, target: 90 } },
   ];
 });
 const perfPaymentHealthScorecard = computed(() => {
@@ -250,9 +289,11 @@ const perfPaymentHealthScorecard = computed(() => {
     { key: "daystopaid", label: "Avg days to get paid", value: perfAvgDaysToPaid.value == null ? "–" : `${perfAvgDaysToPaid.value.toFixed(0)}d`,
       sublabel: perfAvgDaysToPaid.value == null ? "No paid invoices yet" : "Upload → payment", cls: "" },
     { key: "cnrate", label: "Credit note rate", value: perfCreditNoteRatePct.value == null ? "–" : `${perfCreditNoteRatePct.value.toFixed(1)}%`,
-      sublabel: perfCreditNoteRatePct.value == null ? "" : (cnOk ? "On target" : "Target: ≤10%"), cls: perfCreditNoteRatePct.value == null ? "" : (cnOk ? "good" : "critical") },
+      sublabel: perfCreditNoteRatePct.value == null ? "" : (cnOk ? "On target" : "Target: ≤10%"), cls: perfCreditNoteRatePct.value == null ? "" : (cnOk ? "good" : "critical"),
+      meter: perfCreditNoteRatePct.value == null ? null : { pct: perfCreditNoteRatePct.value, target: 10, lowerIsBetter: true } },
     { key: "matchrate", label: "Reconciliation match rate", value: perfMatchRatePct.value == null ? "–" : `${perfMatchRatePct.value.toFixed(1)}%`,
-      sublabel: perfMatchRatePct.value == null ? "" : (matchOk ? "On target" : "Target: ≥90%"), cls: perfMatchRatePct.value == null ? "" : (matchOk ? "good" : "critical") },
+      sublabel: perfMatchRatePct.value == null ? "" : (matchOk ? "On target" : "Target: ≥90%"), cls: perfMatchRatePct.value == null ? "" : (matchOk ? "good" : "critical"),
+      meter: perfMatchRatePct.value == null ? null : { pct: perfMatchRatePct.value, target: 90 } },
   ];
 });
 
@@ -260,7 +301,35 @@ const dashRecentPos = computed(() => currentPos.value.slice(0, 5).map((p) => ({
   po_code: p.po_code,
   sku_count: (poItemsByPo.value[p.po_code] || []).length,
   facility: p.facility || "",
+  status: p.status,
+  total_amount: p.total_amount,
 })));
+
+// Dashboard shortcuts: switch tab, and (for the two bucketed tables) land
+// on the matching bucket -- see focusBucket in PoTrackingTable.vue.
+const poFocus = ref(null);
+const paymentFocus = ref(null);
+function navigateTo(navId, bucket) {
+  if (bucket && navId === "po-tracking") poFocus.value = { bucket };
+  if (bucket && navId === "payment-dashboard") paymentFocus.value = { bucket };
+  activeNav.value = navId;
+  window.scrollTo({ top: 0 });
+}
+
+const NAV_ICONS = {
+  dashboard: '<svg viewBox="0 0 20 20"><rect x="3" y="3" width="6" height="6" rx="1.5"/><rect x="11" y="3" width="6" height="6" rx="1.5"/><rect x="3" y="11" width="6" height="6" rx="1.5"/><rect x="11" y="11" width="6" height="6" rx="1.5"/></svg>',
+  payments: '<svg viewBox="0 0 20 20"><rect x="2.5" y="5" width="15" height="10.5" rx="1.5"/><path d="M2.5 8.5h15"/><path d="M6 12.5h3"/></svg>',
+  performance: '<svg viewBox="0 0 20 20"><path d="M3 16.5h14"/><path d="M5.5 13.5v-3"/><path d="M10 13.5v-7"/><path d="M14.5 13.5v-5"/></svg>',
+  ticket: '<svg viewBox="0 0 20 20"><path d="M3.5 5h13a1 1 0 0 1 1 1v6.5a1 1 0 0 1-1 1H8l-3.5 3v-3h-1a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Z"/></svg>',
+};
+const navItems = computed(() => [
+  { id: "dashboard", label: "Dashboard", icon: NAV_ICONS.dashboard },
+  { id: "po-tracking", label: "PO Tracking", icon: DASH_ICONS.document },
+  { id: "dispatch-planning", label: "Dispatch Planning", icon: DASH_ICONS.truck },
+  { id: "payment-dashboard", label: "Payments", icon: NAV_ICONS.payments },
+  { id: "my-performance", label: "My Performance", icon: NAV_ICONS.performance },
+  { id: "raise-ticket", label: "Raise a Ticket", icon: NAV_ICONS.ticket },
+]);
 
 const scopeLine = computed(() => `${currentPos.value.length} purchase order${currentPos.value.length === 1 ? "" : "s"} on file`);
 const lastCheckedText = computed(() => lastUpdated.value
@@ -378,18 +447,11 @@ async function signOut() {
     </div>
   </div>
 
-  <div v-else-if="ready" class="app-shell">
+  <div v-else-if="ready" class="app-shell vendor-shell">
     <SidebarNav
       v-model="activeNav"
       brand="Vendor Portal"
-      :items="[
-        { id: 'dashboard', label: 'Dashboard' },
-        { id: 'po-tracking', label: 'PO Tracking' },
-        { id: 'dispatch-planning', label: 'Dispatch Planning' },
-        { id: 'payment-dashboard', label: 'Payments' },
-        { id: 'my-performance', label: 'My Performance' },
-        { id: 'raise-ticket', label: 'Raise a Ticket' },
-      ]"
+      :items="navItems"
     >
       <template #account>
         <ProfileMenu :display-name="myDisplayName" :email="myEmail" :access="ROLE_LABELS[myRole] || ROLE_LABELS.vendor" :role="myRole" :vendors="previewVendorOptions" :on-sign-out="signOut" />
@@ -412,43 +474,43 @@ async function signOut() {
           </div>
         </header>
 
-        <div v-show="activeNav === 'dashboard'">
+        <div v-show="activeNav === 'dashboard'" class="tab-panel">
           <DashboardOverview
-            :kpis="dashKpiTiles" :scorecard="dashScorecardTiles" :recent-pos="dashRecentPos"
-            :on-open-po="openPoDetailModal"
+            :actions="dashActions" :kpis="dashKpiTiles" :health="dashHealth"
+            :recent-pos="dashRecentPos" :on-open-po="openPoDetailModal" :on-navigate="navigateTo"
           />
         </div>
 
-        <div v-show="activeNav === 'po-tracking'">
+        <div v-show="activeNav === 'po-tracking'" class="tab-panel">
           <PoTrackingTable
             :rows="filteredSorted" :filters="filters"
             :facility-options="facilityOptions" :status-options="statusOptions"
             :grns-by-po="grnsByPo" :show-buckets="true"
             :on-open-po="openPoDetailModal" :allow-invoice-upload="true" :uploader-label="myDisplayName"
             :sku-rows="skuFilteredSorted" :sku-filters="skuFilters" :on-open-sku="openSkuDetailModal"
-            :show-request-po="true" :on-request-po="requestPoTicket" :po-request-tickets="tickets"
+            :show-request-po="true" :on-request-po="requestPoTicket" :po-request-tickets="tickets" :focus-bucket="poFocus"
           />
         </div>
 
-        <div v-show="activeNav === 'dispatch-planning'">
+        <div v-show="activeNav === 'dispatch-planning'" class="tab-panel">
           <DispatchPlanningTable :rows="dispatchFilteredSorted" :filters="dispatchFilters" :on-open-po="openPoDetailModal" />
         </div>
 
-        <div v-show="activeNav === 'payment-dashboard'">
+        <div v-show="activeNav === 'payment-dashboard'" class="tab-panel">
           <PaymentDashboardTable
             :rows="paymentFilteredSorted" :filters="paymentFilters" :reconciliation-options="reconciliationOptions"
             :payment-status-options="paymentStatusOptions"
             :on-open-po="openPoDetailModal" :uploader-label="myDisplayName"
             :show-vendor-kpis="true" :show-buckets="true" :pos-needing-invoice="posNeedingInvoice"
-            :pos-with-payment="posWithPaymentNoInvoice"
+            :pos-with-payment="posWithPaymentNoInvoice" :focus-bucket="paymentFocus"
           />
         </div>
 
-        <div v-show="activeNav === 'my-performance'">
+        <div v-show="activeNav === 'my-performance'" class="tab-panel">
           <MyPerformance :fulfillment="perfFulfillmentScorecard" :payment-health="perfPaymentHealthScorecard" />
         </div>
 
-        <div v-show="activeNav === 'raise-ticket'">
+        <div v-show="activeNav === 'raise-ticket'" class="tab-panel">
           <RaiseTicketTab
             :tickets="tickets" :po-code-options="poCodeOptions"
             :vendor-code="myVendorCode" :vendor-name="myDisplayName" :submitter-name="myDisplayName"

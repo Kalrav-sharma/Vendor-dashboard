@@ -34,6 +34,10 @@ const props = defineProps({
   showRequestPo: { type: Boolean, default: false },
   onRequestPo: { type: Function, default: null }, // (poCode) => { data, error }
   poRequestTickets: { type: Array, default: () => [] }, // this vendor's own tickets, to show "already requested"
+  // vendor.html only -- { bucket } set by a Dashboard shortcut ("5 POs need
+  // an invoice") to land on that bucket; a fresh object each time, so
+  // re-clicking the same shortcut re-applies it after a manual tab change.
+  focusBucket: { type: Object, default: null },
 });
 
 // One shared upload popup instance for the whole table, opened for
@@ -152,6 +156,7 @@ async function handleRequestPo(poCode) {
 }
 
 const activeBucket = ref("all");
+watch(() => props.focusBucket, (f) => { if (f?.bucket) activeBucket.value = f.bucket; });
 const bucketCounts = computed(() => {
   const counts = { all: props.rows.length, invoice_needed: 0, processing: 0, complete: 0 };
   for (const p of props.rows) counts[poBucket(p)]++;
@@ -259,6 +264,9 @@ const showingSkuData = computed(() => props.showBuckets && activeBucket.value ==
                   class="substep-box" :class="paymentBooked(p.po_code) ? 'substep-good' : 'substep-critical'"
                   :title="paymentBooked(p.po_code) ? 'Payment Booked' : 'Payment Not Booked'"
                 ></span>
+                <span class="substep-caption">
+                  {{ [grnComplete(p), reconciliationComplete(p.po_code), paymentBooked(p.po_code)].filter(Boolean).length }} of 3 done
+                </span>
               </div>
               <StatusChip v-else :status="p.status" />
             </td>
