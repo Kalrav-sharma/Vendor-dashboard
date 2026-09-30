@@ -24,11 +24,13 @@ import AppModal from "./components/AppModal.vue";
 import PoDetailModal from "./components/PoDetailModal.vue";
 import SkuDetailModal from "./components/SkuDetailModal.vue";
 import SetNewPasswordForm from "./components/SetNewPasswordForm.vue";
+import SetVendorEmailForm from "./components/SetVendorEmailForm.vue";
 import BrandLogo from "./components/BrandLogo.vue";
 import ProfileMenu from "./components/ProfileMenu.vue";
 
 const ready = ref(false);
 const mustChangePassword = ref(false); // gates the whole dashboard until cleared
+const mustChangeEmail = ref(false); // one-time "confirm your real email" gate, checked after mustChangePassword
 const myDisplayName = ref("Vendor"); // recorded on any invoice this login uploads
 const myEmail = ref("");
 const myRole = ref("vendor"); // real DB role -- stays "admin" even while previewing this view
@@ -324,7 +326,7 @@ const NAV_ICONS = {
 };
 const navItems = computed(() => [
   { id: "dashboard", label: "Dashboard", icon: NAV_ICONS.dashboard },
-  { id: "po-tracking", label: "PO Tracking", icon: DASH_ICONS.document },
+  { id: "po-tracking", label: "Purchase Orders", icon: DASH_ICONS.document },
   { id: "dispatch-planning", label: "Dispatch Planning", icon: DASH_ICONS.truck },
   { id: "payment-dashboard", label: "Payments", icon: NAV_ICONS.payments },
   { id: "my-performance", label: "My Performance", icon: NAV_ICONS.performance },
@@ -407,6 +409,13 @@ onMounted(async () => {
     mustChangePassword.value = true;
     return;
   }
+  // Vendor-only (never the previewing-admin branch, whose own profile is
+  // an admin's, not a vendor's) -- forces a real email in place of whatever
+  // placeholder the login was created with, once, before the dashboard.
+  if (ctx.profile.role === "vendor" && ctx.profile.must_change_email) {
+    mustChangeEmail.value = true;
+    return;
+  }
   myDisplayName.value = previewingAsAdmin
     ? (previewedVendorName || previewVendorCode || "Vendor")
     : (ctx.profile.vendor_name || ctx.profile.email || "Vendor");
@@ -428,6 +437,20 @@ async function handlePasswordChanged() {
   ready.value = true;
 }
 
+async function handleEmailChanged() {
+  // Re-fetch so we pick up the freshly-cleared must_change_email and the
+  // real address just saved, rather than trusting stale state.
+  const ctx = await requireSession();
+  if (!ctx) return;
+  mustChangeEmail.value = false;
+  myRole.value = ctx.profile.role;
+  myDisplayName.value = ctx.profile.vendor_name || ctx.profile.email || "Vendor";
+  myEmail.value = ctx.profile.email || "";
+  myVendorCode.value = ctx.profile.vendor_code || "";
+  await Promise.all([fetchAllUploads(previewVendorCode), fetchTickets(previewVendorCode)]);
+  ready.value = true;
+}
+
 async function signOut() {
   // So a leftover preview from this session can never affect whoever
   // signs into this browser next.
@@ -444,6 +467,15 @@ async function signOut() {
       <h1>Set a new password</h1>
       <div class="sub">For security, please set your own password before continuing -- this account was created with a shared temporary password.</div>
       <SetNewPasswordForm submit-label="Set password and continue" @done="handlePasswordChanged" />
+    </div>
+  </div>
+
+  <div v-else-if="mustChangeEmail" class="auth-shell">
+    <div class="auth-card">
+      <BrandLogo brand="native" class="login-logo" />
+      <h1>Confirm your email</h1>
+      <div class="sub">Please add your own email address before continuing -- this account was created with a placeholder email.</div>
+      <SetVendorEmailForm submit-label="Save email and continue" @done="handleEmailChanged" />
     </div>
   </div>
 

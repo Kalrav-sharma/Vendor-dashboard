@@ -90,6 +90,20 @@ alter table public.profiles add column if not exists contact_name text;
 alter table public.profiles add column if not exists contact_mobile text;
 alter table public.profiles add column if not exists must_change_password boolean not null default false;
 
+-- Forces the one-time "confirm your real email" gate in VendorApp.vue.
+-- Default true (not false, unlike must_change_password above) is deliberate:
+-- every vendor login that already existed when this column was added was
+-- created with a placeholder/dummy email (see admin-create-vendor), so
+-- Postgres backfilling every pre-existing row to true here is exactly what's
+-- wanted -- it's a one-time effect of the ALTER itself, not a statement that
+-- re-runs, so a later re-paste of this file can't re-flip anyone who has
+-- already cleared it back to true. New vendor logins also default to true
+-- for the same reason (a fresh admin-create-vendor call still hands the
+-- vendor a login registered under whatever email the admin typed, not
+-- necessarily the vendor's own) -- cleared to false by vendor-change-email
+-- once the vendor sets their own address.
+alter table public.profiles add column if not exists must_change_email boolean not null default true;
+
 -- profiles.role's check constraint was originally just ('admin', 'vendor')
 -- -- widen it for an already-deployed database (Postgres auto-names an
 -- inline column check constraint "<table>_<column>_check", so this is safe

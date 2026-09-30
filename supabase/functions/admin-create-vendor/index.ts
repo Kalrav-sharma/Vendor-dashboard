@@ -157,6 +157,7 @@ async function handleCreate(adminClient: ReturnType<typeof createClient>, body: 
     contact_name,
     contact_mobile,
     must_change_password: true,
+    must_change_email: true,
   });
 
   if (insertErr) {
