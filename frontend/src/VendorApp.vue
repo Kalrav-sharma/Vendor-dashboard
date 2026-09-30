@@ -12,7 +12,7 @@ import { useModal } from "./composables/useModal.js";
 import { useInvoiceUploads } from "./composables/useInvoiceUploads.js";
 import { usePaymentFilters } from "./composables/usePaymentFilters.js";
 import { useSupportTickets } from "./composables/useSupportTickets.js";
-import { dedupeInvoiceNumbers, dedupeVendorOptions, fmtDateOnly, fmtNum, TERMINAL_STATUSES, trackingBucket } from "./format.js";
+import { dedupeInvoiceNumbers, dedupeVendorOptions, fmtDateOnly, fmtNum, trackingBucket } from "./format.js";
 import DashboardOverview from "./components/DashboardOverview.vue";
 import MyPerformance from "./components/MyPerformance.vue";
 import SidebarNav from "./components/SidebarNav.vue";
@@ -115,8 +115,23 @@ const poCodesWithInvoice = computed(() => new Set(allUploads.value.map((u) => u.
 // Needed" bucket lists and uploads directly against these, since a PO
 // missing its invoice entirely has no po_invoice_uploads row to show in
 // that table otherwise.
+//
+// A PO with zero uploads still isn't "needs invoice" if Finance already
+// has it booked or paid on their own ledger (purchase_orders.payment_status,
+// matched by PO code -- see sync_payment_status_manual.py's PO-level path)
+// -- that PO needs nothing from the vendor either way, invoice or not, so
+// it's split into posWithPaymentNoInvoice below instead.
+//
+// TERMINAL_STATUSES is deliberately NOT part of this check (removed
+// 2026-09-30, measured against GELTRON: 6 of their 11 POs were COMPLETE
+// with zero invoices AND no payout record either -- the old "only count
+// still-open POs" rule hid exactly the POs MOST overdue for an invoice,
+// since finishing delivery is what starts the payment clock, not what
+// excuses skipping the invoice).
 const posNeedingInvoice = computed(() =>
-  currentPos.value.filter((p) => !TERMINAL_STATUSES.has(p.status) && !poCodesWithInvoice.value.has(p.po_code)));
+  currentPos.value.filter((p) => !poCodesWithInvoice.value.has(p.po_code) && !p.payment_status));
+const posWithPaymentNoInvoice = computed(() =>
+  currentPos.value.filter((p) => !poCodesWithInvoice.value.has(p.po_code) && !!p.payment_status));
 const dashOpenPos = computed(() => posNeedingInvoice.value.length);
 const dashDocketPending = computed(() => new Set(pendingDispatchRows.value.map((r) => r.po_code)).size);
 const dashInTransit = computed(() =>
@@ -404,6 +419,7 @@ async function signOut() {
             :payment-status-options="paymentStatusOptions"
             :on-open-po="openPoDetailModal" :uploader-label="myDisplayName"
             :show-vendor-kpis="true" :show-buckets="true" :pos-needing-invoice="posNeedingInvoice"
+            :pos-with-payment="posWithPaymentNoInvoice"
           />
         </div>
 

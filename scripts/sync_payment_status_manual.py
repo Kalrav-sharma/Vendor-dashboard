@@ -1,14 +1,30 @@
 #!/usr/bin/env python3
 """
-Populates po_invoice_uploads.payment_status / payment_date / payment_ref /
-payment_synced_at from Finance's weekly "Payout File" Oracle Fusion AP
-export (an .xlsx workbook, one row per invoice line, covering every UC
-vendor -- not just this portal's) -- these columns already exist in
-schema.sql (see the comment above them) but nothing has ever written to
-them, because the originally-planned Jarvis sync for this was never
-built. This script is the substitute: same target columns, same
-write path (service_role, no INSERT/UPDATE policy for authenticated),
-just a manual file drop instead of a live API pull.
+Populates payment_status / payment_date / payment_ref / payment_synced_at
+on TWO tables from Finance's weekly "Payout File" Oracle Fusion AP export
+(an .xlsx workbook, one row per invoice line, covering every UC vendor --
+not just this portal's):
+
+  po_invoice_uploads -- matched on (vendor_code, invoice number), where
+      the invoice number comes from the AI match check's OCR read of a
+      vendor-uploaded PDF. Only a PO with an uploaded invoice can ever
+      get a row here.
+  purchase_orders    -- matched on (vendor_code, po_code) instead, via
+      the payout file's "Poms Number" column, which is on every payout
+      row regardless of whether the vendor ever uploaded anything. This
+      is what lets a PO Finance has already booked or paid -- but that
+      still has ZERO invoice uploaded through the portal -- show a real
+      status instead of a bare "needs invoice" indistinguishable from
+      one nobody has done anything about (measured 2026-09-30: 6 of
+      GELTRON's 11 POs, all fully received, zero uploads, all sitting
+      silently in Finance's ledger).
+
+Both target columns already exist in schema.sql (see the comments above
+them) but nothing wrote to purchase_orders' side before this -- the
+originally-planned Jarvis sync for po_invoice_uploads' side was never
+built either. This script is the substitute for both: same write path
+(service_role, no INSERT/UPDATE policy for authenticated on either
+table), just a manual file drop instead of a live API pull.
 
 RUN MANUALLY, LOCALLY -- never in GitHub Actions. The payout file lives
 in Finance's own OneDrive folder on a laptop, never in this repo (and
@@ -23,12 +39,15 @@ Matching: a po_invoice_uploads row only has a payment status to report if
 it has been through the AI invoice-match check (check-invoice-match Edge
 Function) and got an invoice number out of the PDF (match_details.
 extracted.invoice_number) -- that's matched, on (vendor_code, invoice
-number), against the payout file's "Invoice Num" column. Vendor identity
-comes from comparing the payout file's "Vendor Name" against this
-portal's profiles.vendor_name (role='vendor'), after stripping the legal-
-entity suffix ("Pvt Ltd" vs "Private Limited" etc. -- Finance's Oracle
-export and our profiles table don't always spell the same vendor's name
-the same way).
+number), against the payout file's "Invoice Num" column. purchase_orders
+rows are matched on (vendor_code, po_code) against the payout file's
+"Poms Number" column instead -- no AI check needed, since po_code is
+already on record the moment the PO itself synced from Uniware. Vendor
+identity, for both, comes from comparing the payout file's "Vendor Name"
+against this portal's profiles.vendor_name (role='vendor'), after
+stripping the legal-entity suffix ("Pvt Ltd" vs "Private Limited" etc. --
+Finance's Oracle export and our profiles table don't always spell the
+same vendor's name the same way).
 
 There is no UTR / payment-reference column in this export, so
 payment_ref is left null -- if Finance's export ever grows one, wire it
@@ -81,11 +100,19 @@ def normalize_vendor_name(name):
     return n
 
 
+#: Placeholder values Finance's export uses for "not applicable here" --
+#: seen literally as a "Poms Number" value on rows with no real PO behind
+#: them (a prepayment, an adjustment entry, etc.). Checked case-insensitively.
+BLANK_PLACEHOLDERS = {"NA", "N/A", "-", "NULL", "NONE"}
+
+
 def normalize_invoice_number(v):
     if v is None:
         return None
     s = str(v).strip()
-    return s or None
+    if not s or s.upper() in BLANK_PLACEHOLDERS:
+        return None
+    return s
 
 
 def num(v):
@@ -191,6 +218,29 @@ def fetch_invoice_uploads(supabase_url, key):
     return lookup, current_status, len(rows), unmatched_uploads
 
 
+def fetch_po_payment_status(supabase_url, key):
+    """{(vendor_code, po_code): current payment_status} for every PO on
+    file -- po_code is purchase_orders' primary key, so unlike uploads
+    this is a 1:1 lookup, no id indirection needed. Same downgrade-guard
+    purpose as fetch_invoice_uploads' current_status."""
+    h = {"apikey": key, "Authorization": f"Bearer {key}"}
+    rows, frm = [], 0
+    while True:
+        r = requests.get(
+            f"{supabase_url}/rest/v1/purchase_orders",
+            headers={**h, "Range": f"{frm}-{frm + 999}"},
+            params={"select": "po_code,vendor_code,payment_status"},
+            timeout=REQUEST_TIMEOUT,
+        )
+        r.raise_for_status()
+        batch = r.json()
+        rows.extend(batch)
+        if len(batch) < 1000:
+            break
+        frm += 1000
+    return {(row["vendor_code"], row["po_code"]): row.get("payment_status") for row in rows}
+
+
 def read_payout_rows(path):
     wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
     ws = wb[wb.sheetnames[0]]
@@ -202,24 +252,30 @@ def read_payout_rows(path):
         yield dict(zip(header, values))
 
 
-def build_updates(payout_path, vendor_map, upload_lookup, current_status):
-    """Returns (updates: {upload_id: {payment_status, payment_date,
-    payment_ref}}, stats dict).
+def build_updates(payout_path, vendor_map, upload_lookup, current_status, po_current_status):
+    """Returns (upload_updates: {upload_id: {payment_status, payment_date,
+    payment_ref}}, po_updates: {(vendor_code, po_code): {...same...}},
+    stats dict). One scan of the payout file drives both -- it's the same
+    rows either way, just grouped by two different keys (invoice number
+    for uploads, "Poms Number"/po_code for purchase_orders).
 
-    Two safeguards around "which status is actually current":
-      - Same invoice number on more than one row IN THIS FILE (a partial
-        payment split across lines, a correction, etc.) -- only the most
-        recent/authoritative one (row_recency_key) is used, not just
-        whichever happened to come last while reading the sheet.
-      - An upload already marked 'paid' from a PREVIOUS run never gets
+    Two safeguards around "which status is actually current", applied to
+    BOTH groupings independently:
+      - The same key on more than one row IN THIS FILE (a partial payment
+        split across lines, a correction, etc.) -- only the most recent/
+        authoritative one (row_recency_key) is used, not just whichever
+        happened to come last while reading the sheet.
+      - A row already marked 'paid' from a PREVIOUS run never gets
         silently downgraded back to 'pending' by THIS run -- that would
         only happen from a stale/out-of-order file (payout files are
         cumulative, so a properly-ordered run never sees this), and
         Oracle's paid state doesn't become less true later.
     """
-    by_key = {}  # (vendor_code, invoice_number) -> payout row, most-recent so far
+    by_invoice = {}  # (vendor_code, invoice_number) -> payout row, most-recent so far
+    by_po = {}        # (vendor_code, po_code) -> payout row, most-recent so far
     stats = {"total_rows": 0, "portal_vendor_rows": 0, "matched_uploads": 0,
-              "unknown_status_rows": 0, "portal_vendors_seen": set(), "duplicate_invoices": 0}
+              "matched_pos": 0, "unknown_status_rows": 0, "portal_vendors_seen": set(),
+              "duplicate_invoices": 0, "duplicate_pos": 0}
 
     for row in read_payout_rows(payout_path):
         stats["total_rows"] += 1
@@ -230,26 +286,30 @@ def build_updates(payout_path, vendor_map, upload_lookup, current_status):
         stats["portal_vendors_seen"].add(vendor_code)
 
         inv = normalize_invoice_number(row.get("Invoice Num"))
-        if not inv:
-            continue
-        key_ = (vendor_code, inv)
-        if key_ in by_key:
-            stats["duplicate_invoices"] += 1
-            if row_recency_key(row) <= row_recency_key(by_key[key_]):
-                continue
-        by_key[key_] = row
+        if inv:
+            key_ = (vendor_code, inv)
+            if key_ in by_invoice:
+                stats["duplicate_invoices"] += 1
+            if key_ not in by_invoice or row_recency_key(row) > row_recency_key(by_invoice[key_]):
+                by_invoice[key_] = row
 
-    updates, downgrades_skipped = {}, 0
-    for key_, row in by_key.items():
+        po_code = normalize_invoice_number(row.get("Poms Number"))  # same "trim, treat blank as absent" rule
+        if po_code:
+            key_ = (vendor_code, po_code)
+            if key_ in by_po:
+                stats["duplicate_pos"] += 1
+            if key_ not in by_po or row_recency_key(row) > row_recency_key(by_po[key_]):
+                by_po[key_] = row
+
+    upload_updates, downgrades_skipped = {}, 0
+    for key_, row in by_invoice.items():
         upload_ids = upload_lookup.get(key_)
         if not upload_ids:
             continue
-
         status = row_payment_status(row)
         if status is None:
             stats["unknown_status_rows"] += 1
             continue
-
         payload = {
             "payment_status": status,
             "payment_date": parse_date(row.get("Payment Date")),
@@ -259,11 +319,27 @@ def build_updates(payout_path, vendor_map, upload_lookup, current_status):
             if status == "pending" and current_status.get(uid) == "paid":
                 downgrades_skipped += 1
                 continue
-            updates[uid] = payload
+            upload_updates[uid] = payload
             stats["matched_uploads"] += 1
 
+    po_updates, po_downgrades_skipped = {}, 0
+    for key_, row in by_po.items():
+        status = row_payment_status(row)
+        if status is None:
+            continue  # already counted in unknown_status_rows above when this row also had an invoice number
+        if status == "pending" and po_current_status.get(key_) == "paid":
+            po_downgrades_skipped += 1
+            continue
+        po_updates[key_] = {
+            "payment_status": status,
+            "payment_date": parse_date(row.get("Payment Date")),
+            "payment_ref": row_payment_ref(row),
+        }
+        stats["matched_pos"] += 1
+
     stats["downgrades_skipped"] = downgrades_skipped
-    return updates, stats
+    stats["po_downgrades_skipped"] = po_downgrades_skipped
+    return upload_updates, po_updates, stats
 
 
 def apply_updates(supabase_url, key, updates, dry_run):
@@ -289,6 +365,30 @@ def apply_updates(supabase_url, key, updates, dry_run):
     return applied
 
 
+def apply_po_updates(supabase_url, key, po_updates, dry_run):
+    if not po_updates:
+        return 0
+    h = {"apikey": key, "Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+    synced_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    applied = 0
+    for (vendor_code, po_code), payload in po_updates.items():
+        body = {**payload, "payment_synced_at": synced_at}
+        if dry_run:
+            print(f"  [dry-run] PO {po_code}: {body}")
+            applied += 1
+            continue
+        r = requests.patch(
+            f"{supabase_url}/rest/v1/purchase_orders", headers=h,
+            params={"po_code": f"eq.{po_code}", "vendor_code": f"eq.{vendor_code}"},
+            json=body, timeout=REQUEST_TIMEOUT,
+        )
+        if not r.ok:
+            print(f"  FAILED PO {po_code} ({r.status_code}): {r.text[:300]}")
+            continue
+        applied += 1
+    return applied
+
+
 def main():
     envfile.load_local_env()
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
@@ -307,8 +407,12 @@ def main():
     upload_lookup, current_status, total_uploads, uploads_without_extracted_invoice = \
         fetch_invoice_uploads(supabase_url, supabase_key)
 
-    updates, stats = build_updates(payout_path, vendor_map, upload_lookup, current_status)
-    applied = apply_updates(supabase_url, supabase_key, updates, dry_run)
+    po_current_status = fetch_po_payment_status(supabase_url, supabase_key)
+
+    upload_updates, po_updates, stats = build_updates(
+        payout_path, vendor_map, upload_lookup, current_status, po_current_status)
+    applied = apply_updates(supabase_url, supabase_key, upload_updates, dry_run)
+    po_applied = apply_po_updates(supabase_url, supabase_key, po_updates, dry_run)
 
     print(f"{'[DRY RUN] ' if dry_run else ''}Payout file: {payout_path}")
     print(f"  {stats['total_rows']} row(s) read; {stats['portal_vendor_rows']} belong to this portal's "
@@ -316,14 +420,22 @@ def main():
     print(f"  {total_uploads} po_invoice_uploads row(s) total "
           f"({uploads_without_extracted_invoice} with no AI-extracted invoice number yet -- can't be matched)")
     print(f"  {applied} po_invoice_uploads row(s) updated with a payment status")
+    print(f"  {po_applied} purchase_orders row(s) updated with a payment status (matched by PO code, "
+          f"whether or not an invoice was ever uploaded)")
     if stats["duplicate_invoices"]:
         print(f"  {stats['duplicate_invoices']} invoice number(s) appeared on more than one row in this file -- "
+              f"used the most recent/authoritative one for each")
+    if stats["duplicate_pos"]:
+        print(f"  {stats['duplicate_pos']} PO code(s) appeared on more than one row in this file -- "
               f"used the most recent/authoritative one for each")
     if stats["unknown_status_rows"]:
         print(f"  {stats['unknown_status_rows']} matched row(s) had neither Unpaid Amount nor "
               f"Invoice Amount Paid -- left untouched")
     if stats["downgrades_skipped"]:
         print(f"  {stats['downgrades_skipped']} upload(s) already marked 'paid' were NOT reverted to 'pending' "
+              f"by this file -- likely a stale/out-of-order payout file; re-check if unexpected")
+    if stats["po_downgrades_skipped"]:
+        print(f"  {stats['po_downgrades_skipped']} PO(s) already marked 'paid' were NOT reverted to 'pending' "
               f"by this file -- likely a stale/out-of-order payout file; re-check if unexpected")
 
 

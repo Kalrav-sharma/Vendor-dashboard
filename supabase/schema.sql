@@ -196,6 +196,27 @@ create table if not exists public.purchase_orders (
 -- already there.
 alter table public.purchase_orders add column if not exists vendor_name text;
 
+-- PO-level payment status, synced from the same payout file as
+-- po_invoice_uploads.payment_status (see scripts/sync_payment_status_manual.py)
+-- -- but matched by po_code (the payout file's "Poms Number" column)
+-- directly, not by an AI-extracted invoice number off an uploaded PDF.
+--
+-- Why this needs to exist separately from po_invoice_uploads.payment_status:
+-- that column can only ever be set on a row that exists, and a row only
+-- exists once a vendor uploads an invoice copy. A PO Finance has already
+-- booked or paid, with NO invoice ever uploaded through the portal (measured
+-- 2026-09-30: 6 of GELTRON's 11 POs, all fully received, zero uploads), had
+-- no way to show anything but a bare "needs invoice" -- indistinguishable
+-- from a PO nobody has done anything about. Same null-is-not-pending
+-- discipline as po_invoice_uploads.payment_status: null means no payout
+-- record has matched this PO yet, not "confirmed unpaid".
+alter table public.purchase_orders add column if not exists payment_status text
+  check (payment_status is null or payment_status in ('pending', 'paid'));
+alter table public.purchase_orders add column if not exists payment_date date;
+alter table public.purchase_orders add column if not exists payment_ref text;
+alter table public.purchase_orders add column if not exists payment_synced_at timestamptz;
+
+create index if not exists purchase_orders_payment_status_idx on public.purchase_orders(payment_status);
 create index if not exists purchase_orders_vendor_code_idx on public.purchase_orders(vendor_code);
 
 alter table public.purchase_orders enable row level security;
