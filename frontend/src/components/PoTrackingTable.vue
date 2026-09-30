@@ -254,15 +254,15 @@ const showingSkuData = computed(() => props.showBuckets && activeBucket.value ==
               <div v-if="showBuckets && poBucket(p) === 'processing'" class="substep-boxes">
                 <span
                   class="substep-box" :class="grnComplete(p) ? 'substep-good' : 'substep-critical'"
-                  :title="grnComplete(p) ? 'GRN Complete' : 'GRN Pending'"
+                  role="img" :aria-label="grnComplete(p) ? 'GRN Complete' : 'GRN Pending'" :data-tip="grnComplete(p) ? 'GRN Complete' : 'GRN Pending'"
                 ></span>
                 <span
                   class="substep-box" :class="reconciliationComplete(p.po_code) ? 'substep-good' : 'substep-critical'"
-                  :title="reconciliationComplete(p.po_code) ? 'Reconciliation Complete' : 'Reconciliation Pending'"
+                  role="img" :aria-label="reconciliationComplete(p.po_code) ? 'Reconciliation Complete' : 'Reconciliation Pending'" :data-tip="reconciliationComplete(p.po_code) ? 'Reconciliation Complete' : 'Reconciliation Pending'"
                 ></span>
                 <span
                   class="substep-box" :class="paymentBooked(p.po_code) ? 'substep-good' : 'substep-critical'"
-                  :title="paymentBooked(p.po_code) ? 'Payment Booked' : 'Payment Not Booked'"
+                  role="img" :aria-label="paymentBooked(p.po_code) ? 'Payment Booked' : 'Payment Not Booked'" :data-tip="paymentBooked(p.po_code) ? 'Payment Booked' : 'Payment Not Booked'"
                 ></span>
                 <span class="substep-caption">
                   {{ [grnComplete(p), reconciliationComplete(p.po_code), paymentBooked(p.po_code)].filter(Boolean).length }} of 3 done

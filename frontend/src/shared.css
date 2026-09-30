@@ -279,6 +279,20 @@ button.link-btn {
 .substep-box { width: 10px; height: 10px; border-radius: 2px; display: inline-block; cursor: default; }
 .substep-good { background: var(--good); }
 .substep-critical { background: var(--critical); }
+/* Instant hover label for each step square -- replaces the native title
+   tooltip, whose ~1s browser delay made the squares feel unresponsive and
+   which can't be shortened. */
+.substep-box { position: relative; }
+.substep-box[data-tip]:hover::after {
+  content: attr(data-tip); position: absolute; bottom: calc(100% + 7px); left: 50%; transform: translateX(-50%);
+  z-index: 5; padding: 5px 9px; border-radius: 6px; white-space: nowrap; pointer-events: none;
+  background: var(--ink); color: var(--surface); font-size: 0.72rem; font-weight: 500; line-height: 1.2;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+}
+.substep-box[data-tip]:hover::before {
+  content: ""; position: absolute; bottom: calc(100% + 2px); left: 50%; transform: translateX(-50%);
+  z-index: 5; border: 5px solid transparent; border-bottom: none; border-top-color: var(--ink); pointer-events: none;
+}
 
 /* --- Vendor Dashboard tab: KPI tiles (own look -- colored top accent +
    icon per tile -- deliberately distinct from the plain .kpis grid used
