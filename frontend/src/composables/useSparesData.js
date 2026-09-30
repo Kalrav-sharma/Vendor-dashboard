@@ -6,8 +6,10 @@
 //   spares_drr             <- per-WH DRR from Jarvis 485614 (local sync_sla_portal.js)
 //   spares_status_override <- Appendix edits (browser-written, per SKU x facility)
 //   spares_vendor_override <- Appendix edits (browser-written, per SKU)
+//   spares_category_override <- Appendix edits (browser-written, per SKU)
 //
-// Effective status: override if present; else sheet category Discontinued -> Obsolete;
+// Effective category: override if present, else the sheet's. It drives everything below.
+// Effective status: override if present; else category Discontinued -> Obsolete;
 // else in the sheet -> Ongoing; else (stocked, not in the sheet) -> NA. A row nobody
 // has edited therefore keeps following the sheet; deleting an override resets it.
 import { ref, computed, onMounted, onUnmounted } from "vue";
@@ -104,24 +106,27 @@ export function useSparesData(editorLabel) {
   const drrRows = ref([]);
   const statusOv = ref({}); // "sku|facility" -> row
   const vendorOv = ref({}); // sku -> row
+  const categoryOv = ref({}); // sku -> row
   const loaded = ref(false);
   const loadError = ref("");
   const saveError = ref("");
 
   async function refresh() {
-    const [m, inv, dr, so, vo] = await Promise.all([
+    const [m, inv, dr, so, vo, co] = await Promise.all([
       fetchAll("spares_sku_master", "sku"),
       fetchAll("spares_wh_inventory", "id"),
       fetchAll("spares_drr", "sku", "wh"),
       fetchAll("spares_status_override", "sku"),
       fetchAll("spares_vendor_override", "sku"),
+      fetchAll("spares_category_override", "sku"),
     ]);
     if (!m.error) master.value = m.data;
     if (!inv.error) inventory.value = inv.data;
     if (!dr.error) drrRows.value = dr.data;
     if (!so.error) statusOv.value = Object.fromEntries(so.data.map((r) => [`${r.sku}|${r.facility}`, r]));
     if (!vo.error) vendorOv.value = Object.fromEntries(vo.data.map((r) => [r.sku, r]));
-    loadError.value = m.error?.message || inv.error?.message || dr.error?.message || so.error?.message || vo.error?.message || "";
+    if (!co.error) categoryOv.value = Object.fromEntries(co.data.map((r) => [r.sku, r]));
+    loadError.value = m.error?.message || inv.error?.message || dr.error?.message || so.error?.message || vo.error?.message || co.error?.message || "";
     loaded.value = true;
   }
 
@@ -149,9 +154,8 @@ export function useSparesData(editorLabel) {
   });
 
   function autoStatus(sku) {
-    const m = masterBySku.value.get(sku);
-    if (!m) return "NA";
-    return (m.category || "").trim().toLowerCase() === "discontinued" ? "Obsolete" : "Ongoing";
+    if (!masterBySku.value.has(sku)) return "NA";
+    return categoryOf(sku).toLowerCase() === "discontinued" ? "Obsolete" : "Ongoing";
   }
   const statusOf = (sku, facility) => statusOv.value[`${sku}|${facility}`]?.status || autoStatus(sku);
   const isEdited = (sku, facility) => !!statusOv.value[`${sku}|${facility}`];
@@ -169,7 +173,19 @@ export function useSparesData(editorLabel) {
   const vendorOf = (sku) => (vendorOv.value[sku] ? canonVendor(vendorOv.value[sku].vendor) : sheetVendor(sku));
   const vendorEdited = (sku) => !!vendorOv.value[sku];
   const vendorOptions = computed(() => [...vendorCanon.value.values()].sort((a, b) => a.localeCompare(b)));
-  const categoryOf = (sku) => (masterBySku.value.get(sku)?.category || "").trim();
+  // Same lowercase-key merge as vendors, so "ik" and "IK" can't show as two categories.
+  const categoryCanon = computed(() => {
+    const s = new Map();
+    const add = (c) => { const n = (c || "").trim(); if (n && !s.has(n.toLowerCase())) s.set(n.toLowerCase(), n); };
+    for (const r of master.value) add(r.category);
+    for (const r of Object.values(categoryOv.value)) add(r.category);
+    return s;
+  });
+  const canonCategory = (c) => { const n = (c || "").trim(); return categoryCanon.value.get(n.toLowerCase()) || n; };
+  const sheetCategory = (sku) => canonCategory(masterBySku.value.get(sku)?.category);
+  const categoryOf = (sku) => (categoryOv.value[sku] ? canonCategory(categoryOv.value[sku].category) : sheetCategory(sku));
+  const categoryEdited = (sku) => !!categoryOv.value[sku];
+  const categoryOptions = computed(() => [...categoryCanon.value.values()].sort((a, b) => a.localeCompare(b)));
 
   // ---- clubbed planning-warehouse figures -----------------------------------------------
   const whOngoing = (sku, wh) => wh.codes.some((c) => statusOf(sku, c) === "Ongoing");
@@ -262,6 +278,34 @@ export function useSparesData(editorLabel) {
     } else saveError.value = "";
   }
 
+  async function setCategory(sku, category) {
+    const c = (category || "").trim();
+    if (!c) return resetCategory(sku);
+    const prev = categoryOv.value[sku];
+    const row = { sku, category: c, updated_by: who(), updated_at: new Date().toISOString() };
+    categoryOv.value = { ...categoryOv.value, [sku]: row };
+    const { error } = await supabase.from("spares_category_override").upsert(row, { onConflict: "sku" });
+    if (error) {
+      const next = { ...categoryOv.value };
+      if (prev) next[sku] = prev; else delete next[sku];
+      categoryOv.value = next;
+      saveError.value = `Couldn't save category for ${sku}: ${error.message}`;
+    } else saveError.value = "";
+  }
+
+  async function resetCategory(sku) {
+    const prev = categoryOv.value[sku];
+    if (!prev) return;
+    const next = { ...categoryOv.value };
+    delete next[sku];
+    categoryOv.value = next;
+    const { error } = await supabase.from("spares_category_override").delete().eq("sku", sku);
+    if (error) {
+      categoryOv.value = { ...categoryOv.value, [sku]: prev };
+      saveError.value = `Couldn't reset category for ${sku}: ${error.message}`;
+    } else saveError.value = "";
+  }
+
   const sheetSyncedAt = computed(() => master.value.reduce((t, r) => (r.synced_at > t ? r.synced_at : t), "") || null);
   const drrSyncedAt = computed(() => drrRows.value.reduce((t, r) => (r.synced_at > t ? r.synced_at : t), "") || null);
   const stockSyncedAt = computed(() => inventory.value.reduce((t, r) => (r.synced_at > t ? r.synced_at : t), "") || null);
@@ -276,7 +320,8 @@ export function useSparesData(editorLabel) {
   return {
     loaded, loadError, saveError, refresh, master, masterBySku, allSkus, stockAt,
     statusOf, isEdited, setStatus, resetStatus,
-    vendorOf, sheetVendor, vendorEdited, vendorOptions, setVendor, resetVendor, categoryOf,
+    vendorOf, sheetVendor, vendorEdited, vendorOptions, setVendor, resetVendor,
+    categoryOf, sheetCategory, categoryEdited, categoryOptions, setCategory, resetCategory,
     whOngoing, whFigures, supplyStatus, inSummaryScope, sheetSyncedAt, stockSyncedAt, drrSyncedAt,
   };
 }

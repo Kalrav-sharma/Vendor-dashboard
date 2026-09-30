@@ -3,7 +3,7 @@
 // it isn't Ongoing show "–" and are left out of the totals. DRR / in transit / delivery date /
 // next dispatch come from the sheet; DOI and Required qty are recomputed on clubbed Uniware
 // good stock (GGN+Pataudi, KOL+Panchla) -- the sheet's own figures ignore Pataudi/Panchla.
-import { ref, computed, watch } from "vue";
+import { ref, computed, watch, onMounted, onUnmounted } from "vue";
 import { WAREHOUSES, DOI_TARGET, BUCKETS } from "../../composables/useSparesData.js";
 
 const props = defineProps({ store: { type: Object, required: true } });
@@ -29,6 +29,7 @@ const ongoingRows = computed(() => {
     out.push({
       sku,
       vendor: s.vendorOf(sku),
+      category: s.categoryOf(sku),
       cells,
       totalDrr: live.reduce((t, c) => t + c.drr, 0),
       totalRequired: live.reduce((t, c) => t + c.required, 0),
@@ -46,8 +47,50 @@ const vendorChoices = computed(() => {
 });
 watch(vendorChoices, (v) => { if (vendorFilter.value !== "All" && !v.includes(vendorFilter.value)) vendorFilter.value = "All"; });
 
+// Category checkboxes: catSel null = all; otherwise the Set of ticked categories ("" = blank).
+const catSel = ref(null);
+const catOpen = ref(false);
+const catEl = ref(null);
+const catStyle = ref({});
+// .table-card clips overflow, so the panel is fixed to the button (like the vendor picker) and closes on scroll.
+function openCats() {
+  const r = catEl.value?.getBoundingClientRect();
+  if (r) catStyle.value = { top: `${r.bottom + 4}px`, left: `${r.left}px` };
+  catOpen.value = !catOpen.value;
+}
+const onDocScroll = (e) => { if (catOpen.value && !catEl.value?.contains(e.target)) catOpen.value = false; };
+const catChoices = computed(() => {
+  const counts = new Map();
+  for (const r of ongoingRows.value) counts.set(r.category, (counts.get(r.category) || 0) + 1);
+  return [...counts].map(([c, n]) => ({ c, n })).sort((a, b) => (a.c === "") - (b.c === "") || a.c.localeCompare(b.c));
+});
+watch(catChoices, (v) => {
+  if (!catSel.value) return;
+  const live = new Set(v.map((x) => x.c));
+  const kept = new Set([...catSel.value].filter((c) => live.has(c)));
+  if (kept.size !== catSel.value.size) catSel.value = kept.size ? kept : null;
+});
+const catChecked = (c) => !catSel.value || catSel.value.has(c);
+function toggleCat(c) {
+  const cur = catSel.value ? new Set(catSel.value) : new Set(catChoices.value.map((x) => x.c));
+  cur.has(c) ? cur.delete(c) : cur.add(c);
+  catSel.value = cur.size === catChoices.value.length ? null : cur;
+}
+const toggleAllCats = () => { catSel.value = catSel.value ? null : new Set(); };
+const catLabel = computed(() => {
+  if (!catSel.value) return "All categories";
+  if (!catSel.value.size) return "No categories";
+  if (catSel.value.size === 1) { const c = [...catSel.value][0]; return c || "(blank)"; }
+  return `${catSel.value.size} categories`;
+});
+const onDocDown = (e) => { if (catOpen.value && catEl.value && !catEl.value.contains(e.target)) catOpen.value = false; };
+const onDocKey = (e) => { if (e.key === "Escape") catOpen.value = false; };
+onMounted(() => { document.addEventListener("mousedown", onDocDown); document.addEventListener("keydown", onDocKey); window.addEventListener("scroll", onDocScroll, true); });
+onUnmounted(() => { document.removeEventListener("mousedown", onDocDown); document.removeEventListener("keydown", onDocKey); window.removeEventListener("scroll", onDocScroll, true); });
+
 const rows = computed(() => ongoingRows.value.filter((r) =>
   (vendorFilter.value === "All" || r.vendor === vendorFilter.value) &&
+  (!catSel.value || catSel.value.has(r.category)) &&
   (doiFilter.value === "All" || r.cells.some((c) => c && c.bucket === doiFilter.value))));
 const doiDim = (c) => doiFilter.value !== "All" && c.bucket !== doiFilter.value;
 
@@ -78,6 +121,14 @@ const deliveryText = (c) => {
         <option value="All">All vendors</option>
         <option v-for="v in vendorChoices" :key="v" :value="v">{{ v }}</option>
       </select>
+      <div ref="catEl" class="sp-multi">
+        <button type="button" class="sp-select sp-multi-btn" @click="openCats">{{ catLabel }} ▾</button>
+        <div v-if="catOpen" class="sp-multi-panel" :style="catStyle">
+          <label class="sp-multi-all"><input type="checkbox" :checked="!catSel" :indeterminate.prop="!!catSel && catSel.size > 0" @change="toggleAllCats" /> All</label>
+          <label v-for="x in catChoices" :key="x.c"><input type="checkbox" :checked="catChecked(x.c)" @change="toggleCat(x.c)" />
+            <span :class="{ dim: !x.c }">{{ x.c || "(blank)" }}</span><span class="sp-multi-n">{{ x.n }}</span></label>
+        </div>
+      </div>
       <select v-model="doiFilter" class="sp-select">
         <option value="All">All DOI</option>
         <option v-for="b in BUCKETS" :key="b.key" :value="b.key">{{ b.key === "stockout" ? b.label : `${b.label} DOI` }}</option>
@@ -90,6 +141,7 @@ const deliveryText = (c) => {
           <tr>
             <th rowspan="2" class="sp-sticky">SKU</th>
             <th rowspan="2">Vendor</th>
+            <th rowspan="2">Category</th>
             <th :colspan="WAREHOUSES.length + 1" class="grp">DRR</th>
             <th :colspan="WAREHOUSES.length" class="grp">DOI</th>
             <th :colspan="WAREHOUSES.length" class="grp">In transit</th>
@@ -113,6 +165,7 @@ const deliveryText = (c) => {
           <tr v-for="r in rows" :key="r.sku">
             <td class="sku sp-sticky">{{ r.sku }}</td>
             <td :class="{ dim: r.vendor === 'NA' }">{{ r.vendor }}</td>
+            <td :class="{ dim: !r.category }">{{ r.category || "–" }}</td>
 
             <td v-for="(c, i) in r.cells" :key="'d' + i" class="num hc-num" :class="{ gl: i === 0 }">
               <span v-if="c">{{ fmtDrr(c.drr) }}</span><span v-else class="dash">–</span>
@@ -143,7 +196,7 @@ const deliveryText = (c) => {
             </td>
             <td class="num hc-num"><b>{{ fmt(r.totalRequired) }}</b></td>
           </tr>
-          <tr v-if="!rows.length"><td :colspan="30" class="dim">No Ongoing spares{{ q || vendorFilter !== "All" || doiFilter !== "All" ? " match these filters" : "" }}.</td></tr>
+          <tr v-if="!rows.length"><td :colspan="31" class="dim">No Ongoing spares{{ q || vendorFilter !== "All" || doiFilter !== "All" || catSel ? " match these filters" : "" }}.</td></tr>
         </tbody>
       </table>
     </div>

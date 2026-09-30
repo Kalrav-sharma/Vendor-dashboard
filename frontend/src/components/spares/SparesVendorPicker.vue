@@ -1,6 +1,6 @@
 <script setup>
-// Appendix vendor field: type any name. Focus shows every known vendor; typing filters the list
-// and offers "+ Add … as new vendor" when the text matches none. Commits on pick / Enter / blur,
+// Appendix vendor / category field (noun prop): type any name. Focus shows every known option; typing filters the list
+// and offers "+ Add … as new …" when the text matches none. Commits on pick / Enter / blur,
 // Esc reverts. An existing name typed in different casing snaps to its canonical spelling.
 import { ref, computed, watch, onUnmounted } from "vue";
 
@@ -8,6 +8,7 @@ const props = defineProps({
   value: { type: String, default: "" },
   options: { type: Array, default: () => [] },
   edited: { type: Boolean, default: false },
+  noun: { type: String, default: "vendor" },
 });
 const emit = defineEmits(["commit", "reset"]);
 
@@ -39,7 +40,7 @@ const items = computed(() => {
   const t = text.value.trim().toLowerCase();
   const list = typed.value && t ? props.options.filter((o) => o.toLowerCase().includes(t)) : props.options;
   const out = list.map((v) => ({ v, label: v, isNew: false }));
-  if (typed.value && t && !exact.value && t !== "na" && t !== "n/a") out.unshift({ v: text.value.trim(), label: `+ Add "${text.value.trim()}" as new vendor`, isNew: true });
+  if (typed.value && t && !exact.value && t !== "na" && t !== "n/a") out.unshift({ v: text.value.trim(), label: `+ Add "${text.value.trim()}" as new ${props.noun}`, isNew: true });
   return out;
 });
 
@@ -65,9 +66,9 @@ function onBlur() { setTimeout(() => { if (open.value) commit(text.value); }, 15
 
 <template>
   <span class="sp-combo">
-    <input ref="inputEl" v-model="text" class="sp-vendor" :class="{ edited }" placeholder="Vendor"
+    <input ref="inputEl" v-model="text" class="sp-vendor" :class="{ edited }" :placeholder="noun.charAt(0).toUpperCase() + noun.slice(1)"
            @focus="onFocus" @input="onInput" @keydown="onKey" @blur="onBlur" />
-    <button v-if="edited" type="button" class="sp-reset" title="Reset to sheet vendor" @mousedown.prevent @click="emit('reset')">↺</button>
+    <button v-if="edited" type="button" class="sp-reset" :title="`Reset to sheet ${noun}`" @mousedown.prevent @click="emit('reset')">↺</button>
     <ul v-if="open && items.length" ref="listEl" class="sp-combo-list" :style="listStyle">
       <li v-for="(it, i) in items" :key="(it.isNew ? '+' : '') + it.v" :class="{ on: i === active, add: it.isNew, cur: it.v === value }"
           @mousedown.prevent="pick(it)">{{ it.label }}</li>

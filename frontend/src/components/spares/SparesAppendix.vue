@@ -1,7 +1,7 @@
 <script setup>
 // Appendix: the decision layer. One row per SKU (sheet SKUs + anything stocked at a warehouse);
-// one Ongoing / Obsolete / NA status per selected warehouse, and one vendor per SKU. Defaults
-// follow the sheet (Discontinued -> Obsolete, other sheet SKUs -> Ongoing, rest -> NA) until
+// one Ongoing / Obsolete / NA status per selected warehouse, and one vendor + category per SKU.
+// Defaults follow the sheet (Discontinued -> Obsolete, other sheet SKUs -> Ongoing, rest -> NA) until
 // someone edits a cell; an edited cell shows a dot and can be reset back to the sheet default.
 import { ref, computed } from "vue";
 import { FACILITIES, STATUSES } from "../../composables/useSparesData.js";
@@ -52,6 +52,12 @@ function commitVendor(sku, v) {
   if (!v || v === s.sheetVendor(sku)) s.resetVendor(sku);
   else s.setVendor(sku, v);
 }
+function commitCategory(sku, v) {
+  v = (v || "").trim();
+  if (v === s.categoryOf(sku)) return;
+  if (!v || v === s.sheetCategory(sku)) s.resetCategory(sku);
+  else s.setCategory(sku, v);
+}
 </script>
 
 <template>
@@ -96,7 +102,10 @@ function commitVendor(sku, v) {
         <tbody>
           <tr v-for="sku in rows" :key="sku">
             <td class="sku sp-sticky">{{ sku }}</td>
-            <td :class="{ dim: !s.categoryOf(sku) }">{{ s.categoryOf(sku) || "–" }}</td>
+            <td>
+              <SparesVendorPicker noun="category" :value="s.categoryOf(sku)" :options="s.categoryOptions.value" :edited="s.categoryEdited(sku)"
+                                  @commit="commitCategory(sku, $event)" @reset="s.resetCategory(sku)" />
+            </td>
             <td>
               <SparesVendorPicker :value="s.vendorOf(sku)" :options="s.vendorOptions.value" :edited="s.vendorEdited(sku)"
                                   @commit="commitVendor(sku, $event)" @reset="s.resetVendor(sku)" />
