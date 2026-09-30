@@ -282,6 +282,22 @@ function openSkuDetailModal(key) {
   openModal(found.item_name || found.item_sku, SkuDetailModal, { agg: found, onOpenPo: openPoDetailModal }, `(${found.item_sku})`);
 }
 
+// The PO Tracking table's "Request PO" button (replaces the old direct
+// PDF download) -- raises a po_request ticket instead of generating the
+// PDF client-side; staff email the PO and mark it resolved from the
+// admin Tickets screen.
+function requestPoTicket(poCode) {
+  return raiseTicket({
+    vendorCode: myVendorCode.value,
+    vendorName: myDisplayName.value,
+    category: "po_request",
+    poCode,
+    subject: `PO copy requested — ${poCode}`,
+    description: `Please email a copy of purchase order ${poCode}.`,
+    createdByName: myDisplayName.value,
+  });
+}
+
 onMounted(async () => {
   const ctx = await requireSession();
   if (!ctx) return;
@@ -406,6 +422,7 @@ async function signOut() {
             :grns-by-po="grnsByPo" :show-buckets="true"
             :on-open-po="openPoDetailModal" :allow-invoice-upload="true" :uploader-label="myDisplayName"
             :sku-rows="skuFilteredSorted" :sku-filters="skuFilters" :on-open-sku="openSkuDetailModal"
+            :show-request-po="true" :on-request-po="requestPoTicket" :po-request-tickets="tickets"
           />
         </div>
 

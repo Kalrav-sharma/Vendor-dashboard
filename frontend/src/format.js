@@ -56,6 +56,7 @@ export const TICKET_CATEGORY_META = {
   payment_issue: "Payment issue",
   dispatch_issue: "Dispatch issue",
   other: "Other",
+  po_request: "PO request",
 };
 export const TICKET_STATUS_META = {
   open: ["Open", "open"],

@@ -1,12 +1,12 @@
 <script setup>
-import { computed, ref, watch } from "vue";
+import { computed, reactive, ref, watch } from "vue";
 import StatusChip from "./StatusChip.vue";
 import SummaryKpis from "./SummaryKpis.vue";
 import InvoiceUploadModal from "./InvoiceUploadModal.vue";
 import DownloadPdfButton from "./DownloadPdfButton.vue";
 import InvoiceUploadButton from "./InvoiceUploadButton.vue";
 import { useInvoiceUploads } from "../composables/useInvoiceUploads.js";
-import { fmtNum, fmtMoney, TERMINAL_STATUSES, dedupeInvoiceNumbers } from "../format.js";
+import { fmtNum, fmtMoney, fmtDateOnly, TERMINAL_STATUSES, dedupeInvoiceNumbers, ticketStatusLabel, ticketStatusClass } from "../format.js";
 import SkuLevelTable from "./SkuLevelTable.vue";
 
 const props = defineProps({
@@ -28,6 +28,12 @@ const props = defineProps({
   skuRows: { type: Array, default: () => [] },
   skuFilters: { type: Object, default: () => ({}) },
   onOpenSku: { type: Function, default: null },
+  // vendor.html only -- replaces the PO column's PDF download button with
+  // a "Request PO" button that raises a support ticket instead (staff
+  // email the PDF and mark it resolved from the admin Tickets screen).
+  showRequestPo: { type: Boolean, default: false },
+  onRequestPo: { type: Function, default: null }, // (poCode) => { data, error }
+  poRequestTickets: { type: Array, default: () => [] }, // this vendor's own tickets, to show "already requested"
 });
 
 // One shared upload popup instance for the whole table, opened for
@@ -123,6 +129,27 @@ function paymentBooked(poCode) {
   return uploads.length > 0 && uploads.every((u) => !!u.payment_status);
 }
 
+// An unresolved po_request ticket already covers this PO -- show its
+// status instead of a fresh "Request PO" button, so re-clicking doesn't
+// spam duplicate tickets for the same PO while one's still open. Once
+// resolved (staff emailed the PDF), the button comes back in case the
+// vendor needs another copy later.
+function pendingPoRequest(poCode) {
+  return props.poRequestTickets.find(
+    (t) => t.po_code === poCode && t.category === "po_request" && t.status !== "resolved"
+  );
+}
+const requestingCodes = reactive(new Set());
+async function handleRequestPo(poCode) {
+  if (!props.onRequestPo || requestingCodes.has(poCode)) return;
+  requestingCodes.add(poCode);
+  try {
+    await props.onRequestPo(poCode);
+  } finally {
+    requestingCodes.delete(poCode);
+  }
+}
+
 const activeBucket = ref("all");
 const bucketCounts = computed(() => {
   const counts = { all: props.rows.length, invoice_needed: 0, processing: 0, complete: 0 };
@@ -179,7 +206,7 @@ const showingSkuData = computed(() => props.showBuckets && activeBucket.value ==
             <th v-if="vendorOptions">Vendor</th>
             <th>Facility</th><th>PO code</th><th>Status</th>
             <th class="num">Qty ordered</th><th class="num">Received</th><th class="num">PO value</th>
-            <th>GRN / invoice</th><th class="col-tight">PO</th><th class="col-tight">Invoice</th>
+            <th>GRN / invoice</th><th class="col-tight">{{ showRequestPo ? "Request PO" : "PO" }}</th><th class="col-tight">Invoice</th>
           </tr>
           <tr class="filter-row">
             <td v-if="vendorOptions">
@@ -248,7 +275,17 @@ const showingSkuData = computed(() => props.showBuckets && activeBucket.value ==
             </template>
           </td>
           <td class="col-tight">
-            <DownloadPdfButton :po-code="p.po_code" />
+            <template v-if="showRequestPo">
+              <span
+                v-if="pendingPoRequest(p.po_code)" class="chip" :class="`chip-${ticketStatusClass(pendingPoRequest(p.po_code).status)}`"
+                :title="`Requested ${fmtDateOnly(pendingPoRequest(p.po_code).created_at)}`"
+              >{{ ticketStatusLabel(pendingPoRequest(p.po_code).status) }}</span>
+              <button
+                v-else class="link-btn-inline" :disabled="requestingCodes.has(p.po_code)"
+                @click.stop="handleRequestPo(p.po_code)"
+              >{{ requestingCodes.has(p.po_code) ? "Requesting…" : "Request PO" }}</button>
+            </template>
+            <DownloadPdfButton v-else :po-code="p.po_code" />
           </td>
           <td class="col-tight">
             <div class="invoice-upload-cell">

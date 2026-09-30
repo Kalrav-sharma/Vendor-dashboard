@@ -2592,7 +2592,7 @@ create table if not exists public.support_tickets (
   id bigint generated always as identity primary key,
   vendor_code text not null,
   vendor_name text,          -- denormalized display name at creation time
-  category text not null check (category in ('po_issue', 'payment_issue', 'dispatch_issue', 'other')),
+  category text not null check (category in ('po_issue', 'payment_issue', 'dispatch_issue', 'other', 'po_request')),
   po_code text references public.purchase_orders(po_code) on delete set null,  -- optional
   subject text not null,
   description text not null,
@@ -2605,6 +2605,14 @@ create table if not exists public.support_tickets (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+-- support_tickets already existed before 'po_request' (the Request PO
+-- button on the vendor's PO Tracking page) was added as a category, so
+-- "create table if not exists" above won't retroactively widen it on an
+-- already-deployed database -- this does, and is a no-op if already there.
+alter table public.support_tickets drop constraint if exists support_tickets_category_check;
+alter table public.support_tickets add constraint support_tickets_category_check
+  check (category in ('po_issue', 'payment_issue', 'dispatch_issue', 'other', 'po_request'));
 
 create index if not exists support_tickets_vendor_code_idx on public.support_tickets(vendor_code);
 create index if not exists support_tickets_status_idx on public.support_tickets(status);
