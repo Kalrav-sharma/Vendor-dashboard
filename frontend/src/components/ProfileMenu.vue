@@ -8,6 +8,7 @@ const props = defineProps({
   email: { type: String, default: "" },
   access: { type: String, default: "" },
   role: { type: String, default: "" },
+  vendorCode: { type: String, default: "" }, // this login's own vendor_code (or the previewed one, for an admin) -- vendor.html only
   vendors: { type: Array, default: () => [] }, // [{code, label}] -- admin-only, for Settings > Switch view
   onSignOut: { type: Function, required: true },
 });
@@ -31,6 +32,7 @@ function showProfile() {
     displayName: props.displayName,
     email: props.email,
     role: props.role,
+    vendorCode: props.vendorCode,
     vendors: props.vendors,
   }, null, "narrow");
 }

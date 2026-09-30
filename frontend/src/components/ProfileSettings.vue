@@ -9,6 +9,7 @@ const props = defineProps({
   displayName: { type: String, required: true },
   email: { type: String, default: "" },
   role: { type: String, default: "" }, // real DB role -- gates "Switch view" below to admins only
+  vendorCode: { type: String, default: "" }, // this login's own vendor_code (or the previewed one, for an admin) -- vendor.html only, blank for a real internal-staff login
   vendors: { type: Array, default: () => [] }, // [{code, label}] -- every vendor_code seen in real PO data, not just ones with a login account (see AdminApp.vue's poVendorOptions)
 });
 
@@ -88,6 +89,10 @@ function handlePasswordUpdated() {
       <div v-if="email" class="profile-settings-row">
         <span>Email</span>
         <strong>{{ email }}</strong>
+      </div>
+      <div v-if="vendorCode" class="profile-settings-row">
+        <span>Vendor code</span>
+        <strong class="mono">{{ vendorCode }}</strong>
       </div>
     </div>
 

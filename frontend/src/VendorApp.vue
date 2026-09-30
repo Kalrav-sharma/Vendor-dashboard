@@ -503,7 +503,7 @@ async function signOut() {
       :items="navItems"
     >
       <template #account>
-        <ProfileMenu :display-name="myDisplayName" :email="myEmail" :access="ROLE_LABELS[myRole] || ROLE_LABELS.vendor" :role="myRole" :vendors="previewVendorOptions" :on-sign-out="signOut" />
+        <ProfileMenu :display-name="myDisplayName" :email="myEmail" :access="ROLE_LABELS[myRole] || ROLE_LABELS.vendor" :role="myRole" :vendor-code="myVendorCode" :vendors="previewVendorOptions" :on-sign-out="signOut" />
       </template>
     </SidebarNav>
 
