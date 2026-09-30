@@ -110,7 +110,13 @@ const BUCKETS = [
 ];
 function poBucket(p) {
   const uploads = uploadsByPo[p.po_code] || [];
-  if (!uploads.length) return "invoice_needed";
+  if (!uploads.length) {
+    // No invoice uploaded through the portal at all -- but if Finance's own
+    // payout file already shows this PO paid, the invoice was handled
+    // outside the portal and this PO is done, not stuck waiting on the
+    // vendor to upload something that already got paid.
+    return p.payment_status === "paid" ? "complete" : "invoice_needed";
+  }
   const fullyPaid = uploads.every((u) => u.payment_status === "paid");
   return TERMINAL_STATUSES.has(p.status) && fullyPaid ? "complete" : "processing";
 }
