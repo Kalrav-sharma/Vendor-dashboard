@@ -1,7 +1,8 @@
 <script setup>
-import { ref, computed, onMounted } from "vue";
+import { ref, computed, onMounted, watch } from "vue";
 import { supabase, requireSession, INTERNAL_ROLES, ROLE_LABELS } from "./supabaseClient.js";
 import { clearViewOverride, getPreviewRole } from "./viewOverride.js";
+import { readNavHash, writeNavHash } from "./navHash.js";
 import { usePurchaseOrders } from "./composables/usePurchaseOrders.js";
 import { usePoFilters } from "./composables/usePoFilters.js";
 import { useSkuAggregates } from "./composables/useSkuAggregates.js";
@@ -116,6 +117,15 @@ const navItems = computed(() => {
 });
 
 const activeNav = ref("po-tracking");
+// Restores the tab from the URL hash once navItems (role-gated) is known --
+// see the same pattern's comment in VendorApp.vue. Falls back to the first
+// item this role can actually see, same as the existing fallback below, if
+// the hash names a tab this login doesn't have (or there's no hash yet).
+function restoreNavFromHash() {
+  const hashId = readNavHash();
+  activeNav.value = (hashId && navItems.value.some((i) => i.id === hashId)) ? hashId : (navItems.value[0]?.id || "po-tracking");
+}
+watch(activeNav, (id) => writeNavHash(id));
 const pageTitle = computed(() => ({
   "health": "Logistics Health Card",
   "po-tracking": "PO Tracking",
@@ -261,7 +271,7 @@ onMounted(async () => {
     mustChangePassword.value = true;
     return;
   }
-  activeNav.value = navItems.value[0]?.id || "po-tracking";
+  restoreNavFromHash();
   whoLine.value = ctx.profile.vendor_name || ROLE_FALLBACK_NAME[myRole.value] || "Admin";
   myEmail.value = ctx.profile.email || "";
   // vendorLabel()/vendorOptions (built from `vendors`) feed every
@@ -283,7 +293,7 @@ async function handlePasswordChanged() {
   mustChangePassword.value = false;
   myRole.value = ctx.profile.role;
   myUserId.value = ctx.profile.id;
-  activeNav.value = navItems.value[0]?.id || "po-tracking";
+  restoreNavFromHash();
   whoLine.value = ctx.profile.vendor_name || ROLE_FALLBACK_NAME[myRole.value] || "Admin";
   myEmail.value = ctx.profile.email || "";
   await refreshVendors();

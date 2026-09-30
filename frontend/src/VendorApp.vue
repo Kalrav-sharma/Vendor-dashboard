@@ -1,7 +1,8 @@
 <script setup>
-import { ref, computed, onMounted } from "vue";
+import { ref, computed, onMounted, watch } from "vue";
 import { supabase, requireSession, ROLE_LABELS } from "./supabaseClient.js";
 import { getViewOverride, getPreviewVendorCode, clearViewOverride } from "./viewOverride.js";
+import { readNavHash, writeNavHash } from "./navHash.js";
 import { usePurchaseOrders } from "./composables/usePurchaseOrders.js";
 import { usePoFilters } from "./composables/usePoFilters.js";
 import { useSkuAggregates } from "./composables/useSkuAggregates.js";
@@ -34,7 +35,14 @@ const mustChangeEmail = ref(false); // one-time "confirm your real email" gate, 
 const myDisplayName = ref("Vendor"); // recorded on any invoice this login uploads
 const myEmail = ref("");
 const myRole = ref("vendor"); // real DB role -- stays "admin" even while previewing this view
-const activeNav = ref("dashboard");
+// The tab in the URL hash (set by a previous visit or a shared link) wins
+// over the "dashboard" default, so refreshing the page -- or reopening a
+// bookmarked tab -- doesn't bounce back to the Dashboard. writeNavHash
+// below keeps the hash in sync with every later tab change, from a click
+// or from a Dashboard shortcut (navigateTo).
+const NAV_IDS = ["dashboard", "po-tracking", "dispatch-planning", "payment-dashboard", "my-performance", "raise-ticket"];
+const activeNav = ref(NAV_IDS.includes(readNavHash()) ? readNavHash() : "dashboard");
+watch(activeNav, (id) => writeNavHash(id));
 const pageTitle = computed(() => {
   if (activeNav.value === "dashboard") return `Welcome ${myDisplayName.value} Team`;
   return {
