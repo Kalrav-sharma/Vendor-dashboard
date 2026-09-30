@@ -129,15 +129,14 @@ function paymentBooked(poCode) {
   return uploads.length > 0 && uploads.every((u) => !!u.payment_status);
 }
 
-// An unresolved po_request ticket already covers this PO -- show its
-// status instead of a fresh "Request PO" button, so re-clicking doesn't
-// spam duplicate tickets for the same PO while one's still open. Once
-// resolved (staff emailed the PDF), the button comes back in case the
-// vendor needs another copy later.
-function pendingPoRequest(poCode) {
-  return props.poRequestTickets.find(
-    (t) => t.po_code === poCode && t.category === "po_request" && t.status !== "resolved"
-  );
+// The latest po_request ticket for this PO, whatever its status --
+// `poRequestTickets` is already newest-first (see useSupportTickets.js),
+// so the first match is the most recent request. Shown instead of a bare
+// "Request PO" button so the outcome (including staff's response once
+// resolved) stays visible here, not just on the Raise a Ticket tab --
+// a fresh request is still one click away via "Request again".
+function latestPoRequest(poCode) {
+  return props.poRequestTickets.find((t) => t.po_code === poCode && t.category === "po_request");
 }
 const requestingCodes = reactive(new Set());
 async function handleRequestPo(poCode) {
@@ -276,10 +275,18 @@ const showingSkuData = computed(() => props.showBuckets && activeBucket.value ==
           </td>
           <td class="col-tight">
             <template v-if="showRequestPo">
-              <span
-                v-if="pendingPoRequest(p.po_code)" class="chip" :class="`chip-${ticketStatusClass(pendingPoRequest(p.po_code).status)}`"
-                :title="`Requested ${fmtDateOnly(pendingPoRequest(p.po_code).created_at)}`"
-              >{{ ticketStatusLabel(pendingPoRequest(p.po_code).status) }}</span>
+              <template v-if="latestPoRequest(p.po_code)">
+                <span
+                  class="chip" :class="`chip-${ticketStatusClass(latestPoRequest(p.po_code).status)}`"
+                  :title="`Requested ${fmtDateOnly(latestPoRequest(p.po_code).created_at)}`"
+                >{{ ticketStatusLabel(latestPoRequest(p.po_code).status) }}</span>
+                <div v-if="latestPoRequest(p.po_code).admin_response" class="grn-amt">{{ latestPoRequest(p.po_code).admin_response }}</div>
+                <button
+                  v-if="latestPoRequest(p.po_code).status === 'resolved'" type="button"
+                  class="link-btn-inline" style="display: block; margin-top: 2px;"
+                  :disabled="requestingCodes.has(p.po_code)" @click.stop="handleRequestPo(p.po_code)"
+                >{{ requestingCodes.has(p.po_code) ? "Requesting…" : "Request again" }}</button>
+              </template>
               <button
                 v-else class="link-btn-inline" :disabled="requestingCodes.has(p.po_code)"
                 @click.stop="handleRequestPo(p.po_code)"
