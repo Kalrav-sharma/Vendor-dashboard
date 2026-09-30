@@ -438,8 +438,12 @@ async function handlePasswordChanged() {
 }
 
 async function handleEmailChanged() {
-  // Re-fetch so we pick up the freshly-cleared must_change_email and the
-  // real address just saved, rather than trusting stale state.
+  // Doubles as the "Skip for now" handler below -- either way just moves
+  // past the gate for this session. If an email was actually saved,
+  // must_change_email is already cleared server-side and this re-fetch
+  // picks that up; if skipped, it's still true in the DB, so simply not
+  // re-checking it here (rather than persisting a dismissal) is what makes
+  // the gate correctly reappear next time this vendor logs in.
   const ctx = await requireSession();
   if (!ctx) return;
   mustChangeEmail.value = false;
@@ -476,6 +480,7 @@ async function signOut() {
       <h1>Confirm your email</h1>
       <div class="sub">Please add your own email address before continuing -- this account was created with a placeholder email.</div>
       <SetVendorEmailForm submit-label="Save email and continue" @done="handleEmailChanged" />
+      <button type="button" class="link-btn" style="margin-top: 12px;" @click="handleEmailChanged">Skip for now</button>
     </div>
   </div>
 
