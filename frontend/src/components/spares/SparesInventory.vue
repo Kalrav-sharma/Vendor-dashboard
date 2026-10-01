@@ -3,6 +3,7 @@
 // it isn't Ongoing show "–" and are left out of the totals. DRR / in transit / delivery date /
 // next dispatch come from the sheet; DOI and Required qty are recomputed on clubbed Uniware
 // good stock (GGN+Pataudi, KOL+Panchla) -- the sheet's own figures ignore Pataudi/Panchla.
+// The Inventory group shows that same clubbed Uniware good stock, so DOI = Inventory / DRR.
 import { ref, computed, watch, onMounted, onUnmounted } from "vue";
 import { WAREHOUSES, DOI_TARGET, BUCKETS } from "../../composables/useSparesData.js";
 
@@ -31,6 +32,7 @@ const ongoingRows = computed(() => {
       vendor: s.vendorOf(sku),
       category: s.categoryOf(sku),
       cells,
+      totalGood: live.reduce((t, c) => t + c.good, 0),
       totalDrr: live.reduce((t, c) => t + c.drr, 0),
       totalRequired: live.reduce((t, c) => t + c.required, 0),
       nextDate: m?.next_dispatch_date || null,
@@ -142,6 +144,7 @@ const deliveryText = (c) => {
             <th rowspan="2" class="sp-sticky">SKU</th>
             <th rowspan="2">Vendor</th>
             <th rowspan="2">Category</th>
+            <th :colspan="WAREHOUSES.length + 1" class="grp">Inventory (Uniware)</th>
             <th :colspan="WAREHOUSES.length + 1" class="grp">DRR</th>
             <th :colspan="WAREHOUSES.length" class="grp">DOI</th>
             <th :colspan="WAREHOUSES.length" class="grp">In transit</th>
@@ -150,6 +153,8 @@ const deliveryText = (c) => {
             <th :colspan="WAREHOUSES.length + 1" class="grp">Required qty basis {{ DOI_TARGET }} DOI</th>
           </tr>
           <tr>
+            <th v-for="(w, i) in WAREHOUSES" :key="'g' + w.key" class="num" :class="{ gl: i === 0 }">{{ w.label }}</th>
+            <th class="num">Total</th>
             <th v-for="(w, i) in WAREHOUSES" :key="'d' + w.key" class="num" :class="{ gl: i === 0 }">{{ w.label }}</th>
             <th class="num">Total</th>
             <th v-for="(w, i) in WAREHOUSES" :key="'o' + w.key" class="c" :class="{ gl: i === 0 }">{{ w.label }}</th>
@@ -166,6 +171,11 @@ const deliveryText = (c) => {
             <td class="sku sp-sticky">{{ r.sku }}</td>
             <td :class="{ dim: r.vendor === 'NA' }">{{ r.vendor }}</td>
             <td :class="{ dim: !r.category }">{{ r.category || "–" }}</td>
+
+            <td v-for="(c, i) in r.cells" :key="'g' + i" class="num hc-num" :class="{ gl: i === 0 }">
+              <span v-if="c">{{ c.good > 0 ? fmt(c.good) : "0" }}</span><span v-else class="dash">–</span>
+            </td>
+            <td class="num hc-num"><b>{{ fmt(r.totalGood) }}</b></td>
 
             <td v-for="(c, i) in r.cells" :key="'d' + i" class="num hc-num" :class="{ gl: i === 0 }">
               <span v-if="c">{{ fmtDrr(c.drr) }}</span><span v-else class="dash">–</span>
@@ -196,7 +206,7 @@ const deliveryText = (c) => {
             </td>
             <td class="num hc-num"><b>{{ fmt(r.totalRequired) }}</b></td>
           </tr>
-          <tr v-if="!rows.length"><td :colspan="31" class="dim">No Ongoing spares{{ q || vendorFilter !== "All" || doiFilter !== "All" || catSel ? " match these filters" : "" }}.</td></tr>
+          <tr v-if="!rows.length"><td :colspan="37" class="dim">No Ongoing spares{{ q || vendorFilter !== "All" || doiFilter !== "All" || catSel ? " match these filters" : "" }}.</td></tr>
         </tbody>
       </table>
     </div>
