@@ -2354,6 +2354,37 @@ alter table public.health_delay_weekly enable row level security;
 drop policy if exists health_delay_weekly_select on public.health_delay_weekly;
 create policy health_delay_weekly_select on public.health_delay_weekly
   for select using (public.is_internal_staff());
+
+-- The delayed orders behind health_delay_weekly's counts (4+ days past promise), one row per
+-- (product, order), same order-week window -- added 2026-10-01 for the Health Card CSV.
+-- The sync upserts each run, then deletes that product's rows it didn't touch.
+create table if not exists public.health_delay_orders (
+  id bigserial primary key,
+  product text not null,
+  order_code text not null,
+  week_start date not null,
+  week_no int,
+  delay_days int not null,
+  band text not null,
+  order_date text,
+  promised_date text,
+  shipped_date text,
+  delivered_date text,
+  current_status text,
+  shipment_status text,
+  city text,
+  wh text,
+  partner text,
+  dsp text,
+  docket_no text,
+  sku text,
+  synced_at timestamptz not null default now(),
+  unique (product, order_code)
+);
+alter table public.health_delay_orders enable row level security;
+drop policy if exists health_delay_orders_select on public.health_delay_orders;
+create policy health_delay_orders_select on public.health_delay_orders
+  for select using (public.is_internal_staff());
 -- ---------------------------------------------------------------------
 
 -- SLA › Trends › On-Time Delivery for Spares / Refresh, by partner type -- added 2026-09-25.

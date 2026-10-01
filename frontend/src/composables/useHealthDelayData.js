@@ -3,6 +3,7 @@
 // d5 = 6–10, d10 = 11–15, d15 = 16+. Written from a VPN machine by
 // ~/.claude/scripts/sla_portal/sync_sla_portal.js, which aggregates Jarvis 558955 (Spares) and
 // 579905 (Refresh). Open orders past promise count; cancelled and RTO orders are excluded.
+// The same sync writes the delayed orders themselves to health_delay_orders (CSV download).
 import { ref, computed, onMounted, onUnmounted } from "vue";
 import { supabase } from "../supabaseClient.js";
 
@@ -41,9 +42,25 @@ export function useHealthDelayData() {
   const spares = computed(() => weeks("spares"));
   const refreshKit = computed(() => weeks("refresh"));
 
+  // Order-level rows behind the counts (health_delay_orders), both products, the 5 weeks shown.
+  // Fetched on demand for the CSV download, not polled.
+  async function fetchDelayedOrders() {
+    const out = [];
+    const from = addDays(mondayOf(new Date()), -4 * 7);
+    for (let i = 0; ; i += 1000) {
+      const { data, error } = await supabase.from("health_delay_orders").select("*")
+        .gte("week_start", from)
+        .order("product").order("week_start", { ascending: false }).order("delay_days", { ascending: false }).order("order_code")
+        .range(i, i + 999);
+      if (error) throw new Error(error.message);
+      out.push(...data);
+      if (data.length < 1000) return out;
+    }
+  }
+
   let timer = null;
   onMounted(() => { refresh(); timer = setInterval(refresh, POLL_INTERVAL_MS); });
   onUnmounted(() => clearInterval(timer));
 
-  return { spares, refreshKit, loadError, lastSynced, refresh };
+  return { spares, refreshKit, loadError, lastSynced, refresh, fetchDelayedOrders };
 }

@@ -6,7 +6,7 @@
 //   SLA & Demand Share      sla_trend_weekly, RO + Locks (useHealthSlaData.js)
 //   SLA Adherence           sla_trend_weekly LSP split   (useHealthSlaData.js)
 //   Spares Inventory        Spares › Summary table       (useSparesData.js)
-//   Delayed Orders          health_delay_weekly          (useHealthDelayData.js)
+//   Delayed Orders          health_delay_weekly (+ health_delay_orders for CSV) (useHealthDelayData.js)
 import "./health.css";
 import "../spares/spares.css";
 import HealthInventoryRisk from "./HealthInventoryRisk.vue";
@@ -44,5 +44,5 @@ const stale = (t, h) => !t || (Date.now() - new Date(t).getTime()) / 3600000 > h
   <HealthSlaDemand :ro="sla.ro.value" :locks="sla.locks.value" />
   <HealthSlaAdherence :ro="sla.ro.value" :locks="sla.locks.value" />
   <SparesSummary :store="spares" title="Spares Inventory" />
-  <HealthDelayedOrders :spares="delay.spares.value" :refresh-kit="delay.refreshKit.value" />
+  <HealthDelayedOrders :spares="delay.spares.value" :refresh-kit="delay.refreshKit.value" :fetch-orders="delay.fetchDelayedOrders" />
 </template>
