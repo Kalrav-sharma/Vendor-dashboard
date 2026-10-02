@@ -352,7 +352,7 @@ async function signOut() {
         </header>
 
         <div v-if="canSeeHealth" v-show="activeNav === 'health'">
-          <HealthCardSection />
+          <HealthCardSection :show-payments="canSeePaymentDashboard" :vendor-label="vendorLabel" />
         </div>
 
         <div v-if="canSeePoTracking" v-show="activeNav === 'po-tracking'">

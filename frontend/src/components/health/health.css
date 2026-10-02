@@ -14,10 +14,16 @@
 .hc-caption-tools { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .hc-csv-err { font-size: 0.74rem; font-weight: 500; color: var(--danger, #b42318); }
 .hc-toggle button:disabled { cursor: wait; opacity: 0.6; }
-/* Numbered section headers (1. Inventory View, 2. Delivery Experience) -- a step above
-   the 1.x / 2.x table titles. Section 2+ gets air above it. */
+/* Numbered section headers (1. Inventory View, 2. ...) -- a step above the 1.x / 2.x table
+   titles, and the collapse toggle for the section (HealthSection.vue). */
 .hc-section-title { font-size: 1.15rem; font-weight: 700; margin: 0 0 10px; }
-.hc-section-title ~ .hc-section-title { margin-top: 22px; }
+.hc-section + .hc-section { margin-top: 22px; }
+.hc-section.collapsed .hc-section-title { margin-bottom: 0; }
+/* header is the collapse toggle: looks like a heading, not a button */
+.hc-section-toggle { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.hc-section-toggle:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; border-radius: 4px; }
+.hc-chev { display: inline-block; font-size: 0.8em; color: var(--muted); transition: transform 0.15s; }
+.hc-section.collapsed .hc-chev { transform: rotate(-90deg); }
 .hc-group-title { font-size: 0.95rem; font-weight: 600; margin: 0 0 8px; display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
 
 /* compact segmented toggle, ink active */
