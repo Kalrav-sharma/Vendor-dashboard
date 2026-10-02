@@ -77,10 +77,8 @@ const isDueSoon = (e) => e.days != null && e.days <= 0 && e.days >= -7; // today
 export const AGE_BUCKETS = [
   { key: "later", label: "Not due yet (8+ days)", cls: "", test: (e) => e.days != null && e.days < -7 },
   { key: "soon", label: "Due in next 7 days", cls: "", test: isDueSoon },
-  { key: "d30", label: "1–30 days overdue", cls: "open", test: (e) => isOverdue(e) && e.days <= 30 },
-  { key: "d60", label: "31–60 days overdue", cls: "critical", test: (e) => e.days > 30 && e.days <= 60 },
-  { key: "d90", label: "61–90 days overdue", cls: "critical", test: (e) => e.days > 60 && e.days <= 90 },
-  { key: "d90p", label: "Over 90 days overdue", cls: "critical", test: (e) => e.days > 90 },
+  { key: "d10", label: "1–10 days overdue", cls: "open", test: (e) => isOverdue(e) && e.days <= 10 },
+  { key: "d10p", label: "10+ days overdue", cls: "critical", test: (e) => e.days > 10 },
   { key: "none", label: "No due date", cls: "muted", test: (e) => e.days == null },
 ];
 
@@ -108,9 +106,14 @@ const bucketise = (buckets, list) => buckets.map((b) => {
   return { key: b.key, label: b.label, cls: b.cls, list: items, count: items.length, amount: sumAmount(items) };
 });
 
-// Invoices received (by upload date) vs paid (by payment date), last `months` months.
-function monthlyFlow(entries, months) {
+// Invoices received (by upload date) vs paid (by payment date), one row per month since
+// August 1 of the current year -- same fixed-window convention as AdminApp.vue's
+// paymentWindowStart / VendorApp.vue's dashCompleteWindowStart, so this never shows a month
+// the rest of the payment view doesn't otherwise count data from.
+function monthlyFlow(entries) {
   const now = new Date();
+  const augStart = new Date(now.getFullYear(), 7, 1);
+  const months = Math.max(1, (now.getFullYear() - augStart.getFullYear()) * 12 + (now.getMonth() - augStart.getMonth()) + 1);
   const rows = [];
   for (let i = months - 1; i >= 0; i--) {
     const start = new Date(now.getFullYear(), now.getMonth() - i, 1);
@@ -150,7 +153,7 @@ export function summarise(entries, awaiting = []) {
     ageing: bucketise(AGE_BUCKETS, unpaid),
     recon: bucketise(RECON_BUCKETS, unpaid),
     payment: bucketise(PAY_BUCKETS, entries),
-    monthly: monthlyFlow(entries, 6),
+    monthly: monthlyFlow(entries),
   };
 }
 
