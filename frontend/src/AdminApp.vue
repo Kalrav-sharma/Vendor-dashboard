@@ -21,6 +21,11 @@ import PoTrackingTable from "./components/PoTrackingTable.vue";
 import SkuLevelTable from "./components/SkuLevelTable.vue";
 import DispatchPlanningTable from "./components/DispatchPlanningTable.vue";
 import PaymentDashboardTable from "./components/PaymentDashboardTable.vue";
+import PaymentExecutiveSummary from "./components/payments/PaymentExecutiveSummary.vue";
+import PaymentVendorView from "./components/payments/PaymentVendorView.vue";
+import FinanceActionRequired from "./components/payments/FinanceActionRequired.vue";
+import { paymentLedger } from "./composables/usePaymentSummary.js";
+import { financeQueues } from "./composables/useFinanceActions.js";
 import TicketsTable from "./components/TicketsTable.vue";
 import TicketDetailModal from "./components/TicketDetailModal.vue";
 import ManageAccess from "./components/ManageAccess.vue";
@@ -105,7 +110,10 @@ const navItems = computed(() => {
   if (canSeePoTracking.value) items.push({ id: "po-tracking", label: "PO Tracking" });
   if (canSeeSkuData.value) items.push({ id: "sku-data", label: "SKU Level Data" });
   if (canSeeDispatchPlanning.value) items.push({ id: "dispatch-planning", label: "Dispatch Planning" });
+  // Finance's landing page (first item they can see) -- badge = invoices ready to book.
+  if (canSeePaymentDashboard.value) items.push({ id: "action-required", label: "Action Required", badge: readyToBookCount.value || null });
   if (canSeePaymentDashboard.value) items.push({ id: "payment-dashboard", label: "Payment Dashboard" });
+  if (canSeePaymentDashboard.value) items.push({ id: "vendor-payments", label: "Vendor Payments" });
   if (canSeeManageAccess.value) items.push({ id: "manage-access", label: "Manage Access" });
   if (RATE_FINDER_LIVE && canSeeRateFinder.value) items.push({ id: "rate-finder", label: "Rate Finder" });
   if (canSeeSop.value) items.push({ id: "sop", label: "S&OP" });
@@ -131,7 +139,9 @@ const pageTitle = computed(() => ({
   "po-tracking": "PO Tracking",
   "sku-data": "SKU Level Data",
   "dispatch-planning": "Dispatch Planning",
+  "action-required": "Action Required",
   "payment-dashboard": "Payment Dashboard",
+  "vendor-payments": "Vendor Payments",
   "manage-access": "Manage Access",
   "rate-finder": "Rate Finder",
   "sop": "S&OP",
@@ -200,7 +210,59 @@ const dispatchPlanningRows = computed(() => [...pendingDispatchRows.value, ...sh
 const { filters: dispatchFilters, filteredSorted: dispatchFilteredSorted } = useDispatchPlanningFilters(dispatchPlanningRows, vendorLabel);
 
 const { allUploads, fetchAllUploads } = useInvoiceUploads();
-const { filters: paymentFilters, filteredSorted: paymentFilteredSorted, reconciliationOptions, paymentStatusOptions } = usePaymentFilters(allUploads, vendorLabel);
+
+// Finance's own ledger (purchase_orders.payment_status) can carry a PO Finance has
+// already booked/paid even though no invoice was ever uploaded through the portal --
+// previously only surfaced on the vendor's own Payment Dashboard (posWithPaymentNoInvoice
+// in VendorApp.vue). Mirrored here, admin-wide, so Finance/Management/Admin see the same
+// thing a vendor does rather than a table scoped to uploads alone. Bounded to POs created
+// on/after August 1 of the current year (2026-10-01, Kalrav) so this doesn't dump the
+// entire historical no-invoice backlog on Finance at once -- same fixed-window convention
+// VendorApp.vue's own dashCompleteWindowStart already uses for "PO complete · since Aug 1".
+const paymentWindowStart = new Date(new Date().getFullYear(), 7, 1);
+const poCodesWithInvoice = computed(() => new Set(allUploads.value.map((u) => u.po_code)));
+const paymentWindowPos = computed(() =>
+  currentPos.value.filter((p) => p.created_at && new Date(p.created_at) >= paymentWindowStart));
+const posNeedingInvoice = computed(() =>
+  paymentWindowPos.value.filter((p) => !poCodesWithInvoice.value.has(p.po_code) && !p.payment_status));
+const posWithPaymentNoInvoice = computed(() =>
+  paymentWindowPos.value.filter((p) => !poCodesWithInvoice.value.has(p.po_code) && !!p.payment_status));
+
+// Payment Dashboard is the all-vendor executive summary (no invoice table); Vendor Payments
+// scopes the same KPIs/sections to one vendor and lists that vendor's invoices below them.
+// The picker offers every vendor with any payment data -- an uploaded invoice, a booked PO,
+// or a PO still awaiting its invoice -- alphabetically, defaulting to the first.
+const paymentVendor = ref("");
+const paymentVendorOptions = computed(() => {
+  const codes = new Set([
+    ...allUploads.value.map((u) => u.vendor_code),
+    ...posNeedingInvoice.value.map((p) => p.vendor_code),
+    ...posWithPaymentNoInvoice.value.map((p) => p.vendor_code),
+  ]);
+  codes.delete(null); codes.delete(undefined); codes.delete("");
+  return [...codes].map((code) => ({ value: code, label: vendorLabel(code) }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+});
+watch(paymentVendorOptions, (opts) => {
+  if (!opts.some((o) => o.value === paymentVendor.value)) paymentVendor.value = opts[0]?.value || "";
+}, { immediate: true });
+const scopedToPaymentVendor = (list) => list.filter((x) => x.vendor_code === paymentVendor.value);
+const paymentVendorUploads = computed(() => scopedToPaymentVendor(allUploads.value));
+const paymentVendorPosNeedingInvoice = computed(() => scopedToPaymentVendor(posNeedingInvoice.value));
+const paymentVendorPosWithPayment = computed(() => scopedToPaymentVendor(posWithPaymentNoInvoice.value));
+const { filters: paymentFilters, filteredSorted: paymentFilteredSorted, reconciliationOptions, paymentStatusOptions } = usePaymentFilters(paymentVendorUploads);
+
+const readyToBookCount = computed(() =>
+  financeQueues(paymentLedger(allUploads.value, posWithPaymentNoInvoice.value)).ready.length);
+async function refreshPayments() {
+  await Promise.all([fetchAllUploads(), refreshPos()]);
+}
+
+function openVendorPayments(code) {
+  paymentVendor.value = code;
+  activeNav.value = "vendor-payments";
+  window.scrollTo({ top: 0 });
+}
 
 const { tickets, fetchTickets, updateTicket } = useSupportTickets();
 const openTicketsCount = computed(() => tickets.value.filter((t) => t.status !== "resolved").length);
@@ -339,7 +401,9 @@ async function signOut() {
               <template v-else-if="activeNav === 'po-tracking'">{{ scopeLine }}</template>
               <template v-else-if="activeNav === 'sku-data'">SKUs with at least one open purchase order not yet fully supplied, highest pending quantity first, across all vendors. Click a SKU for the PO-level breakdown.</template>
               <template v-else-if="activeNav === 'dispatch-planning'">Estimated dispatch date and quantity per SKU awaiting dispatch, plus live Bluedart status for every shipment already confirmed -- across all vendors. Click a PO to see its details.</template>
-              <template v-else-if="activeNav === 'payment-dashboard'">Every invoice uploaded across all vendors, with its reconciliation and payment status. Click a PO to see its details.</template>
+              <template v-else-if="activeNav === 'action-required'">Today's finance worklist -- invoices ready to book (reconciled, or covered by a credit note), booked invoices awaiting payout, and anything stuck. Download any list as CSV for booking in Oracle.</template>
+              <template v-else-if="activeNav === 'payment-dashboard'">Executive summary of every vendor's invoices -- what's been paid, what's outstanding and overdue, and what's stuck in reconciliation. Click any bar for the invoices behind it, or a vendor for their own view.</template>
+              <template v-else-if="activeNav === 'vendor-payments'">One vendor's payment position -- the same KPIs and breakdowns as the Payment Dashboard, scoped to the vendor you pick, plus their invoices.</template>
               <template v-else-if="activeNav === 'manage-access'">Create and manage every login on the portal -- vendors and internal Management/Operations/Finance access alike.</template>
               <template v-else-if="activeNav === 'rate-finder'">Find the cheapest vendor for a lane, and send them the shipment intent on WhatsApp.</template>
               <template v-else-if="activeNav === 'sop'">Sales & Operations Planning -- inventory, sales, production, and dispatch across the network.</template>
@@ -383,13 +447,36 @@ async function signOut() {
           />
         </div>
 
-        <div v-if="canSeePaymentDashboard" v-show="activeNav === 'payment-dashboard'">
-          <PaymentDashboardTable
-            :rows="paymentFilteredSorted" :filters="paymentFilters" :reconciliation-options="reconciliationOptions"
-            :payment-status-options="paymentStatusOptions"
-            :vendor-options="vendorOptions" :vendor-label="vendorLabel"
-            :on-open-po="openPoDetailModal" :uploader-label="whoLine"
+        <div v-if="canSeePaymentDashboard" v-show="activeNav === 'action-required'">
+          <FinanceActionRequired
+            :uploads="allUploads" :pos-with-payment="posWithPaymentNoInvoice" :pos="currentPos"
+            :vendor-label="vendorLabel" :on-open-po="openPoDetailModal" :on-open-vendor="openVendorPayments"
+            :on-refresh="refreshPayments" :active="activeNav === 'action-required'" :booker-label="whoLine"
           />
+        </div>
+
+        <div v-if="canSeePaymentDashboard" v-show="activeNav === 'payment-dashboard'">
+          <PaymentExecutiveSummary
+            :uploads="allUploads" :pos-with-payment="posWithPaymentNoInvoice" :pos-needing-invoice="posNeedingInvoice"
+            :vendor-label="vendorLabel" :on-open-po="openPoDetailModal" :on-open-vendor="openVendorPayments"
+          />
+        </div>
+
+        <div v-if="canSeePaymentDashboard" v-show="activeNav === 'vendor-payments'">
+          <PaymentVendorView
+            v-model="paymentVendor" :vendor-options="paymentVendorOptions"
+            :uploads="allUploads" :pos-with-payment="posWithPaymentNoInvoice" :pos-needing-invoice="posNeedingInvoice"
+            :on-open-po="openPoDetailModal"
+          >
+            <h3 class="pay-section-title">Invoices</h3>
+            <PaymentDashboardTable
+              :rows="paymentFilteredSorted" :filters="paymentFilters" :reconciliation-options="reconciliationOptions"
+              :payment-status-options="paymentStatusOptions"
+              :on-open-po="openPoDetailModal" :uploader-label="whoLine"
+              :show-kpis="false" :show-buckets="true"
+              :pos-needing-invoice="paymentVendorPosNeedingInvoice" :pos-with-payment="paymentVendorPosWithPayment"
+            />
+          </PaymentVendorView>
         </div>
 
         <div v-if="canSeeManageAccess" v-show="activeNav === 'manage-access'">

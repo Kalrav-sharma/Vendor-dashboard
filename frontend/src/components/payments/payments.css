@@ -1,0 +1,74 @@
+/* Finance › Payment Dashboard + Vendor Payments. Bars reuse shared.css's .meter-track/
+   .meter-fill (one neutral accent fill, severity carried by the figure's text color --
+   see the note above .lsp-meter-list for why). */
+.pay-kpi-rows { margin-bottom: 18px; }
+.pay-kpi-rows .kpis { margin-bottom: 10px; }
+.pay-kpi-rows .kpis:last-child { margin-bottom: 0; }
+
+.pay-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-bottom: 16px; align-items: start; }
+@media (max-width: 1100px) { .pay-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 700px) { .pay-grid { grid-template-columns: 1fr; } }
+
+.pay-card-sub { font-weight: 400; color: var(--muted); font-size: 0.74rem; margin-left: 6px; }
+.pay-bars { list-style: none; margin: 0; padding: 6px 0; }
+.pay-bar { display: block; width: 100%; background: none; border: none; font: inherit; color: inherit; text-align: left; padding: 7px 12px; cursor: pointer; }
+.pay-bar:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.pay-bar:disabled { cursor: default; opacity: 0.55; }
+.pay-bar.sel { background: var(--accent-soft); }
+.pay-bar-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; font-size: 0.82rem; margin-bottom: 5px; }
+.pay-bar-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pay-bar-fig { font-family: "IBM Plex Mono", monospace; font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
+.pay-bar-fig small { font-weight: 400; color: var(--muted); margin-left: 6px; }
+.pay-bar-fig.muted { color: var(--muted); }
+.pay-bar-fig.good { color: var(--good); }
+.pay-bar-fig.open { color: var(--open); }
+.pay-bar-fig.critical { color: var(--critical); }
+.pay-bar .meter-track { height: 6px; }
+.pay-note { font-size: 0.72rem; color: var(--muted); padding: 8px 12px 10px; border-top: 1px solid var(--line); }
+
+.pay-detail { border: 1px solid var(--line); border-radius: 10px; background: var(--surface); margin-bottom: 16px; overflow: hidden; }
+.pay-detail-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--line); font-size: 0.83rem; font-weight: 600; }
+.pay-detail-head button { background: none; border: 1px solid var(--line); border-radius: 6px; padding: 3px 10px; font: inherit; font-size: 0.76rem; color: var(--muted); cursor: pointer; }
+.pay-detail-head button:hover { border-color: var(--accent); color: var(--accent); }
+.pay-detail table, .pay-table { min-width: 0; }
+
+.pay-section-title { font-size: 0.85rem; font-weight: 600; margin: 22px 0 10px; text-transform: uppercase; letter-spacing: 0.02em; }
+.pay-table td.lab { font-weight: 600; white-space: nowrap; }
+.pay-table .mono, .pay-detail .mono { font-family: "IBM Plex Mono", monospace; font-variant-numeric: tabular-nums; }
+
+/* Monthly flow: received (light accent) over paid (full accent), same scale per table. */
+.pay-flow { display: flex; flex-direction: column; gap: 3px; }
+.pay-flow .meter-track { height: 5px; }
+.pay-flow .pay-flow-in { background: color-mix(in srgb, var(--accent) 40%, transparent); }
+
+.pay-vendor-bar { display: flex; align-items: flex-end; gap: 14px; flex-wrap: wrap; margin-bottom: 16px; }
+.pay-vendor-bar .field { margin-bottom: 0; width: 340px; max-width: 100%; }
+.pay-vendor-nav { display: flex; gap: 6px; }
+.pay-vendor-nav button { background: var(--surface); border: 1px solid var(--line); border-radius: 7px; padding: 8px 12px; font: inherit; font-size: 0.82rem; color: var(--ink); cursor: pointer; }
+.pay-vendor-nav button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.pay-vendor-nav button:disabled { opacity: 0.45; cursor: default; }
+.pay-empty { background: var(--surface); border: 1px dashed var(--line-strong); border-radius: 10px; padding: 28px; text-align: center; color: var(--muted); font-size: 0.86rem; }
+
+/* --- Action Required ---------------------------------------------------------------- */
+.fin-status { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; margin-bottom: 14px; font-size: 0.82rem; }
+.fin-status.stale { background: var(--open-soft); border-color: var(--open); }
+.fin-status.stale b { color: var(--open); }
+.fin-status-hint { color: var(--muted); }
+.fin-status-right { display: flex; align-items: center; gap: 10px; color: var(--muted); white-space: nowrap; }
+.fin-btn { background: var(--surface); border: 1px solid var(--line-strong); border-radius: 7px; padding: 7px 12px; font: inherit; font-size: 0.8rem; font-weight: 500; color: var(--ink); cursor: pointer; white-space: nowrap; }
+.fin-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.fin-btn:disabled { opacity: 0.5; cursor: default; }
+.fin-toolbar { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.fin-toolbar .field { margin-bottom: 0; width: 220px; max-width: 100%; }
+.fin-toolbar .fin-search { width: 300px; }
+.fin-toolbar-end { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+.fin-total { font-family: "IBM Plex Mono", monospace; font-size: 0.8rem; color: var(--muted); white-space: nowrap; }
+.fin-new { margin-left: 6px; font-family: inherit; }
+.fin-issue { margin: 2px 4px 2px 0; display: inline-block; }
+.fin-docs { white-space: nowrap; }
+.fin-docs .icon-btn + .icon-btn { margin-left: 8px; }
+.fin-cn { gap: 3px; font-size: 0.66rem; font-weight: 600; color: var(--muted); line-height: 1; }
+.fin-book-btn { margin-left: 10px; padding: 4px 10px; font-size: 0.74rem; }
+.fin-booked-sub { display: block; font-size: 0.72rem; color: var(--muted); margin-top: 3px; }
+.fin-undo { display: block; font-size: 0.74rem; margin-top: 3px; }
+@media (max-width: 700px) { .fin-toolbar .field, .fin-toolbar .fin-search { width: 100%; } .fin-toolbar-end { margin-left: 0; } }

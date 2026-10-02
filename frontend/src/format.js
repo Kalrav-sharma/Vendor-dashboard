@@ -26,6 +26,17 @@ export function fmtMoney(n) {
   return (n === null || n === undefined) ? "–" : "₹" + Number(n).toLocaleString("en-IN", { maximumFractionDigits: 0 });
 }
 
+// Lakh/crore shorthand for headline tiles ("₹4.52 L", "₹1.08 Cr") where the full
+// figure is too wide -- tables keep fmtMoney's exact value.
+export function fmtMoneyCompact(n) {
+  if (n === null || n === undefined) return "–";
+  const v = Number(n);
+  const abs = Math.abs(v);
+  if (abs >= 1e7) return `₹${(v / 1e7).toFixed(2)} Cr`;
+  if (abs >= 1e5) return `₹${(v / 1e5).toFixed(2)} L`;
+  return fmtMoney(v);
+}
+
 export function fmtDate(iso) {
   if (!iso) return "–";
   const d = new Date(iso);

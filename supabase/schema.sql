@@ -894,6 +894,34 @@ alter table public.po_invoice_uploads drop column if exists oracle_status;
 alter table public.po_invoice_uploads drop column if exists oracle_failure_remarks;
 alter table public.po_invoice_uploads drop column if exists oracle_synced_at;
 
+-- Finance's own "mark as booked" button on the Action Required page -- deliberately NOT the
+-- same thing as payment_status above. payment_status is the payout file sync's reported
+-- truth and is never written by hand; this is just Finance noting "I've entered this in
+-- Oracle" for the gap before that file arrives, so the invoice can leave the Ready-to-book
+-- queue immediately instead of waiting a week. The next payout sync is still authoritative --
+-- once it sets payment_status, that's what the UI follows; this flag doesn't need clearing
+-- for that to work and is harmless left behind. Clearing it (all three back to null) is the
+-- "Undo" button for a mis-click.
+alter table public.po_invoice_uploads add column if not exists finance_booked_at timestamptz;
+alter table public.po_invoice_uploads add column if not exists finance_booked_by uuid references auth.users(id) on delete set null;
+alter table public.po_invoice_uploads add column if not exists finance_booked_by_name text;
+
+-- Column-scoped, same reasoning as the credit-note grant above: an update touching these
+-- three columns can never also smuggle in a payment_status/match_status change. Internal
+-- staff only (no vendor_code fallback) -- booking an invoice isn't a vendor action.
+grant update (
+  finance_booked_at, finance_booked_by, finance_booked_by_name
+) on public.po_invoice_uploads to authenticated;
+
+drop policy if exists po_invoice_uploads_update_finance_booked on public.po_invoice_uploads;
+create policy po_invoice_uploads_update_finance_booked on public.po_invoice_uploads
+  for update
+  using ((select public.is_internal_staff()))
+  with check (
+    (select public.is_internal_staff())
+    and (finance_booked_by is null or finance_booked_by = (select auth.uid()))
+  );
+
 create index if not exists po_invoice_uploads_po_code_idx on public.po_invoice_uploads(po_code);
 create index if not exists po_invoice_uploads_vendor_code_idx on public.po_invoice_uploads(vendor_code);
 

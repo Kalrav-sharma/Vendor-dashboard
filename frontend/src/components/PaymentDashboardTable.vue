@@ -18,6 +18,7 @@ const props = defineProps({
   onOpenPo: { type: Function, required: true }, // (poCode) => void
   uploaderLabel: { type: String, default: "" }, // current user's display name, recorded on an uploaded credit note
   showVendorKpis: { type: Boolean, default: false }, // vendor.html's own 4-tile set below; admin.html keeps the original tiles
+  showKpis: { type: Boolean, default: true }, // false where the page already shows its own tiles above (admin Vendor Payments)
   showBuckets: { type: Boolean, default: false }, // vendor.html's All/CN Required/Invoice Copy Needed/No Action Needed/Paid tabs
   posNeedingInvoice: { type: Array, default: () => [] }, // POs with no invoice uploaded yet at all -- vendor-only, see posNeedingInvoice in VendorApp.vue
   posWithPayment: { type: Array, default: () => [] }, // POs with no invoice uploaded but Finance already has a payment record for them (posWithPaymentNoInvoice in VendorApp.vue) -- vendor-only
@@ -173,8 +174,18 @@ const bucketCounts = computed(() => ({
 function invoiceEntry(row) { return { kind: "invoice", row }; }
 function needInvoiceEntry(po) { return { kind: "need_invoice", po }; }
 function poPaymentEntry(po) { return { kind: "po_payment", po }; }
+// The full merged set -- real invoice rows plus the two kinds of PO-only entries
+// (no invoice uploaded at all; Finance has a payment record but no invoice was
+// uploaded through the portal). Used both as the "All" bucket and, when the caller
+// doesn't want bucket tabs at all (admin.html), as the only list shown -- so those
+// PO-only entries are visible there too, not just on a vendor's own dashboard.
+const allEntries = computed(() => [
+  ...props.rows.map(invoiceEntry),
+  ...props.posNeedingInvoice.map(needInvoiceEntry),
+  ...props.posWithPayment.map(poPaymentEntry),
+]);
 const displayRows = computed(() => {
-  if (!props.showBuckets) return props.rows.map(invoiceEntry);
+  if (!props.showBuckets) return allEntries.value;
   switch (activeBucket.value) {
     case "cn_required": return cnRequiredRows.value.map(invoiceEntry);
     case "invoice_copy_needed": return props.posNeedingInvoice.map(needInvoiceEntry);
@@ -183,17 +194,13 @@ const displayRows = computed(() => {
     case "paid":
       return [...paidRows.value.map(invoiceEntry), ...posPaymentPaid.value.map(poPaymentEntry)];
     default:
-      return [
-        ...props.rows.map(invoiceEntry),
-        ...props.posNeedingInvoice.map(needInvoiceEntry),
-        ...props.posWithPayment.map(poPaymentEntry),
-      ];
+      return allEntries.value;
   }
 });
 </script>
 
 <template>
-  <SummaryKpis :tiles="kpiTiles" />
+  <SummaryKpis v-if="showKpis" :tiles="kpiTiles" />
 
   <div v-if="showBuckets" class="bucket-tabs">
     <button

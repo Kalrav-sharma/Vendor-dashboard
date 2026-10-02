@@ -256,6 +256,49 @@ export function useInvoiceUploads() {
     }
   }
 
+  // Finance's "Mark as booked" / "Undo" on the Action Required page -- a plain DB update, no
+  // file involved. finance_booked_* is deliberately separate from payment_status (see the
+  // schema comment): the weekly payout-file sync is still the real source of truth and keeps
+  // overwriting payment_status on its own schedule; this just lets the invoice leave the
+  // Ready-to-book queue the moment Finance has actually entered it in Oracle, instead of
+  // waiting up to a week for that sync to catch up.
+  async function markInvoiceBooked(row, bookerLabel) {
+    const key = `book:${row.id}`;
+    workingIds.add(key);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      const { error } = await supabase
+        .from("po_invoice_uploads")
+        .update({
+          finance_booked_at: new Date().toISOString(),
+          finance_booked_by: user?.id || null,
+          finance_booked_by_name: bookerLabel || null,
+        })
+        .eq("id", row.id);
+      if (error) return { ok: false, error: error.message };
+      await fetchInvoices(row.po_code);
+      return { ok: true };
+    } finally {
+      workingIds.delete(key);
+    }
+  }
+
+  async function unmarkInvoiceBooked(row) {
+    const key = `book:${row.id}`;
+    workingIds.add(key);
+    try {
+      const { error } = await supabase
+        .from("po_invoice_uploads")
+        .update({ finance_booked_at: null, finance_booked_by: null, finance_booked_by_name: null })
+        .eq("id", row.id);
+      if (error) return { ok: false, error: error.message };
+      await fetchInvoices(row.po_code);
+      return { ok: true };
+    } finally {
+      workingIds.delete(key);
+    }
+  }
+
   async function viewCreditNote(row) {
     const { data, error } = await supabase.storage.from(CREDIT_NOTE_BUCKET).createSignedUrl(row.credit_note_storage_path, 120);
     if (error || !data) {
@@ -274,6 +317,6 @@ export function useInvoiceUploads() {
   return {
     uploadsByPo, allUploads, loadingPo, workingIds,
     fetchInvoices, fetchUploadCounts, fetchAllUploads, uploadInvoice, deleteInvoice, viewInvoice, checkInvoiceMatch,
-    uploadCreditNote, viewCreditNote,
+    uploadCreditNote, viewCreditNote, markInvoiceBooked, unmarkInvoiceBooked,
   };
 }
