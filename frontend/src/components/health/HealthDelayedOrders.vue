@@ -6,6 +6,7 @@ import { ref, computed } from "vue";
 import { downloadCsv } from "../sla/slaUtil.js";
 
 const props = defineProps({
+  title: { type: String, default: "Delayed Orders" },
   spares: { type: Array, required: true },
   refreshKit: { type: Array, required: true },
   fetchOrders: { type: Function, required: true },
@@ -58,7 +59,7 @@ async function download() {
 <template>
   <section class="table-card hc-view">
     <div class="card-caption hc-caption">
-      <span>Delayed Orders</span>
+      <span>{{ title }}</span>
       <span class="hc-caption-tools">
         <span v-if="csvError" class="hc-csv-err">{{ csvError }}</span>
         <span class="hc-toggle">

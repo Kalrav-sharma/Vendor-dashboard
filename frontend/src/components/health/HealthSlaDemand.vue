@@ -5,6 +5,7 @@ import { ref, computed } from "vue";
 import { TIERS } from "../../composables/useHealthSlaData.js";
 
 const props = defineProps({
+  title: { type: String, default: "SLA & Demand Share" },
   ro: { type: Array, required: true },
   locks: { type: Array, required: true },
 });
@@ -32,7 +33,7 @@ const shortTier = t => ({ pan: "Pan India", top5: "Top 5", next4: "Next 4", othe
 <template>
   <div class="hc-view">
     <h3 class="hc-group-title">
-      SLA &amp; Demand Share
+      {{ title }}
       <span class="hc-toggle">
         <button :class="{ active: product === 'ro' }" @click="product = 'ro'">RO</button>
         <button :class="{ active: product === 'locks' }" @click="product = 'locks'">Locks</button>

@@ -7,6 +7,7 @@ import { ref, computed } from "vue";
 import { ADH_LSPS } from "../../composables/useHealthSlaData.js";
 
 const props = defineProps({
+  title: { type: String, default: "SLA Adherence" },
   ro: { type: Array, required: true },
   locks: { type: Array, required: true },
 });
@@ -36,7 +37,7 @@ const tip = c => (c && c.total ? `${c.onTime.toLocaleString("en-IN")} / ${c.tota
 <template>
   <section class="table-card hc-view">
     <div class="card-caption hc-caption">
-      <span>SLA Adherence</span>
+      <span>{{ title }}</span>
       <span>
         <span class="hc-toggle" style="margin-right:6px;">
           <button :class="{ active: mode === 'days' }" @click="mode = 'days'">Days</button>

@@ -66,10 +66,11 @@ export function useHealthInventoryRisk() {
     });
 
     const ROWS = [
-      { key: "warehouses", label: "Warehouses", sub: "5 mother warehouses", doiNa: false },
-      { key: "darkStores", label: "Dark Stores", sub: "19 dark stores", doiNa: false },
-      { key: "mfcs", label: "MFCs", sub: "6 SFX micro-fulfilment centres", doiNa: true },
-      { key: "mt", label: "MT", sub: "Modern trade · excl. M0 & M3", doiNa: false },
+      // n = facility count shown as "Label (n)"; sub is the hover tooltip
+      { key: "warehouses", label: "Warehouses", n: 5, sub: "5 mother warehouses", doiNa: false },
+      { key: "darkStores", label: "Dark Stores", n: 19, sub: "19 dark stores", doiNa: false },
+      { key: "mfcs", label: "MFCs", n: 6, sub: "6 SFX micro-fulfilment centres", doiNa: true },
+      { key: "mt", label: "MT", n: 2, sub: "Modern trade (Croma + Vijay Sales) · excl. M0 & M3", doiNa: false },
     ];
     return ROWS.map(g => {
       const list = pairs[g.key];

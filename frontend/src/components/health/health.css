@@ -14,6 +14,10 @@
 .hc-caption-tools { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .hc-csv-err { font-size: 0.74rem; font-weight: 500; color: var(--danger, #b42318); }
 .hc-toggle button:disabled { cursor: wait; opacity: 0.6; }
+/* Numbered section headers (1. Inventory View, 2. Delivery Experience) -- a step above
+   the 1.x / 2.x table titles. Section 2+ gets air above it. */
+.hc-section-title { font-size: 1.15rem; font-weight: 700; margin: 0 0 10px; }
+.hc-section-title ~ .hc-section-title { margin-top: 22px; }
 .hc-group-title { font-size: 0.95rem; font-weight: 600; margin: 0 0 8px; display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
 
 /* compact segmented toggle, ink active */
@@ -59,6 +63,10 @@
 
 .hc-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 @media (max-width: 900px) { .hc-pair { grid-template-columns: 1fr; } }
+/* Pair of whole views (1.1 + 1.2): top-aligned so opening one card's drill-down doesn't
+   stretch its neighbour; the wrapper carries the view spacing instead of the cards. */
+.hc-pair-views { align-items: start; }
+.hc-pair-views > .hc-view { margin-bottom: 0; min-width: 0; }
 
 /* inventory drill-down */
 .hc-detail { border-top: 1px solid var(--line); padding: 10px 12px; }

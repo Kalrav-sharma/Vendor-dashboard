@@ -7,6 +7,7 @@ import { BANDS } from "../../composables/useHealthInventoryRisk.js";
 const props = defineProps({
   groups: { type: Array, required: true },
   totals: { type: Object, required: true },
+  title: { type: String, default: "Inventory Risk Monitor" },
 });
 const TINT = { stockout: "cell-critical", lt7: "cell-open", lt15: "cell-warn" };
 const sel = ref(null);
@@ -34,7 +35,7 @@ const fmtDoi = v => (v == null ? "" : `${v < 10 ? v.toFixed(1) : Math.round(v)}d
 
 <template>
   <section class="table-card hc-view">
-    <h3 class="card-caption">Inventory Risk Monitor</h3>
+    <h3 class="card-caption">{{ title }}</h3>
     <div class="table-scroll">
       <table class="hc-table">
         <colgroup><col style="width:26%"><col><col><col><col style="width:16%"></colgroup>
@@ -45,7 +46,7 @@ const fmtDoi = v => (v == null ? "" : `${v < 10 ? v.toFixed(1) : Math.round(v)}d
         </tr></thead>
         <tbody>
           <tr v-for="g in groups" :key="g.key">
-            <td class="lab">{{ g.label }}<small>{{ g.sub }}</small></td>
+            <td class="lab" :title="g.sub">{{ g.label }} <span class="hc-muted">({{ g.n }})</span></td>
             <td v-for="b in BANDS" :key="b.key" class="pc">
               <button type="button" class="hc-pill" :class="[pill(g, b.key).cls, { sel: sel && sel.g === g.key && sel.b === b.key }]"
                       :disabled="!pill(g, b.key).click" @click="pick(g, b.key)">{{ pill(g, b.key).txt }}</button>
