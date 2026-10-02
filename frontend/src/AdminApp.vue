@@ -72,10 +72,11 @@ const canSeeSkuData = computed(() => ["admin", "management", "operations"].inclu
 const canSeeDispatchPlanning = computed(() => ["admin", "management", "operations"].includes(effectiveRole.value));
 const canSeePaymentDashboard = computed(() => ["admin", "management", "finance"].includes(effectiveRole.value));
 // Narrower than canSeePaymentDashboard above -- Action Required (the daily booking worklist)
-// and Vendor Payments (per-vendor drill-down) are finance's own working pages. Management
-// gets the executive summary only (Kalrav's explicit call, 2026-10-02); operations never had
-// any of these three.
-const canSeeFinanceWorklist = computed(() => ["admin", "finance"].includes(effectiveRole.value));
+// and Vendor Payments (per-vendor drill-down) are finance's own working pages. Management and
+// admin get the executive summary only (Kalrav's explicit call, 2026-10-02 then narrowed
+// further 2026-10-02 -- every admin login also has a separate finance login, so admin doesn't
+// need its own access to these two); operations never had any of these three.
+const canSeeFinanceWorklist = computed(() => effectiveRole.value === "finance");
 const canSeeManageAccess = computed(() => effectiveRole.value === "admin"); // admin only -- Kalrav's explicit call
 const canSeeRateFinder = computed(() => ["admin", "management", "operations"].includes(effectiveRole.value));
 const canSeeSop = computed(() => ["admin", "management", "operations"].includes(effectiveRole.value));
