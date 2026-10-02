@@ -1,22 +1,22 @@
-/* --- Brand type: Open Sauce Sans (self-hosted, see assets/fonts/OFL.txt) --- */
+/* --- Brand type: Switzer (self-hosted, see assets/fonts/LICENSE.txt) --- */
 @font-face {
-  font-family: "Open Sauce Sans";
-  src: url("./assets/fonts/OpenSauceSans-Regular.ttf") format("truetype");
+  font-family: "Switzer";
+  src: url("./assets/fonts/Switzer-Regular.ttf") format("truetype");
   font-weight: 400; font-style: normal; font-display: swap;
 }
 @font-face {
-  font-family: "Open Sauce Sans";
-  src: url("./assets/fonts/OpenSauceSans-Medium.ttf") format("truetype");
+  font-family: "Switzer";
+  src: url("./assets/fonts/Switzer-Medium.ttf") format("truetype");
   font-weight: 500; font-style: normal; font-display: swap;
 }
 @font-face {
-  font-family: "Open Sauce Sans";
-  src: url("./assets/fonts/OpenSauceSans-SemiBold.ttf") format("truetype");
+  font-family: "Switzer";
+  src: url("./assets/fonts/Switzer-SemiBold.ttf") format("truetype");
   font-weight: 600; font-style: normal; font-display: swap;
 }
 @font-face {
-  font-family: "Open Sauce Sans";
-  src: url("./assets/fonts/OpenSauceSans-Bold.ttf") format("truetype");
+  font-family: "Switzer";
+  src: url("./assets/fonts/Switzer-Bold.ttf") format("truetype");
   font-weight: 700; font-style: normal; font-display: swap;
 }
 
@@ -92,7 +92,7 @@
 * { box-sizing: border-box; }
 body {
   margin: 0; background: var(--paper); color: var(--ink);
-  font-family: "Open Sauce Sans", -apple-system, "Segoe UI", sans-serif;
+  font-family: "Switzer", -apple-system, "Segoe UI", sans-serif;
 }
 .mono { font-family: "IBM Plex Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; }
 a { color: var(--accent); }

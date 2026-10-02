@@ -71,12 +71,12 @@ function draw() {
       plugins: {
         legend: {
           position: "bottom", align: "start",
-          labels: { color: ink, usePointStyle: true, pointStyle: props.type === "bar" ? "rectRounded" : "line", boxWidth: 22, padding: 16, font: { family: "Open Sauce Sans", size: 12 } },
+          labels: { color: ink, usePointStyle: true, pointStyle: props.type === "bar" ? "rectRounded" : "line", boxWidth: 22, padding: 16, font: { family: "Switzer", size: 12 } },
         },
         tooltip: {
           backgroundColor: surface, titleColor: ink, bodyColor: ink, borderColor: line, borderWidth: 1,
           padding: 10, boxPadding: 4, usePointStyle: true,
-          titleFont: { family: "Open Sauce Sans", weight: "600" }, bodyFont: { family: "IBM Plex Mono", size: 12 },
+          titleFont: { family: "Switzer", weight: "600" }, bodyFont: { family: "IBM Plex Mono", size: 12 },
           callbacks: {
             title: items => {
               const i = items[0].dataIndex;
