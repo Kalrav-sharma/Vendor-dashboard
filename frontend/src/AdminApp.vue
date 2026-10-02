@@ -71,6 +71,11 @@ const canSeePoTracking = computed(() => ["admin", "management", "operations"].in
 const canSeeSkuData = computed(() => ["admin", "management", "operations"].includes(effectiveRole.value));
 const canSeeDispatchPlanning = computed(() => ["admin", "management", "operations"].includes(effectiveRole.value));
 const canSeePaymentDashboard = computed(() => ["admin", "management", "finance"].includes(effectiveRole.value));
+// Narrower than canSeePaymentDashboard above -- Action Required (the daily booking worklist)
+// and Vendor Payments (per-vendor drill-down) are finance's own working pages. Management
+// gets the executive summary only (Kalrav's explicit call, 2026-10-02); operations never had
+// any of these three.
+const canSeeFinanceWorklist = computed(() => ["admin", "finance"].includes(effectiveRole.value));
 const canSeeManageAccess = computed(() => effectiveRole.value === "admin"); // admin only -- Kalrav's explicit call
 const canSeeRateFinder = computed(() => ["admin", "management", "operations"].includes(effectiveRole.value));
 const canSeeSop = computed(() => ["admin", "management", "operations"].includes(effectiveRole.value));
@@ -111,9 +116,9 @@ const navItems = computed(() => {
   if (canSeeSkuData.value) items.push({ id: "sku-data", label: "SKU Level Data" });
   if (canSeeDispatchPlanning.value) items.push({ id: "dispatch-planning", label: "Dispatch Planning" });
   // Finance's landing page (first item they can see) -- badge = invoices ready to book.
-  if (canSeePaymentDashboard.value) items.push({ id: "action-required", label: "Action Required", badge: readyToBookCount.value || null });
+  if (canSeeFinanceWorklist.value) items.push({ id: "action-required", label: "Action Required", badge: readyToBookCount.value || null });
   if (canSeePaymentDashboard.value) items.push({ id: "payment-dashboard", label: "Payment Dashboard" });
-  if (canSeePaymentDashboard.value) items.push({ id: "vendor-payments", label: "Vendor Payments" });
+  if (canSeeFinanceWorklist.value) items.push({ id: "vendor-payments", label: "Vendor Payments" });
   if (canSeeManageAccess.value) items.push({ id: "manage-access", label: "Manage Access" });
   if (RATE_FINDER_LIVE && canSeeRateFinder.value) items.push({ id: "rate-finder", label: "Rate Finder" });
   if (canSeeSop.value) items.push({ id: "sop", label: "S&OP" });
@@ -259,6 +264,7 @@ async function refreshPayments() {
 }
 
 function openVendorPayments(code) {
+  if (!canSeeFinanceWorklist.value) return; // management has no Vendor Payments tab to land on
   paymentVendor.value = code;
   activeNav.value = "vendor-payments";
   window.scrollTo({ top: 0 });
@@ -447,7 +453,7 @@ async function signOut() {
           />
         </div>
 
-        <div v-if="canSeePaymentDashboard" v-show="activeNav === 'action-required'">
+        <div v-if="canSeeFinanceWorklist" v-show="activeNav === 'action-required'">
           <FinanceActionRequired
             :uploads="allUploads" :pos-with-payment="posWithPaymentNoInvoice" :pos="currentPos"
             :vendor-label="vendorLabel" :on-open-po="openPoDetailModal" :on-open-vendor="openVendorPayments"
@@ -458,11 +464,12 @@ async function signOut() {
         <div v-if="canSeePaymentDashboard" v-show="activeNav === 'payment-dashboard'">
           <PaymentExecutiveSummary
             :uploads="allUploads" :pos-with-payment="posWithPaymentNoInvoice" :pos-needing-invoice="posNeedingInvoice"
-            :vendor-label="vendorLabel" :on-open-po="openPoDetailModal" :on-open-vendor="openVendorPayments"
+            :vendor-label="vendorLabel" :on-open-po="openPoDetailModal"
+            :on-open-vendor="canSeeFinanceWorklist ? openVendorPayments : null"
           />
         </div>
 
-        <div v-if="canSeePaymentDashboard" v-show="activeNav === 'vendor-payments'">
+        <div v-if="canSeeFinanceWorklist" v-show="activeNav === 'vendor-payments'">
           <PaymentVendorView
             v-model="paymentVendor" :vendor-options="paymentVendorOptions"
             :uploads="allUploads" :pos-with-payment="posWithPaymentNoInvoice" :pos-needing-invoice="posNeedingInvoice"

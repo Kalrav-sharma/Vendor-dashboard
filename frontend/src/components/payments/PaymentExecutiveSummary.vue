@@ -14,7 +14,9 @@ const props = defineProps({
   posNeedingInvoice: { type: Array, default: () => [] }, // no invoice, no payment record
   vendorLabel: { type: Function, required: true },
   onOpenPo: { type: Function, required: true },
-  onOpenVendor: { type: Function, required: true }, // (vendorCode) => void -- switches to Vendor Payments
+  // (vendorCode) => void -- switches to Vendor Payments. null for a role without that tab
+  // (management, 2026-10-02): the vendor name then shows as plain text, not a dead link.
+  onOpenVendor: { type: Function, default: null },
 });
 
 const ledger = computed(() => paymentLedger(props.uploads, props.posWithPayment));
@@ -39,7 +41,10 @@ const vendors = computed(() => vendorRollup(ledger.value, props.posNeedingInvoic
       <tbody>
         <tr v-if="!vendors.length"><td colspan="9" class="empty-state">No invoices yet.</td></tr>
         <tr v-for="v in vendors" :key="v.code">
-          <td class="lab"><button type="button" class="link-btn-inline" title="Open this vendor's payment view" @click="onOpenVendor(v.code)">{{ v.label }}</button></td>
+          <td class="lab">
+            <button v-if="onOpenVendor" type="button" class="link-btn-inline" title="Open this vendor's payment view" @click="onOpenVendor(v.code)">{{ v.label }}</button>
+            <template v-else>{{ v.label }}</template>
+          </td>
           <td class="num mono">{{ v.s.entries.length }}</td>
           <td class="num mono">{{ fmtMoney(v.s.invoiced) }}</td>
           <td class="num mono">{{ fmtMoney(v.s.paidAmount) }}</td>
