@@ -21,6 +21,13 @@ function mondayOf(d) {
   return x.toISOString().slice(0, 10);
 }
 const addDays = (ymd, n) => new Date(new Date(`${ymd}T00:00:00Z`).getTime() + n * 86400000).toISOString().slice(0, 10);
+// ISO week of a Monday (YYYY-MM-DD); the label for a week with no delivered orders synced yet.
+function isoWeek(ymd) {
+  const d = new Date(`${ymd}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + 3 - ((d.getUTCDay() + 6) % 7));
+  const jan4 = new Date(Date.UTC(d.getUTCFullYear(), 0, 4));
+  return 1 + Math.round(((d - jan4) / 86400000 - 3 + ((jan4.getUTCDay() + 6) % 7)) / 7);
+}
 
 export function useHealthKitSlaData() {
   const rows = ref([]);
@@ -47,7 +54,7 @@ export function useHealthKitSlaData() {
         const r = rs.find(x => x.tier === k);
         return [k, r ? { total: Number(r.orders) || 0, onTime: Number(r.on_time) || 0, tatSum: Number(r.tat_sum) || 0, tatN: Number(r.tat_n) || 0 } : null];
       }));
-      return { weekStart: ws, weekNo: rs[0]?.week_no ?? null, kind: i === 0 ? "current" : "past", tiers };
+      return { weekStart: ws, weekNo: rs[0]?.week_no ?? isoWeek(ws), kind: i === 0 ? "current" : "past", tiers };
     });
   }
   const spares = computed(() => weeks("spares"));

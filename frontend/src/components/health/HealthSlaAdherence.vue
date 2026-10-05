@@ -90,8 +90,12 @@ const kitOrders = w => {
           <td class="lab">W{{ w.weekNo ?? '–' }}<span v-if="w.kind === 'current'" class="hc-live"></span><span v-if="w.kind === 'next'" class="hc-muted" style="font-size:.7rem;"> next</span></td>
           <td v-if="isKit" class="num hc-num hc-muted">{{ kitOrders(w) }}</td>
           <td v-for="l in cols" :key="l.key" class="pc" :title="tip(cellOf(w, l.key))">
-            <span v-if="mode === 'days'" class="hc-num" :style="l.key === 'pan' ? 'font-weight:600' : ''">{{ avgDays(cellOf(w, l.key)) == null ? '–' : `${avgDays(cellOf(w, l.key)).toFixed(1)}d` }}</span>
-            <span v-else class="hc-pill" :class="cls(rate(cellOf(w, l.key)))">{{ rate(cellOf(w, l.key)) == null ? '–' : `${rate(cellOf(w, l.key)).toFixed(1)}%` }}</span><span v-if="delta(i, l.key)" class="hc-dd" :class="delta(i, l.key).cls">{{ delta(i, l.key).t }}</span>
+            <!-- one fixed-height line in both modes: value (or pill) + a fixed-width arrow slot -->
+            <span class="hc-adh">
+              <span v-if="mode === 'days'" class="hc-num" :style="l.key === 'pan' ? 'font-weight:600' : ''">{{ avgDays(cellOf(w, l.key)) == null ? '–' : `${avgDays(cellOf(w, l.key)).toFixed(1)}d` }}</span>
+              <span v-else class="hc-pill" :class="cls(rate(cellOf(w, l.key)))">{{ rate(cellOf(w, l.key)) == null ? '–' : `${rate(cellOf(w, l.key)).toFixed(1)}%` }}</span>
+              <span class="hc-dd" :class="delta(i, l.key)?.cls">{{ delta(i, l.key)?.t }}</span>
+            </span>
           </td>
         </tr>
       </tbody>

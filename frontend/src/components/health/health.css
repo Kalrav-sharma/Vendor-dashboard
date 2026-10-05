@@ -73,6 +73,12 @@
 .hc-dd { font-size: 0.68rem; margin-left: 4px; }
 .hc-dd.up { color: var(--critical); } .hc-dd.down { color: var(--good); }
 .hc-dd.good { color: var(--good); } .hc-dd.bad { color: var(--critical); }
+/* SLA Adherence cells (2.2 / 2.3): value + arrow on one centered line of fixed height, so the
+   % view (compact pills) takes exactly the same space as the Days view. */
+.hc-adh { display: flex; align-items: center; justify-content: center; gap: 3px; height: 22px; white-space: nowrap; padding-left: 11px; /* = arrow slot + gap, keeps the value centered */ }
+.hc-adh .hc-pill { display: inline-block; width: auto; min-width: 52px; padding: 1px 6px; font-size: 0.74rem; line-height: 20px; border-radius: 6px; }
+.hc-adh .hc-pill.na { min-width: 0; }
+.hc-adh .hc-dd { margin-left: 0; width: 8px; font-size: 0.6rem; text-align: left; }
 
 /* demand share bar */
 
