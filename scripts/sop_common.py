@@ -253,7 +253,7 @@ def add_days_ymd(ymd, days):
 
 
 def compute_forward_doi_from_series(series, max_known_ymd, start_ymd, sku, quantity, rate_multiplier=1.0,
-                                     cap_days=DOI_DISPLAY_CAP_DAYS, cutoff_flag=None):
+                                     cap_days=DOI_DISPLAY_CAP_DAYS, cutoff_flag=None, cutoff_round_to=None):
     """Port of computeForwardDOIFromSeries(): forward walk consuming daily rate until exhausted.
     Returns a float day count if exhausted within cap_days, or the literal string f">{cap_days}"
     otherwise -- whether that's because the walk ran past the series' own known forecast window, or
@@ -268,13 +268,24 @@ def compute_forward_doi_from_series(series, max_known_ymd, start_ymd, sku, quant
     set, it's returned instead of f">{cap_days}" if the walk runs off the end of the known forecast
     before cap_days are confirmed -- fewer than cap_days of real demand were seen, so ">60" would
     claim more than the data proves. Only the dispatch plan passes it; the DRR/DOI heatmap keeps the
-    single ">60" convention."""
+    single ">60" convention.
+
+    cutoff_round_to (2026-10-05, per Anish): when set, a walk that runs off the known forecast
+    returns how many days it did confirm, floored to that multiple -- 55 confirmed days -> ">50".
+    Under one multiple it's the exact count (">7"); zero confirmed days (target date itself is past
+    the forecast) is "No forecast". Takes precedence over cutoff_flag."""
     if not (quantity > 0):
         return 0.0
     remaining, ymd = quantity, start_ymd
     for days in range(1, cap_days + 1):
         ymd = add_days_ymd(ymd, 1)
         if not max_known_ymd or ymd > max_known_ymd:
+            if cutoff_round_to:
+                confirmed = days - 1
+                if confirmed == 0:
+                    return "No forecast"
+                floored = (confirmed // cutoff_round_to) * cutoff_round_to
+                return f">{floored or confirmed}"
             return cutoff_flag or f">{cap_days}"
         daily_rate = series.get(ymd, {}).get(sku, 0.0) * rate_multiplier
         if daily_rate <= 0:

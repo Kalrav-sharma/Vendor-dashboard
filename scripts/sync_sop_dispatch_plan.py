@@ -24,8 +24,7 @@ Amazon / Flipkart / MT are still sheet-parsed: that stock sits in the
 marketplaces' own warehouses, which Uniware can't see.
 
 2026-09-23 -- ported the skill's 2026-09-22 changes: UC App + PLS's status
-carries the warehouse(s) driving it (worst_warehouses); Proj. DOI says
-"insufficient data" instead of ">60" when the forecast runs out first; the
+carries the warehouse(s) driving it (worst_warehouses); the
 Production check counts UC on-hand + in-transit as supply alongside
 production (gap = total_available - required).
 
@@ -51,9 +50,9 @@ DOI_TARGETS = [30, 15, 7, 0]
 PRODUCTION_LEAD_DAYS = 5
 HORIZON_DAYS = [7, 15, 21, 30, 45, 60, 90]
 # Proj. DOI when the forward walk runs off a channel's own daily-trackr range before 60 days of
-# demand are confirmed -- shown instead of ">60", which would claim more than the data proves
-# (2026-09-23, ported from the skill's 2026-09-22 change). Dispatch plan only.
-DOI_CUTOFF_FLAG = "insufficient data"
+# demand are confirmed: the confirmed day count floored to a multiple of this (55 -> ">50"), not
+# ">60", which would claim more than the data proves (2026-10-05; replaced "insufficient data").
+DOI_CUTOFF_ROUND_TO = 10
 
 WAREHOUSES = ["Bangalore", "Gurgaon", "Hyderabad", "Mumbai", "Kolkata"]
 WH_SPLIT = {"Bangalore": 0.25, "Gurgaon": 0.23, "Hyderabad": 0.23, "Mumbai": 0.20, "Kolkata": 0.09}
@@ -392,7 +391,7 @@ def compute_for_date(ctx, target_ymd, window_days, apply_fixed_targets=False, pr
                           "status": derive_status(target, projected_closing, required_dispatch)}
             projected_doi = compute_forward_doi_from_series(
                 ctx["channel_series"]["UC App + PLS"]["series"], ctx["channel_series"]["UC App + PLS"]["max_date"],
-                target_ymd, sku, projected_closing, WH_SPLIT[wh], cutoff_flag=DOI_CUTOFF_FLAG)
+                target_ymd, sku, projected_closing, WH_SPLIT[wh], cutoff_round_to=DOI_CUTOFF_ROUND_TO)
             wh_rows.append({"sku": sku, "warehouse": wh, "on_hand": on_hand, "po_out": po_out,
                             "sales_expected": sales_expected, "projected_closing": projected_closing,
                             "projected_doi": projected_doi, "doi": doi})
@@ -443,7 +442,7 @@ def compute_for_date(ctx, target_ymd, window_days, apply_fixed_targets=False, pr
 
             projected_doi = compute_forward_doi_from_series(
                 ctx["channel_series"][ch]["series"], ctx["channel_series"][ch]["max_date"],
-                target_ymd, sku, projected_closing, cutoff_flag=DOI_CUTOFF_FLAG)
+                target_ymd, sku, projected_closing, cutoff_round_to=DOI_CUTOFF_ROUND_TO)
 
             rows_.append({"sku": sku, "channel": ch, "on_hand": on_hand, "po_in": po_in,
                           "sales_expected": sales_expected, "projected_closing": projected_closing,

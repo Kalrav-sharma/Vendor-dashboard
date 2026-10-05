@@ -6,22 +6,18 @@
 // sync_sop_dispatch_plan.py's docstring for the no-inter-warehouse-netting
 // invariant this data already respects), plus a Production Check panel.
 //
-// Structure is a deliberate match of the local /channel-dispatch-plan skill's
-// own --html report, which Anish asked for three times. Studied live and
-// mirrored here: horizon/pinned buttons carrying their resolved target date,
-// a window + channel-share context box, one full-width section per
-// channel/warehouse, per-scope column labels (On-Hand vs On-Hand + In
-// Transit, PO Inflow vs PO Outflow, Plan/day vs DRR/day), headers that name
-// the active DOI target and window length, full-row status tinting, a bold
-// TOTAL row, and -- on pinned views only -- the note that Amazon/Flipkart/MT
-// Target Closing is a live-read committed number from the Diwali tab.
+// Started as a match of the local /channel-dispatch-plan skill's --html report;
+// decluttered 2026-10-05 per Anish: no channel-share line, no KPI tiles, one
+// strip for the scope + DOI-target toggles, section headers are just the
+// channel/warehouse name, and no Plan/day column. Kept: horizon/pinned buttons
+// carrying their resolved target date, the window box (with the pinned-date
+// note), per-scope column labels (On-Hand vs On-Hand + In Transit, PO Inflow vs
+// PO Outflow), full-row status tinting and a bold TOTAL row.
 //
-// Plan/day and the window length are derived here rather than stored: the
-// reference computes Plan/day as sales_expected / window-days (verified
-// against it: UC M0 698/31 = 22.5; pinned 30-Sept 320/16 = 20).
+// Proj. DOI is the backend's forward walk; when a channel's forecast runs out
+// first it arrives as a flag like ">50" / "No forecast" (sop_common.py).
 import { ref, computed } from "vue";
 import { useSopDispatchPlanData } from "../../composables/useSopDispatchPlanData.js";
-import SummaryKpis from "../SummaryKpis.vue";
 
 const SKUS = ["M0", "M1-2nd Gen", "M1 Pro", "M2 Pro", "M3", "M3 Pro"];
 const CHANNELS = ["UC App + PLS", "Amazon", "Flipkart", "MT"];
@@ -29,8 +25,8 @@ const WAREHOUSES = ["Bangalore", "Gurgaon", "Hyderabad", "Mumbai", "Kolkata"];
 const HORIZON_VIEW_KEYS = ["+7", "+15", "+21", "+30", "+45", "+60", "+90"];
 const DOI_TARGETS = [30, 15, 7, 0];
 const SCOPES = [
-  { key: "CHANNEL", label: "By Channel", sub: "UC App + PLS / Amazon / Flipkart / MT", names: CHANNELS },
-  { key: "WAREHOUSE", label: "By Warehouse", sub: "UC App + PLS only", names: WAREHOUSES },
+  { key: "CHANNEL", label: "By Channel", names: CHANNELS },
+  { key: "WAREHOUSE", label: "By Warehouse", names: WAREHOUSES },
 ];
 // Scopes whose On-Hand already includes in-transit stock and whose PO figure is an outflow --
 // same split the reference report's own column labels make.
@@ -56,12 +52,11 @@ const activeScope = ref("CHANNEL");
 function fmt(n) {
   return n == null ? "–" : Math.round(n).toLocaleString("en-IN");
 }
-function fmtRate(n) {
-  return n == null ? "–" : (Math.round(n * 10) / 10).toLocaleString("en-IN");
-}
 function fmtDoi(row) {
-  if (row.projected_doi_flag) return row.projected_doi_flag; // ">60" | "insufficient data"
-  return row.projected_doi == null ? "–" : (Math.round(row.projected_doi * 10) / 10).toLocaleString("en-IN");
+  if (row.projected_doi_flag) return row.projected_doi_flag; // ">60" | ">50" etc. | "No forecast"
+  if (row.projected_doi == null) return "–";
+  if (row.projected_doi > 60) return ">60";
+  return (Math.round(row.projected_doi * 10) / 10).toLocaleString("en-IN");
 }
 function addDaysYMD(ymd, days) {
   const [y, m, d] = ymd.split("-").map(Number);
@@ -107,8 +102,8 @@ function viewSubLabel(v) {
   return isPinned(v) ? "📌 Fixed" : dateLabel(targetDateFor(v));
 }
 
-// Window length in days, and the inclusive day-count the reference prints in its "Sales Exp (Nd)"
-// header (and divides by for Plan/day) -- one more than the span, since both ends count.
+// Window length in days, and the inclusive day-count printed in the "Sales Exp (Nd)" header --
+// one more than the span, since both ends count.
 const windowSpanDays = computed(() => {
   const target = targetDateFor(activeView.value);
   if (!runDate.value || !target) return 0;
@@ -120,23 +115,17 @@ function rowsForScope(scopeType, doiTarget) {
   return planRows.value.filter(r => r.view_key === activeView.value && r.scope_type === scopeType && r.doi_target === doiTarget);
 }
 
-// One section per channel/warehouse in the active scope: SKU rows at the active DOI target, a
-// per-DOI-target required-dispatch summary (all 4 targets are already in memory -- no extra
-// fetch), an on-hand caption, and a rolled-up total row.
+// One section per channel/warehouse in the active scope: SKU rows at the active DOI target and a
+// rolled-up total row.
 function sectionsFor(scopeType, names) {
   const rowsAtActiveDoi = rowsForScope(scopeType, activeDoi.value);
   return names.map(name => {
     const cells = SKUS.map(sku => rowsAtActiveDoi.find(r => r.scope === name && r.sku === sku) || null);
-    const requiredByDoi = Object.fromEntries(DOI_TARGETS.map(d => {
-      const rows = rowsForScope(scopeType, d).filter(r => r.scope === name);
-      return [d, rows.reduce((sum, r) => sum + (r.required_dispatch || 0), 0)];
-    }));
     const present = cells.filter(Boolean);
     const sum = key => present.reduce((s, c) => s + (c[key] || 0), 0);
     return {
       name,
       cells,
-      requiredByDoi,
       includesInTransit: INCLUDES_IN_TRANSIT.has(name),
       total: {
         on_hand: sum("on_hand"), po_out: sum("po_out"), sales_expected: sum("sales_expected"),
@@ -150,21 +139,6 @@ function sectionsFor(scopeType, names) {
 const activeScopeConfig = computed(() => SCOPES.find(s => s.key === activeScope.value));
 const activeSections = computed(() => sectionsFor(activeScopeConfig.value.key, activeScopeConfig.value.names));
 
-// Each channel's share of the window's total sales-expected, as the reference prints it. Always
-// channel-based, like the KPI tiles, regardless of which scope is toggled.
-const channelShare = computed(() => {
-  const rows = rowsForScope("CHANNEL", activeDoi.value);
-  const byChannel = CHANNELS.map(ch => ({
-    channel: ch,
-    expected: rows.filter(r => r.scope === ch).reduce((s, r) => s + (r.sales_expected || 0), 0),
-  }));
-  const total = byChannel.reduce((s, c) => s + c.expected, 0);
-  if (!total) return [];
-  return byChannel.map(c => ({ channel: c.channel, pct: (c.expected / total) * 100 }));
-});
-
-// KPI tiles always reflect the CHANNEL scope regardless of which scope is toggled -- matches the
-// reference dashboard's own behaviour (confirmed live: its tiles don't move on the Warehouse view).
 // Required/gap/status here are computed per DOI target, so this must track the DOI toggle just
 // like the plan tables above do -- otherwise all four targets' rows render stacked.
 const productionCheckForView = computed(() => {
@@ -181,29 +155,6 @@ const productionCheckForView = computed(() => {
 const productionCheckIsLegacy = computed(() =>
   productionCheckForView.value.length > 0 && productionCheckForView.value[0].doi_target == null,
 );
-
-const kpiTiles = computed(() => {
-  const counts = { "ON TRACK": 0, "NEEDS DISPATCH": 0, "ALREADY SHORT": 0 };
-  let totalRequired = 0;
-  for (const section of sectionsFor("CHANNEL", CHANNELS)) {
-    for (const c of section.cells) {
-      if (!c) continue;
-      if (counts[c.status] !== undefined) counts[c.status]++;
-      totalRequired += c.required_dispatch || 0;
-    }
-  }
-  const productionShortfalls = productionCheckForView.value.filter(r => r.status === "SHORTFALL").length;
-  const tiles = [
-    { label: `Total units to dispatch (${activeDoi.value} DOI)`, value: fmt(totalRequired) },
-    { label: "Already short", value: fmt(counts["ALREADY SHORT"]), cls: counts["ALREADY SHORT"] > 0 ? "critical" : undefined },
-    { label: "Needs dispatch", value: fmt(counts["NEEDS DISPATCH"]) },
-    { label: "On track", value: fmt(counts["ON TRACK"]), cls: "good" },
-  ];
-  if (productionShortfalls > 0) {
-    tiles.push({ label: "Production shortfall", value: fmt(productionShortfalls), cls: "critical" });
-  }
-  return tiles;
-});
 
 const productionCheckTotal = computed(() => {
   const rows = productionCheckForView.value;
@@ -231,16 +182,10 @@ const productionCheckTotal = computed(() => {
     </div>
 
     <div class="panel" style="margin-bottom: 14px;">
-      <p style="margin: 0 0 6px; font-size: 0.83rem;">
+      <p style="margin: 0; font-size: 0.83rem;">
         <b>Window:</b> {{ dateLabel(runDate) }} → <b>{{ dateLabel(targetDateFor(activeView)) }}</b>
         ({{ windowSpanDays }} days) &middot; sales-expected and targets come from each channel's own
         daily-forecast tab &mdash; no blending.
-      </p>
-      <p v-if="channelShare.length" style="margin: 0; font-size: 0.83rem; color: var(--muted);">
-        <b>Channel share of sales expected this window:</b>&nbsp;
-        <span v-for="(c, i) in channelShare" :key="c.channel">
-          {{ c.channel }} {{ c.pct.toFixed(1) }}%<template v-if="i < channelShare.length - 1">&nbsp;&middot;&nbsp;</template>
-        </span>
       </p>
       <p v-if="isPinned(activeView)" style="margin: 6px 0 0; font-size: 0.83rem;">
         📌 <b>Fixed date.</b> Amazon/Flipkart/MT Target Closing on this view is the committed Opening
@@ -248,24 +193,23 @@ const productionCheckTotal = computed(() => {
       </p>
     </div>
 
-    <SummaryKpis :tiles="kpiTiles" />
-
-    <div class="panel" style="margin-bottom: 14px; display: flex; flex-wrap: wrap; gap: 8px;">
-      <button
-        v-for="s in SCOPES" :key="s.key"
-        class="toggle-btn" :class="{ active: activeScope === s.key }"
-        @click="activeScope = s.key"
-      >
-        <b>{{ s.label }}</b> <span class="sub">({{ s.sub }})</span>
-      </button>
-    </div>
-
-    <div class="panel" style="margin-bottom: 18px; display: flex; align-items: center; gap: 14px;">
-      <div class="field-hint" style="margin: 0;">DOI target</div>
-      <div class="radio-pill-group">
-        <label v-for="d in DOI_TARGETS" :key="d" class="radio-pill">
-          <input type="radio" :value="d" v-model="activeDoi"> {{ d }}
-        </label>
+    <div class="panel" style="margin-bottom: 18px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 24px;">
+      <div style="display: flex; gap: 8px;">
+        <button
+          v-for="s in SCOPES" :key="s.key"
+          class="toggle-btn" :class="{ active: activeScope === s.key }"
+          @click="activeScope = s.key"
+        >
+          <b>{{ s.label }}</b>
+        </button>
+      </div>
+      <div style="display: flex; align-items: center; gap: 14px;">
+        <div class="field-hint" style="margin: 0;">DOI target</div>
+        <div class="radio-pill-group">
+          <label v-for="d in DOI_TARGETS" :key="d" class="radio-pill">
+            <input type="radio" :value="d" v-model="activeDoi"> {{ d }}
+          </label>
+        </div>
       </div>
     </div>
 
@@ -277,27 +221,7 @@ const productionCheckTotal = computed(() => {
     </p>
 
     <div v-for="section in activeSections" :key="section.name" style="margin-bottom: 22px;">
-      <p class="scope-title">
-        {{ section.name }} — Total required dispatch:
-        <span v-for="(d, i) in DOI_TARGETS" :key="d" class="mono">
-          {{ fmt(section.requiredByDoi[d]) }} ({{ d }} DOI)<template v-if="i < DOI_TARGETS.length - 1"> / </template>
-        </span>
-      </p>
-      <p class="field-hint" style="margin: 0 0 4px; font-style: italic;">
-        SKU wise inventory on hand on {{ section.name }}:
-        <span v-for="(sku, i) in SKUS" :key="sku" class="mono">{{ sku }}={{ fmt(section.cells[i] ? section.cells[i].on_hand : 0) }}<template v-if="i < SKUS.length - 1">&nbsp;</template></span>
-      </p>
-      <p v-if="section.name === 'UC App + PLS'" class="field-hint" style="margin: 0 0 10px; font-style: italic;">
-        † ⚠ Target / Req. Dispatch / Status below are the SUM of each warehouse's own independently
-        computed gap &mdash; a surplus in one UC warehouse can't offset a deficit in another without an
-        actual transfer. Status names the warehouse(s) driving it, so it can read ALREADY SHORT even
-        when this row's pooled Proj. Closing looks healthy.
-      </p>
-      <p v-else-if="isPinned(activeView) && activeScope === 'CHANNEL'" class="field-hint" style="margin: 0 0 10px; font-style: italic;">
-        📌 Target Closing here is a live-read committed number for this date (Diwali Sales Plan tab's
-        Opening Ask row), re-checked every run &mdash; not hardcoded.
-      </p>
-      <div v-else style="margin-bottom: 10px;"></div>
+      <p class="scope-title" style="margin-bottom: 8px;">{{ section.name }}</p>
 
       <div class="table-card"><div class="table-scroll">
         <table>
@@ -306,13 +230,12 @@ const productionCheckTotal = computed(() => {
               <th>SKU</th>
               <th class="num">{{ section.includesInTransit ? "On-Hand + In Transit" : "On-Hand" }}</th>
               <th class="num">{{ section.includesInTransit ? "PO Outflow" : "PO Inflow" }}</th>
-              <th class="num">{{ activeScope === "WAREHOUSE" ? "DRR/day" : "Plan/day" }}</th>
               <th class="num">Sales Exp ({{ windowDays }}d)</th>
               <th class="num">Proj. Closing<br><span class="th-sub">{{ dateLabel(targetDateFor(activeView)) }}</span></th>
               <th class="num">Proj. DOI</th>
-              <th class="num">Target ({{ activeDoi }} DOI){{ section.name === "UC App + PLS" ? " †" : "" }}</th>
-              <th class="num">Req. Dispatch ({{ activeDoi }} DOI){{ section.name === "UC App + PLS" ? " †" : "" }}</th>
-              <th>Status ({{ activeDoi }} DOI){{ section.name === "UC App + PLS" ? " †" : "" }}</th>
+              <th class="num">Target ({{ activeDoi }} DOI)</th>
+              <th class="num">Req. Dispatch ({{ activeDoi }} DOI)</th>
+              <th>Status ({{ activeDoi }} DOI)</th>
             </tr>
           </thead>
           <tbody>
@@ -321,7 +244,6 @@ const productionCheckTotal = computed(() => {
               <template v-if="c">
                 <td class="num mono">{{ fmt(c.on_hand) }}</td>
                 <td class="num mono">{{ fmt(c.po_out) }}</td>
-                <td class="num mono">{{ fmtRate(windowDays ? (c.sales_expected || 0) / windowDays : null) }}</td>
                 <td class="num mono">{{ fmt(c.sales_expected) }}</td>
                 <td class="num mono">{{ fmt(c.projected_closing) }}</td>
                 <td class="num mono">{{ fmtDoi(c) }}</td>
@@ -329,13 +251,12 @@ const productionCheckTotal = computed(() => {
                 <td class="num mono"><b>{{ fmt(c.required_dispatch) }}</b></td>
                 <td><span class="chip" :class="STATUS_CHIP_CLASS[c.status]">{{ statusLabel(c) }}</span></td>
               </template>
-              <template v-else><td colspan="9">&#8211;</td></template>
+              <template v-else><td colspan="8">&#8211;</td></template>
             </tr>
             <tr class="row-total">
               <td>Total</td>
               <td class="num mono">{{ fmt(section.total.on_hand) }}</td>
               <td class="num mono">{{ fmt(section.total.po_out) }}</td>
-              <td class="num mono">{{ fmtRate(windowDays ? section.total.sales_expected / windowDays : null) }}</td>
               <td class="num mono">{{ fmt(section.total.sales_expected) }}</td>
               <td class="num mono">{{ fmt(section.total.projected_closing) }}</td>
               <td class="num mono">&#8211;</td>
