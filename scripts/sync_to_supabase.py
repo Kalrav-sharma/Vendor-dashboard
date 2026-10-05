@@ -572,13 +572,28 @@ def main():
         for fut in as_completed(futs):
             facility, code = futs[fut]
             po = fut.result()
-            vendor_code = po.get("vendorCode") if po else None
+            if po is None:
+                continue  # fetch_po_detail already printed its own WARN
+            vendor_code = po.get("vendorCode")
             if vendor_code in vendor_map:
                 row, inflow_count, item_rows = build_po_row(facility, code, po, vendor_map[vendor_code])
                 po_rows.append(row)
                 po_item_rows.extend(item_rows)
                 if inflow_count > 0:
                     inflow_counts[code] = (facility, vendor_code)
+            elif code in existing:
+                # Fetched fine, but this PO's current Uniware vendorCode doesn't match any
+                # known vendor login -- previously silent (identical code path to a
+                # not-yet-onboarded vendor's brand-new PO, which is routine and stays quiet
+                # on purpose: a facility-wide search surfaces every vendor's codes, most of
+                # which legitimately belong to nobody with a login yet). This branch is the
+                # narrower, actually-suspicious case: a PO ALREADY on file in Supabase (so
+                # it matched a vendor login at some point) now doesn't. Confirmed live
+                # 2026-10-05: PKLU/PO2627/0174 kept coming back from Uniware with real data
+                # on every run, including --force, but never got (re-)written because of
+                # exactly this branch -- invisible until now.
+                print(f"WARN: {code} ({facility}) already on file but now has vendorCode {vendor_code!r}, "
+                      f"which matches no known vendor login -- skipped, kept stale.", file=sys.stderr)
 
     po_item_rows = merge_duplicate_item_rows(
         po_item_rows, key_fields=["po_code", "item_sku"],
