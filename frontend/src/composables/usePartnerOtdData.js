@@ -1,7 +1,7 @@
 // SLA › Trends › On-Time Delivery for Spares and Refresh, by partner type (UC Partner,
 // Sterling Partner, Sterling Lite Partner). Reads sla_partner_otd_weekly, one row per
 // (product, order week, partner), written from a VPN machine by
-// ~/.claude/scripts/sla_portal/sync_sla_portal.js from Jarvis 558955 (Spares) and 579905
+// ~/.claude/scripts/sla_portal/sync_sla_portal.js from Jarvis 578703 (Spares) and 579905
 // (Refresh). Counts are summed into a period first and the ratio taken after, never averaged.
 import { ref, computed, onMounted, onUnmounted } from "vue";
 import { fetchAllRows } from "./sopPagedFetch.js";

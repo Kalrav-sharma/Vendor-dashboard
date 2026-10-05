@@ -2359,7 +2359,7 @@ alter table public.sla_trend_weekly add column if not exists sfx_ds_tat_n int no
 -- ---------------------------------------------------------------------
 
 -- Logistics Health Card › Delayed Orders -- added 2026-09-25.
--- One row per (product, order week). product: 'spares' (Jarvis 558955
+-- One row per (product, order week). product: 'spares' (Jarvis 578703
 -- modified_spares_v2) | 'refresh' (579905 Refresh Kit Delivery RCA). d3/d5/
 -- d10/d15 are MUTUALLY EXCLUSIVE bands of days past promise (4-5, 6-10,
 -- 11-15, 16+), counting distinct orders; open orders past promise count
@@ -2416,7 +2416,7 @@ create policy health_delay_orders_select on public.health_delay_orders
 -- ---------------------------------------------------------------------
 
 -- SLA › Trends › On-Time Delivery for Spares / Refresh, by partner type -- added 2026-09-25.
--- One row per (product, order week, partner). product: 'spares' (Jarvis 558955) |
+-- One row per (product, order week, partner). product: 'spares' (Jarvis 578703) |
 -- 'refresh' (579905). partner: 'uc' | 'sterling' | 'sterling_lite' (the queries'
 -- "Supply::multi-filter"; "Partner not assigned" is left out). delivered = distinct
 -- delivered orders; on_time = those delivered on/before the query's own promise.
