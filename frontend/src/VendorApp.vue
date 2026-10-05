@@ -368,7 +368,6 @@ function openPoDetailModal(poCode) {
   const invoices = dedupeInvoiceNumbers(grns.map(g => g.vendor_invoice_number));
   openModal("Purchase Order", PoDetailModal, {
     po, items, invoices, allowInvoiceUpload: true, allowDispatchPlanning: true, uploaderLabel: myDisplayName.value,
-    allowPdfDownload: false,
   }, poCode);
 }
 
@@ -530,7 +529,7 @@ async function signOut() {
             :grns-by-po="grnsByPo" :show-buckets="true"
             :on-open-po="openPoDetailModal" :allow-invoice-upload="true" :uploader-label="myDisplayName"
             :sku-rows="skuFilteredSorted" :sku-filters="skuFilters" :on-open-sku="openSkuDetailModal"
-            :allow-pdf-download="false" :focus-bucket="poFocus"
+            :focus-bucket="poFocus"
           />
         </div>
 

@@ -50,7 +50,6 @@ show the changed files under `docs/` — commit and push those as usual.
     around with a manual shell/tbody render split
   - `useSkuAggregates.js` — the SKU Level Data aggregation
   - `useVendors.js` — vendor login accounts (admin only)
-  - `usePdfDownload.js` — calls the `get-po-pdf` Edge Function
   - `useModal.js` — the PO detail / SKU detail popups, as a small shared
     store rather than DOM injection
 - `src/components/` — presentational pieces: `SidebarNav`, `StatusChip`,

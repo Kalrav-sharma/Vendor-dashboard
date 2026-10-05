@@ -508,8 +508,8 @@ th.doi-facility { background: var(--paper); z-index: 2; }
 .radio-pill { display: flex; align-items: center; gap: 5px; cursor: pointer; font-size: 0.85rem; }
 
 /* Same shrink-to-content trick as .num, for icon-only columns that don't
-   need the extra width a text-based column would (PO copy / Invoice
-   upload) -- frees that space for columns that actually want it. */
+   need the extra width a text-based column would (e.g. Invoice upload) --
+   frees that space for columns that actually want it. */
 .col-tight { white-space: nowrap; width: 1%; }
 
 .filter-row td { padding: 5px 8px; background: var(--paper); border-bottom: 1px solid var(--line); }

@@ -3,7 +3,6 @@ import { computed, reactive, ref, watch } from "vue";
 import StatusChip from "./StatusChip.vue";
 import SummaryKpis from "./SummaryKpis.vue";
 import InvoiceUploadModal from "./InvoiceUploadModal.vue";
-import DownloadPdfButton from "./DownloadPdfButton.vue";
 import InvoiceUploadButton from "./InvoiceUploadButton.vue";
 import { useInvoiceUploads } from "../composables/useInvoiceUploads.js";
 import { fmtNum, fmtMoney, fmtDateOnly, TERMINAL_STATUSES, dedupeInvoiceNumbers } from "../format.js";
@@ -28,10 +27,6 @@ const props = defineProps({
   skuRows: { type: Array, default: () => [] },
   skuFilters: { type: Object, default: () => ({}) },
   onOpenSku: { type: Function, default: null },
-  // Real Uniware PO PDF download -- admin/management/operations/finance
-  // only as of 2026-10-05 (Kalrav); removed from vendor.html (get-po-pdf
-  // itself also refuses a vendor caller now, so this is UI-level only).
-  allowPdfDownload: { type: Boolean, default: true },
   // vendor.html only -- { bucket } set by a Dashboard shortcut ("5 POs need
   // an invoice") to land on that bucket; a fresh object each time, so
   // re-clicking the same shortcut re-applies it after a manual tab change.
@@ -194,7 +189,7 @@ const showingSkuData = computed(() => props.showBuckets && activeBucket.value ==
             <th v-if="vendorOptions">Vendor</th>
             <th>Facility</th><th>PO code</th><th>Created</th><th>Status</th>
             <th class="num">Qty ordered</th><th class="num">Received</th><th class="num">PO value</th>
-            <th>GRN / invoice</th><th class="col-tight">PO</th><th class="col-tight">Invoice</th>
+            <th>GRN / invoice</th><th class="col-tight">Invoice</th>
           </tr>
           <tr class="filter-row">
             <td v-if="vendorOptions">
@@ -222,12 +217,11 @@ const showingSkuData = computed(() => props.showBuckets && activeBucket.value ==
             <td><input v-model="filters.poValue" type="text" placeholder="Filter…"></td>
             <td><input v-model="filters.grn" type="text" placeholder="Filter…"></td>
             <td></td>
-            <td></td>
           </tr>
         </thead>
         <tbody>
           <tr v-if="!bucketedRows.length">
-            <td :colspan="vendorOptions ? 11 : 10" class="empty-state">No purchase orders match these filters.</td>
+            <td :colspan="vendorOptions ? 10 : 9" class="empty-state">No purchase orders match these filters.</td>
           </tr>
           <tr v-for="p in bucketedRows" :key="p.po_code" class="clickable-row" @click="onOpenPo(p.po_code)">
             <td v-if="vendorOptions">{{ vendorLabel(p.vendor_code, p.vendor_name) }}</td>
@@ -266,10 +260,6 @@ const showingSkuData = computed(() => props.showBuckets && activeBucket.value ==
                 <span v-if="grnInfo(p.po_code).rej" class="grn-rej">−{{ fmtMoney(grnInfo(p.po_code).rej) }} rej.</span>
               </div>
             </template>
-          </td>
-          <td class="col-tight">
-            <DownloadPdfButton v-if="allowPdfDownload" :po-code="p.po_code" />
-            <span v-else class="cell-empty">–</span>
           </td>
           <td class="col-tight">
             <div class="invoice-upload-cell">

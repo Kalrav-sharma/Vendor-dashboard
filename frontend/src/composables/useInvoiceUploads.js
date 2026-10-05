@@ -14,14 +14,15 @@
 // PDF, compares it against the PO/GRN, and writes match_status/
 // match_summary/match_details back onto the row.
 //
-// Module-level singleton (like usePdfDownload) so upload/delete
-// in-flight state survives independently of which modal instance is
-// currently mounted, keyed by po_code (and by upload row id for deletes).
+// Module-level singleton so upload/delete in-flight state survives
+// independently of which modal instance is currently mounted, keyed by
+// po_code (and by upload row id for deletes).
 import { reactive, ref } from "vue";
 import { supabase } from "../supabaseClient.js";
 
 const BUCKET = "po-invoices";
 export const MAX_INVOICE_BYTES = 15 * 1024 * 1024;
+const PAGE = 1000; // PostgREST's default max-rows
 
 // Shared by every place a file picker can trigger an invoice upload
 // (the PO detail modal, the PO Tracking table's row-level button) so the
@@ -63,12 +64,23 @@ export function useInvoiceUploads() {
   // else), independent of which PO's detail modal has been opened.
   // `vendorCode`: admin-only "preview as vendor" support -- see the same
   // note in usePurchaseOrders.js. A real vendor login never passes this.
+  // Paged with .range() (PAGE pattern shared with useSparesData.js /
+  // useHealthDelayData.js / useLastMileData.js) -- an unpaged select() here
+  // silently truncates at PostgREST's 1000-row cap, ordered by created_at
+  // desc, so it would drop the *oldest* unpaid invoices first and could
+  // make whole vendors disappear from the Health Card's Payment Pendency.
   async function fetchAllUploads(vendorCode = null) {
-    let query = supabase.from("po_invoice_uploads").select("*").order("created_at", { ascending: false });
-    if (vendorCode) query = query.eq("vendor_code", vendorCode);
-    const { data, error } = await query;
-    if (!error) allUploads.value = data;
-    return { data, error };
+    const out = [];
+    for (let from = 0; ; from += PAGE) {
+      let query = supabase.from("po_invoice_uploads").select("*").order("created_at", { ascending: false });
+      if (vendorCode) query = query.eq("vendor_code", vendorCode);
+      const { data, error } = await query.range(from, from + PAGE - 1);
+      if (error) return { data: null, error };
+      out.push(...data);
+      if (data.length < PAGE) break;
+    }
+    allUploads.value = out;
+    return { data: out, error: null };
   }
 
   // Bulk, light-columns fetch for the PO Tracking table's pending-invoice

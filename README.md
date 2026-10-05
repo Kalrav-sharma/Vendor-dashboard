@@ -58,34 +58,25 @@ and `grns` tables with RLS policies already attached.
    vendor account after this gets created through the admin console itself.
 
 ### 4. Deploy the Edge Functions
-There are two. Easiest path, no CLI needed: Project → **Edge Functions** →
-**Create a new function** for each, name it exactly as below, paste in the
+Easiest path, no CLI needed: Project → **Edge Functions** →
+**Create a new function**, name it exactly as below, paste in the
 matching file's contents, Deploy.
 
 - `admin-create-vendor` ← `supabase/functions/admin-create-vendor/index.ts`
   — the only place vendor accounts get created.
-- `get-po-pdf` ← `supabase/functions/get-po-pdf/index.ts` — fetches the
-  real, official Uniware PO PDF on demand (confirmed working: Uniware's own
-  `/po/show?legacy=1&code=...` endpoint accepts the same OAuth token our
-  read-only sync account already uses, no browser/cookie session needed —
-  but it does need an explicit `Facility` header per request, same as every
-  other Uniware call this app makes; the token carries no facility context
-  of its own, so without that header it silently falls back to whatever
-  facility is active in the Uniware UI at that moment — fixed 2026-09-17).
-  Authorization for this one piggybacks on the same RLS as everything
-  else — it queries `purchase_orders` as the calling user, so a vendor
-  requesting a PO they don't own just gets "not found."
+
+(There are several more Edge Functions under `supabase/functions/` as the
+project has grown — deploy each the same way, named exactly after its
+folder. `get-po-pdf`, Uniware PO PDF download, was removed 2026-10-05.)
 
 (If you'd rather use the CLI: `supabase login`, `supabase link --project-ref
 <your-project-ref>`, then `supabase functions deploy admin-create-vendor`
-and `supabase functions deploy get-po-pdf` from this repo root.)
+from this repo root.)
 
 Then set each function's required secrets — Project → Edge Functions →
 (function name) → Secrets (or `supabase secrets set NAME=value`):
 - `admin-create-vendor` needs `SUPABASE_SERVICE_ROLE_KEY` = the service_role
   key from step 1.
-- `get-po-pdf` needs `UNIWARE_USERNAME` and `UNIWARE_PASSWORD` = the same
-  read-only Uniware account already used by the GitHub Actions sync script.
 
 (`SUPABASE_URL` and `SUPABASE_ANON_KEY` are auto-injected by Supabase into
 every Edge Function — you don't set those yourself.)

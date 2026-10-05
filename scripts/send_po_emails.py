@@ -120,7 +120,7 @@ def new_po_email_html(po_code, vendor_name):
     return (
         f"<p>Hi {vendor_name},</p>"
         f"<p>A new purchase order <b>{po_code}</b> has been created for you on the Native/UC vendor portal.</p>"
-        f'<p>Please log in to <a href="{PORTAL_URL}">the portal</a> to download the PO copy, and provide the '
+        f'<p>Please log in to <a href="{PORTAL_URL}">the portal</a> to view the PO, and provide the '
         f"<b>estimated dispatch date</b> and <b>estimated dispatch quantity</b> for each SKU on this PO within "
         f"<b>7 days</b> of this email.</p>"
     )
