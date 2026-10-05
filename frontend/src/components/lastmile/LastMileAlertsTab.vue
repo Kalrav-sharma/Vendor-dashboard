@@ -10,9 +10,82 @@ import { computed, reactive } from "vue";
 import { useLastMileData } from "../../composables/useLastMileData.js";
 import SummaryKpis from "../SummaryKpis.vue";
 
-const { run, alerts, loadError } = useLastMileData();
+const props = defineProps({
+  // Current user's display name -- recorded as updated_by_name on a status save.
+  editorLabel: { type: String, default: "" },
+});
+
+const { run, alerts, loadError, alertStatusByAwb, setAlertStatus, closeAlert } = useLastMileData();
 
 const filters = reactive({ search: "", category: "", lsp: "", city: "" });
+
+// Ops' own hand-entered status on an alerted AWB -- separate from
+// primary_flag (system-computed, read-only, recomputed every sync). A
+// preset list covers the common cases; "Other" reveals a free-text box for
+// anything that doesn't fit, since no fixed list covers every real case an
+// ops team runs into.
+const STATUS_OPTIONS = [
+  "Chasing carrier", "Escalated to LSP", "Customer contacted",
+  "Awaiting pickup retry", "Reshipment initiated", "Refund initiated", "Resolved",
+];
+const CUSTOM_VALUE = "__custom__";
+const CLOSE_VALUE = "__close__";
+
+// Per-row edit state, created lazily the first time a row's control is
+// touched -- seeded from the saved value (alertStatusByAwb) so opening the
+// dropdown shows what's already there instead of resetting it.
+const drafts = reactive({});
+
+function draftFor(awb) {
+  if (!drafts[awb]) {
+    const saved = alertStatusByAwb.value[awb];
+    const isPreset = saved && STATUS_OPTIONS.includes(saved.status);
+    drafts[awb] = {
+      selected: saved ? (isPreset ? saved.status : CUSTOM_VALUE) : "",
+      custom: saved && !isPreset ? saved.status : "",
+      saving: false,
+      error: "",
+    };
+  }
+  return drafts[awb];
+}
+
+async function saveStatus(awb) {
+  const d = draftFor(awb);
+  const value = (d.selected === CUSTOM_VALUE ? d.custom : d.selected).trim();
+  if (!value) return;
+  d.saving = true;
+  d.error = "";
+  const res = await setAlertStatus(awb, value, props.editorLabel);
+  d.saving = false;
+  if (!res.ok) d.error = res.error;
+}
+
+// Routes the dropdown's @change: "Other" just reveals the free-text box
+// (no save yet), a preset status saves immediately, and "Close alert" is
+// destructive enough (row disappears, no undo in this tab) to confirm
+// first -- same window.confirm convention as InvoiceUploads.vue's delete.
+async function onStatusChange(awb) {
+  const d = draftFor(awb);
+  if (d.selected === CLOSE_VALUE) {
+    if (!window.confirm(
+      `Close alert for AWB ${awb}? It will stop appearing in this list, even if a future sync still flags it.`
+    )) {
+      const saved = alertStatusByAwb.value[awb];
+      const isPreset = saved && STATUS_OPTIONS.includes(saved.status);
+      d.selected = saved ? (isPreset ? saved.status : CUSTOM_VALUE) : "";
+      return;
+    }
+    d.saving = true;
+    d.error = "";
+    const res = await closeAlert(awb, props.editorLabel);
+    d.saving = false;
+    if (!res.ok) d.error = res.error;
+    return;
+  }
+  if (d.selected === CUSTOM_VALUE) return;
+  await saveStatus(awb);
+}
 
 const categoryOptions = computed(() => [...new Set(alerts.value.map(a => a.category))].sort());
 const lspOptions = computed(() => [...new Set(alerts.value.map(a => a.lsp).filter(Boolean))].sort());
@@ -46,7 +119,7 @@ function fmtPayment(p) {
 // set -- so "download" always matches what's on screen, same principle as
 // every filter in this app already following what you're looking at.
 const CSV_COLUMNS = [
-  ["awb", "AWB"], ["primary_flag", "Flag"], ["category", "Category"], ["lsp", "LSP"],
+  ["awb", "AWB"], ["primary_flag", "Flag"], ["ops_status", "Ops status"], ["category", "Category"], ["lsp", "LSP"],
   ["facility_code", "Source WH"], ["city", "City"], ["pincode", "Pincode"], ["payment_type", "Payment"],
   ["order", "Order"], ["status", "Status"], ["promised_date", "Promised"],
   ["days_overdue", "Overdue (days)"], ["last_scan_text", "Last scan"], ["notes", "Notes"],
@@ -57,7 +130,8 @@ function csvCell(v) {
 }
 function downloadCsv() {
   const rows = filteredSorted.value.map(a => ({
-    awb: a.awb, primary_flag: fmtFlag(a.primary_flag), category: a.category || "",
+    awb: a.awb, primary_flag: fmtFlag(a.primary_flag), ops_status: alertStatusByAwb.value[a.awb]?.status || "",
+    category: a.category || "",
     lsp: a.lsp || "", facility_code: a.facility_code || "", city: a.city || "", pincode: a.pincode || "", payment_type: fmtPayment(a.payment_type),
     order: (a.sale_order_codes || [])[0] || "", status: a.status || a.raw_status || "",
     promised_date: fmtDate(a.promised_date), days_overdue: a.days_overdue ?? "",
@@ -131,12 +205,12 @@ const kpiTiles = computed(() => {
       <table>
         <thead>
           <tr>
-            <th>AWB</th><th>Flag</th><th>Category</th><th>LSP</th><th>Source WH</th><th>City / pincode</th>
+            <th>AWB</th><th>Flag</th><th>Ops status</th><th>Category</th><th>LSP</th><th>Source WH</th><th>City / pincode</th>
             <th>Payment</th><th>Order</th><th>Status</th>
             <th>Promised</th><th class="num">Overdue</th><th>Last scan</th><th>Notes</th>
           </tr>
           <tr class="filter-row">
-            <td></td><td></td>
+            <td></td><td></td><td></td>
             <td>
               <select v-model="filters.category">
                 <option value="">All</option>
@@ -161,11 +235,40 @@ const kpiTiles = computed(() => {
         </thead>
         <tbody>
           <tr v-if="!filteredSorted.length">
-            <td colspan="13" class="empty-state">No alerts match these filters.</td>
+            <td colspan="14" class="empty-state">No alerts match these filters.</td>
           </tr>
           <tr v-for="a in filteredSorted" :key="a.id">
             <td class="mono">{{ a.awb }}</td>
             <td><span class="chip chip-critical">{{ fmtFlag(a.primary_flag) }}</span></td>
+            <td style="min-width: 190px;">
+              <select
+                v-model="draftFor(a.awb).selected" style="width: 100%;"
+                :disabled="draftFor(a.awb).saving"
+                @change="onStatusChange(a.awb)"
+              >
+                <option value="" disabled>Set status…</option>
+                <option v-for="s in STATUS_OPTIONS" :key="s" :value="s">{{ s }}</option>
+                <option :value="CUSTOM_VALUE">Other (type below)…</option>
+                <option disabled>──────────</option>
+                <option :value="CLOSE_VALUE">Close alert (remove from list)</option>
+              </select>
+              <div v-if="draftFor(a.awb).selected === CUSTOM_VALUE" style="display: flex; gap: 4px; margin-top: 4px;">
+                <input
+                  v-model="draftFor(a.awb).custom" type="text" placeholder="Type a status…"
+                  :disabled="draftFor(a.awb).saving" style="flex: 1;"
+                  @keyup.enter="saveStatus(a.awb)"
+                >
+                <button
+                  class="primary-btn" style="width: auto; padding: 4px 10px;"
+                  :disabled="draftFor(a.awb).saving || !draftFor(a.awb).custom.trim()"
+                  @click="saveStatus(a.awb)"
+                >Save</button>
+              </div>
+              <div v-if="draftFor(a.awb).error" class="form-error" style="font-size: 12px;">{{ draftFor(a.awb).error }}</div>
+              <div v-else-if="alertStatusByAwb[a.awb]" class="muted-text" style="font-size: 11px;">
+                {{ alertStatusByAwb[a.awb].updated_by_name || "Unknown" }} · {{ fmtDate(alertStatusByAwb[a.awb].updated_at) }}
+              </div>
+            </td>
             <td><span class="chip" :class="`chip-${CATEGORY_CLASS[a.category] || 'muted'}`">{{ a.category || "–" }}</span></td>
             <td>{{ a.lsp || "–" }}</td>
             <td class="mono">{{ a.facility_code || "–" }}</td>

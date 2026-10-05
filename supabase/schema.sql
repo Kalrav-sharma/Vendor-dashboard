@@ -2162,6 +2162,50 @@ create policy last_mile_alerts_select on public.last_mile_alerts
   for select using (public.is_internal_staff());
 -- ---------------------------------------------------------------------
 
+-- Ops' own hand-entered status on an alerted AWB (Alerts tab's Flag column
+-- dropdown) -- deliberately a SEPARATE table, keyed on awb alone, not a
+-- column on last_mile_alerts. Every hourly sync writes a brand-new run_id
+-- and upserts on (run_id, awb) (see sync_last_mile_hourly.py), so even the
+-- same AWB gets an entirely new row next run -- anything written onto
+-- last_mile_alerts itself would vanish the moment the next sync's run
+-- becomes "latest". This table is never touched by the sync script, so a
+-- note survives across runs until the team changes or clears it.
+create table if not exists public.last_mile_alert_status (
+  awb text primary key,
+  status text,
+  updated_at timestamptz not null default now(),
+  updated_by uuid references auth.users(id) on delete set null,
+  updated_by_name text
+);
+
+-- closed added after the table's first release: "Close alert" lets ops
+-- suppress an AWB from the Alerts tab outright, independent of (and
+-- survives alongside) whatever status text is set -- see useLastMileData.js'
+-- closeAlert(). status was originally `not null`; closing an AWB that never
+-- had a status set needs to insert a row without one, so that constraint is
+-- dropped here (safe to re-run: a no-op once already dropped).
+alter table public.last_mile_alert_status alter column status drop not null;
+alter table public.last_mile_alert_status add column if not exists closed boolean not null default false;
+
+alter table public.last_mile_alert_status enable row level security;
+
+drop policy if exists last_mile_alert_status_select on public.last_mile_alert_status;
+create policy last_mile_alert_status_select on public.last_mile_alert_status
+  for select using (public.is_internal_staff());
+
+-- Same three roles that can see the Last Mile section at all (admin,
+-- management, operations -- see AdminApp.vue's canSeeLastMile) can write
+-- here; is_internal_staff() doesn't currently distinguish them (same
+-- known gap as every other internal table in this schema).
+drop policy if exists last_mile_alert_status_upsert on public.last_mile_alert_status;
+create policy last_mile_alert_status_upsert on public.last_mile_alert_status
+  for insert with check (public.is_internal_staff());
+
+drop policy if exists last_mile_alert_status_update on public.last_mile_alert_status;
+create policy last_mile_alert_status_update on public.last_mile_alert_status
+  for update using (public.is_internal_staff()) with check (public.is_internal_staff());
+-- ---------------------------------------------------------------------
+
 -- Open shipments: the FULL "not complete, not RTO" population -- every AWB
 -- in cohort (live, backlog, no_dispatch_date), whether or not it currently
 -- trips an alert. last_mile_alerts is a deliberately CURATED subset (only

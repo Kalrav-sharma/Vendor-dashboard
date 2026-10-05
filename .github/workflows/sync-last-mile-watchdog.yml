@@ -1,0 +1,91 @@
+name: Last Mile sync watchdog
+
+# sync-last-mile.yml's two legs can each silently miss a scheduled tick
+# under GitHub Actions load -- no error, no run record, nothing for that
+# workflow to alert on about itself. Incident 2026-10-05: the SAME outage
+# window dropped both the hourly tracking tick (~14h gap, found via a
+# courier's own tracking page disagreeing with the dashboard for AWB
+# SF4186299825URM) AND that morning's daily watchlist intake (found
+# separately, via last_mile_watchlist.last_pulled_at not having moved since
+# the previous day) -- the two legs fail independently of each other, so
+# both need their own check, not just one.
+#
+# This is a SEPARATE workflow on its own schedule for exactly that reason --
+# if one misses a tick, the other is still watching, and vice versa. It
+# only checks staleness and re-dispatches whichever leg(s) are overdue; the
+# dashboard's own banner (LastMileSection.vue) surfaces the same two
+# staleness signals visually, as a second, independent line of sight.
+on:
+  schedule:
+    - cron: '*/20 5-18 * * *'   # every 20 min, 10:30am-11:30pm IST -- same window sync-last-mile.yml's hourly leg runs in
+  workflow_dispatch: {}
+
+permissions:
+  actions: write   # needed to dispatch sync-last-mile.yml below
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check both legs' freshness and re-trigger whichever is stale
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          HOURLY_GENERATED_AT=$(curl -sf "$SUPABASE_URL/rest/v1/last_mile_run?select=generated_at&order=generated_at.desc&limit=1" \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            | python3 -c "import sys,json; r=json.load(sys.stdin); print(r[0]['generated_at'] if r else '')")
+          # last_mile_watchlist.last_pulled_at, not last_mile_run.last_daily_run_at:
+          # the daily leg (scripts/sync_last_mile_daily.py) never writes to
+          # last_mile_run at all -- only the hourly leg does -- so that column
+          # is permanently null and useless as a daily freshness signal.
+          DAILY_PULLED_AT=$(curl -sf "$SUPABASE_URL/rest/v1/last_mile_watchlist?select=last_pulled_at&order=last_pulled_at.desc&limit=1" \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            | python3 -c "import sys,json; r=json.load(sys.stdin); print(r[0]['last_pulled_at'] if r else '')")
+
+          NOW_EPOCH=$(date -u +%s)
+
+          HOURLY_STALE=false
+          if [ -n "$HOURLY_GENERATED_AT" ]; then
+            GEN_EPOCH=$(date -u -d "$HOURLY_GENERATED_AT" +%s)
+            AGE_MIN=$(( (NOW_EPOCH - GEN_EPOCH) / 60 ))
+            echo "Hourly rollup last generated $AGE_MIN minute(s) ago ($HOURLY_GENERATED_AT)."
+            # 90 min: generous past the ~60min cadence, tight enough to still
+            # catch a same-day gap -- same threshold as the dashboard banner's
+            # STALE_THRESHOLD_MS, so "stale" means the same thing in both places.
+            [ "$AGE_MIN" -gt 90 ] && HOURLY_STALE=true
+          else
+            echo "No last_mile_run row at all yet -- nothing to compare against."
+          fi
+
+          DAILY_STALE=false
+          if [ -n "$DAILY_PULLED_AT" ]; then
+            PULL_EPOCH=$(date -u -d "$DAILY_PULLED_AT" +%s)
+            AGE_MIN=$(( (NOW_EPOCH - PULL_EPOCH) / 60 ))
+            echo "Watchlist last pulled $AGE_MIN minute(s) ago ($DAILY_PULLED_AT)."
+            # 1560 min = 26h: above the ~24h cadence (with slack for the
+            # daily cron's own scheduling jitter), but still well inside the
+            # same business day so a miss gets caught same-morning, not the
+            # next one.
+            [ "$AGE_MIN" -gt 1560 ] && DAILY_STALE=true
+          else
+            echo "No last_mile_watchlist row at all yet -- nothing to compare against."
+          fi
+
+          if [ "$HOURLY_STALE" = true ] && [ "$DAILY_STALE" = true ]; then
+            echo "Both legs stale -- re-dispatching both."
+            gh workflow run sync-last-mile.yml -f leg=both --repo "$GITHUB_REPOSITORY"
+          elif [ "$HOURLY_STALE" = true ]; then
+            echo "Hourly leg stale -- re-dispatching it."
+            gh workflow run sync-last-mile.yml -f leg=hourly --repo "$GITHUB_REPOSITORY"
+          elif [ "$DAILY_STALE" = true ]; then
+            echo "Daily watchlist stale -- re-dispatching it."
+            gh workflow run sync-last-mile.yml -f leg=daily --repo "$GITHUB_REPOSITORY"
+          else
+            echo "Both fresh enough, nothing to do."
+          fi

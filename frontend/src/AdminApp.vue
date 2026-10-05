@@ -505,7 +505,7 @@ async function signOut() {
         </div>
 
         <div v-if="canSeeLastMile" v-show="activeNav === 'last-mile'">
-          <LastMileSection />
+          <LastMileSection :editor-label="whoLine" />
         </div>
 
         <div v-if="canSeeSla" v-show="activeNav === 'sla'">
