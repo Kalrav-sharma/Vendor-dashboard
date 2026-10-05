@@ -15,14 +15,18 @@ const props = defineProps({
   locks: { type: Array, required: true },
   spares: { type: Array, default: () => [] },
   refreshKit: { type: Array, default: () => [] },
+  // Which products this table toggles between. The Health Card renders two tables side by side:
+  // RO | Locks and Spares | Refresh (user's ask, 2026-10-05).
+  products: { type: Array, default: () => ["ro", "locks"] },
 });
-const PRODUCTS = [
+const ALL_PRODUCTS = [
   { key: "ro", label: "RO" },
   { key: "locks", label: "Locks" },
   { key: "spares", label: "Spares" },
   { key: "refresh", label: "Refresh" },
 ];
-const product = ref("ro");
+const PRODUCTS = ALL_PRODUCTS.filter(p => props.products.includes(p.key));
+const product = ref(PRODUCTS[0]?.key ?? "ro");
 const mode = ref("days");
 const isKit = computed(() => product.value === "spares" || product.value === "refresh");
 const weeks = computed(() => ({ ro: props.ro, locks: props.locks, spares: props.spares, refresh: props.refreshKit }[product.value]));

@@ -8,8 +8,8 @@
 //     1.2 Spares Inventory  Spares › Summary table       (useSparesData.js)
 //   2. Delivery Experience
 //     2.1 SLA & Demand Share sla_trend_weekly, RO + Locks (useHealthSlaData.js)
-//     2.2 SLA Adherence     sla_trend_weekly LSP split   (useHealthSlaData.js)
-//                           + Spares/Refresh by city tier, health_sla_kit_weekly (useHealthKitSlaData.js)
+//     2.2 SLA Adherence     RO | Locks, sla_trend_weekly LSP split (useHealthSlaData.js)
+//     2.3 Spares & Refresh SLA  beside 2.2, by city tier, health_sla_kit_weekly (useHealthKitSlaData.js)
 //     (Delayed Orders moved to Spares › Spares Delivery on 2026-10-05)
 //   3. Payment Pendency    (admin/management/finance only -- canSeePaymentDashboard)
 //     3.1 Overdue Payments  po_invoice_uploads via useInvoiceUploads (loaded by AdminApp)
@@ -68,9 +68,10 @@ const stale = (t, h) => !t || (Date.now() - new Date(t).getTime()) / 3600000 > h
 
   <HealthSection id="delivery" title="2. Delivery Experience">
     <HealthSlaDemand :ro="sla.ro.value" :locks="sla.locks.value" title="2.1 SLA & Demand Share" />
-    <!-- single child: 2.2 takes the left column, the width of 2.1's SLA table -->
+    <!-- 2.2 RO | Locks on the left (the width of 2.1's SLA table), 2.3 Spares | Refresh beside it -->
     <div class="hc-pair hc-view hc-pair-views">
-      <HealthSlaAdherence :ro="sla.ro.value" :locks="sla.locks.value" :spares="kitSla.spares.value" :refresh-kit="kitSla.refreshKit.value" title="2.2 SLA Adherence" />
+      <HealthSlaAdherence :ro="sla.ro.value" :locks="sla.locks.value" :products="['ro', 'locks']" title="2.2 SLA Adherence" />
+      <HealthSlaAdherence :ro="[]" :locks="[]" :spares="kitSla.spares.value" :refresh-kit="kitSla.refreshKit.value" :products="['spares', 'refresh']" title="2.3 Spares & Refresh SLA" />
     </div>
   </HealthSection>
 
