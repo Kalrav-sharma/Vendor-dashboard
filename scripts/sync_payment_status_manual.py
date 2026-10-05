@@ -241,11 +241,28 @@ def fetch_po_payment_status(supabase_url, key):
     return {(row["vendor_code"], row["po_code"]): row.get("payment_status") for row in rows}
 
 
+#: How far down the sheet to look for the real header row -- Oracle's raw
+#: "UC Payout Report_Layout" export (Finance's files from 2026-10-05 on)
+#: puts report-parameter rows ("Business Unit:", "From Date:", "To Date:")
+#: above it, where older hand-cleaned files had the header on row 1.
+HEADER_SEARCH_ROWS = 20
+
+
 def read_payout_rows(path):
     wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
     ws = wb[wb.sheetnames[0]]
     rows_iter = ws.iter_rows(values_only=True)
-    header = [str(h).strip() if h is not None else "" for h in next(rows_iter)]
+    header = None
+    for _, values in zip(range(HEADER_SEARCH_ROWS), rows_iter):
+        cells = [str(h).strip() if h is not None else "" for h in (values or ())]
+        if "Vendor Name" in cells and "Invoice Num" in cells:
+            header = cells
+            break
+    if header is None:
+        # Previously this silently treated row 1 as the header, matched zero
+        # vendors and "succeeded" having updated nothing -- fail loudly instead.
+        sys.exit(f"No header row with 'Vendor Name' and 'Invoice Num' in the first "
+                 f"{HEADER_SEARCH_ROWS} rows of {path} -- has the export layout changed?")
     for values in rows_iter:
         if values is None or all(v is None for v in values):
             continue
@@ -322,8 +339,16 @@ def build_updates(payout_path, vendor_map, upload_lookup, current_status, po_cur
             upload_updates[uid] = payload
             stats["matched_uploads"] += 1
 
-    po_updates, po_downgrades_skipped = {}, 0
+    po_updates, po_downgrades_skipped, pos_not_on_portal = {}, 0, 0
     for key_, row in by_po.items():
+        if key_ not in po_current_status:
+            # A portal vendor's PO that never synced here (created before the
+            # Aug 1 sync window, or at a facility we don't pull) -- PATCHing it
+            # matches zero rows, and these were ~3/4 of all PO writes on
+            # 2026-10-05 (716 of 933), so skip them rather than spend a round
+            # trip each on a no-op.
+            pos_not_on_portal += 1
+            continue
         status = row_payment_status(row)
         if status is None:
             continue  # already counted in unknown_status_rows above when this row also had an invoice number
@@ -339,6 +364,7 @@ def build_updates(payout_path, vendor_map, upload_lookup, current_status, po_cur
 
     stats["downgrades_skipped"] = downgrades_skipped
     stats["po_downgrades_skipped"] = po_downgrades_skipped
+    stats["pos_not_on_portal"] = pos_not_on_portal
     return upload_updates, po_updates, stats
 
 
@@ -422,6 +448,9 @@ def main():
     print(f"  {applied} po_invoice_uploads row(s) updated with a payment status")
     print(f"  {po_applied} purchase_orders row(s) updated with a payment status (matched by PO code, "
           f"whether or not an invoice was ever uploaded)")
+    if stats["pos_not_on_portal"]:
+        print(f"  {stats['pos_not_on_portal']} PO code(s) in the file belong to a portal vendor but aren't in "
+              f"purchase_orders (older than the sync window, etc.) -- skipped")
     if stats["duplicate_invoices"]:
         print(f"  {stats['duplicate_invoices']} invoice number(s) appeared on more than one row in this file -- "
               f"used the most recent/authoritative one for each")
