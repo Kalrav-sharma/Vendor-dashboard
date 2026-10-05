@@ -16,6 +16,9 @@ the UC App + PLS tab's "On hand Inventory" view:
     the marketplaces' own warehouses, which Uniware can't see.
   - IN-TRANSIT still comes from Copy Daily Input Anish's "Dispatch Planning"
     tab ("Intransit Inventory" block), via a Google service account.
+  - CHANNEL DRR/DOI (2026-10-05): DRR is the 10-day average of each channel's
+    own daily-trackr "Actual Sales" block (UC sales trackr / Az / FK / MT -
+    Daily trackr); DOI = that channel's on-hand above / DRR.
 
 So a sop_inventory_uc_warehouse row is deliberately mixed-source: Uniware
 on_hand next to sheet in_transit.
@@ -50,12 +53,12 @@ from google.oauth2 import service_account
 
 sys.path.insert(0, __file__.rsplit("/", 1)[0])
 from sop_common import (  # noqa: E402
-    DARK_STORE_FACILITIES, WAREHOUSE_FACILITY_CODES, compute_forward_doi_from_series,
+    DARK_STORE_FACILITIES, DOI_DISPLAY_CAP_DAYS, WAREHOUSE_FACILITY_CODES,
     fetch_uniware_on_hand, find_trackr_title_cols, parse_daily_trackr_tab,
     parse_uc_sales_trackr_facility_block, replace_by_filter, uniware_qty,
     uniware_warehouse_on_hand,
 )
-from sync_sop_sales import DASH_CHANNELS, PROJECTION_TAB_CONFIG  # noqa: E402
+from sync_sop_sales import DASH_CHANNELS  # noqa: E402
 
 WH_CHANNEL_SKU_ID = "17VKM18L9vlo72LtcKvTOmCbcWqJaRc3sSJIwhthbW8U"
 COPY_DAILY_INPUT_ANISH_ID = "1e04j1Z77tp1dp-b45WSBE_fa-d_y38WlbHQPyeVOVzU"
@@ -109,6 +112,15 @@ WH_CODE_MAP = {
 # run time by find_trackr_title_cols() (see its docstring) instead of being hardcoded.
 WH_TRACKR_CODES = {city: codes[0] for city, codes in WAREHOUSE_FACILITY_CODES.items()}
 DRR_LOOKBACK_DAYS = 10
+# Channel DRR/DOI's actual-sales source (2026-10-05, per Anish): each channel's own daily-trackr tab,
+# its "Actual Sales" block -> (tab, first SKU column index; 6 SKU columns M0..M3 Pro from there).
+# Verified live: UC sales trackr's block sits at I:N, the Az/FK/MT tabs' at AE:AJ.
+ACTUAL_SALES_TAB_CONFIG = {
+    "UC App+PLS": ("'UC sales trackr'", 8),
+    "Amazon": ("'Az - Daily trackr'", 30),
+    "Flipkart": ("'FK - Daily trackr'", 30),
+    "MT": ("'MT - Daily trackr'", 30),
+}
 DARK_STORE_DRR_LOOKBACK_DAYS = 15  # dark stores use a 15-day lookback, per Anish -- warehouses use 10
 
 # The DTDC/SFX buckets in "Current Inventory" are each an aggregate label over multiple individual
@@ -311,141 +323,46 @@ def parse_uc_warehouse_in_transit(rows):
     return result
 
 
-def fetch_channel_daily_sales_drr(supabase_url, key):
-    """Trailing-10-calendar-day average actual sales per channel x SKU, from sop_daily_sales
-    (already synced by sync_sop_sales.py) -- pure average over whichever of the last 10 days have a
-    row, no zero-fill and no minimum-populated-days guard (same convention as every other DRR-like
-    calc in this file, and these 4 channels' daily sales are reliably populated). Excludes today
-    (today's sales are still accumulating, not yet a complete day)."""
-    series_to_channel = {
-        "by_sku_uc": "UC App+PLS", "by_sku_amazon": "Amazon",
-        "by_sku_flipkart": "Flipkart", "by_sku_mt": "MT",
-    }
+def fetch_channel_daily_sales_drr(token):
+    """Trailing-10-calendar-day average actual sales per channel x SKU, read straight from each
+    channel's own daily-trackr tab's "Actual Sales" block (ACTUAL_SALES_TAB_CONFIG) -- per Anish
+    2026-10-05, replacing the earlier sop_daily_sales / "actual sales" tab source. Pure average over
+    whichever of the last 10 days have a row (a date row with every SKU cell blank counts as no
+    data, per parse_daily_trackr_tab), no zero-fill. Excludes today (today's sales are still
+    accumulating, not yet a complete day)."""
     today = datetime.date.today()
-    start = (today - datetime.timedelta(days=DRR_LOOKBACK_DAYS)).isoformat()
-    end = (today - datetime.timedelta(days=1)).isoformat()
-    headers = {"apikey": key, "Authorization": f"Bearer {key}"}
-    params = [
-        ("select", "sale_date,series,dim,qty"),
-        ("series", f"in.({','.join(series_to_channel)})"),
-        ("sale_date", f"gte.{start}"),
-        ("sale_date", f"lte.{end}"),
-    ]
-    r = requests.get(f"{supabase_url}/rest/v1/sop_daily_sales", headers=headers, params=params,
-                      timeout=REQUEST_TIMEOUT)
-    if not r.ok:
-        sys.exit(f"Fetching sop_daily_sales for channel DRR failed ({r.status_code}): {r.text[:500]}")
-
-    sums = {ch: {s: 0.0 for s in SKUS} for ch in DASH_CHANNELS}
-    counts = {ch: {s: 0 for s in SKUS} for ch in DASH_CHANNELS}
-    for row in r.json():
-        ch = series_to_channel.get(row["series"])
-        sku = row["dim"]
-        if ch and sku in SKUS:
-            sums[ch][sku] += to_num(row["qty"])
-            counts[ch][sku] += 1
-    return {ch: {s: (sums[ch][s] / counts[ch][s] if counts[ch][s] else 0.0) for s in SKUS}
-            for ch in DASH_CHANNELS}
+    window = {(today - datetime.timedelta(days=d)).isoformat() for d in range(1, DRR_LOOKBACK_DAYS + 1)}
+    drr = {}
+    for ch in DASH_CHANNELS:
+        tab_name, col = ACTUAL_SALES_TAB_CONFIG[ch]
+        series = parse_daily_trackr_tab(get_values(token, WH_CHANNEL_SKU_ID, tab_name), 0, col)["series"]
+        days = [series[d] for d in sorted(window) if d in series]
+        print(f"{ch} DRR: {len(days)}/{DRR_LOOKBACK_DAYS} day(s) found in {tab_name}")
+        drr[ch] = {s: (sum(day[s] for day in days) / len(days) if days else 0.0) for s in SKUS}
+    return drr
 
 
-def compute_channel_drr_doi(token, supabase_url, supabase_key, channel_on_hand):
-    """sop_channel_drr_doi: DRR from fetch_channel_daily_sales_drr above; DOI is a forward walk
-    (compute_forward_doi_from_series, same engine sync_sop_dispatch_plan.py uses for its own
-    Target Closing / Required Dispatch terms) against each channel's own "Expected Sale"
-    daily-trackr series, starting from that channel's current on-hand in sop_inventory_channel."""
-    drr = fetch_channel_daily_sales_drr(supabase_url, supabase_key)
-    today_ymd = datetime.date.today().isoformat()
+def compute_channel_drr_doi(token, channel_on_hand):
+    """sop_channel_drr_doi: DRR from fetch_channel_daily_sales_drr above; DOI = that channel's
+    current on-hand (the same sop_inventory_channel figure the Channel x SKU table shows) / DRR,
+    per Anish 2026-10-05 -- so the two columns always agree. Above DOI_DISPLAY_CAP_DAYS, or stock
+    with no recent sales, is flagged ">60" rather than given a number."""
+    drr = fetch_channel_daily_sales_drr(token)
+    cap_flag = f">{DOI_DISPLAY_CAP_DAYS}"
     rows = []
     for ch in DASH_CHANNELS:
-        tab_name, day_col_start = PROJECTION_TAB_CONFIG[ch]
-        trackr_rows = get_values(token, WH_CHANNEL_SKU_ID, tab_name)
-        expected_sale = parse_daily_trackr_tab(trackr_rows, 0, day_col_start)
         for sku in SKUS:
             on_hand = channel_on_hand.get(ch, {}).get(sku, 0.0)
-            result = compute_forward_doi_from_series(
-                expected_sale["series"], expected_sale["max_date"], today_ymd, sku, on_hand,
-            )
-            doi, doi_flag = (None, result) if isinstance(result, str) else (result, None)
-            rows.append({"channel": ch, "sku": sku, "drr": drr[ch][sku], "doi": doi, "doi_flag": doi_flag})
+            rate = drr[ch][sku]
+            doi, doi_flag = None, None
+            if on_hand <= 0:
+                doi = 0.0
+            elif rate <= 0 or on_hand / rate > DOI_DISPLAY_CAP_DAYS:
+                doi_flag = cap_flag
+            else:
+                doi = on_hand / rate
+            rows.append({"channel": ch, "sku": sku, "drr": rate, "doi": doi, "doi_flag": doi_flag})
     return rows
-
-
-def compute_facility_drr_doi(uc_trackr_rows, uc_warehouse_on_hand):
-    """sop_facility_drr_doi (WAREHOUSE rows only this phase): DRR is a trailing-10-day average of
-    each warehouse's own direct daily sales, read from "UC sales trackr"'s per-facility Actual
-    Sales blocks; DOI is the simple on_hand/DRR ratio, not a forward-series walk (unlike
-    compute_channel_drr_doi above) -- matches warehouse-doi-alert's existing
-    projectedDOI = closing / effectiveDrr convention."""
-    today = datetime.date.today()
-    lookback_ymds = [(today - datetime.timedelta(days=d)).isoformat()
-                      for d in range(1, DRR_LOOKBACK_DAYS + 1)]
-    cols_by_code = find_trackr_title_cols(uc_trackr_rows, WH_TRACKR_CODES.values())
-    title_cols = {wh: cols_by_code[code] for wh, code in WH_TRACKR_CODES.items()
-                  if code in cols_by_code}
-    # Unlike a dark store, a mother warehouse with no block is never legitimate -- say so loudly
-    # rather than quietly publishing it with a zero DRR and therefore no DOI at all.
-    for wh in WAREHOUSES:
-        if wh not in title_cols:
-            print(f"WARNING: no 'UC sales trackr' block for {WH_TRACKR_CODES[wh]} ({wh}) -- that "
-                  f"warehouse will have no DRR/DOI row this run.", file=sys.stderr)
-    rows = []
-    for wh, title_col in title_cols.items():
-        series = parse_uc_sales_trackr_facility_block(uc_trackr_rows, title_col)["series"]
-        for sku in SKUS:
-            vals = [series[ymd][sku] for ymd in lookback_ymds if ymd in series]
-            drr = sum(vals) / len(vals) if vals else 0.0
-            on_hand = uc_warehouse_on_hand.get(wh, {}).get(sku, 0.0)
-            doi = (on_hand / drr) if drr > 0 else None
-            rows.append({"facility": wh, "facility_type": "WAREHOUSE", "sku": sku,
-                         "drr": drr, "doi": doi, "on_hand": on_hand})
-    return rows
-
-
-def compute_dark_store_drr_doi(uc_trackr_rows, dark_store_on_hand):
-    """sop_facility_drr_doi DARK_STORE rows: same on_hand/DRR ratio as compute_facility_drr_doi, but
-    a 15-day DRR lookback (not 10 -- per Anish, dark stores use a longer window than warehouses) and
-    only for those dark stores that have their own UC sales trackr block. Stores without one
-    (e.g. PB-UC-BLR-CHAMRAJPET, or any newly opened store until its block is added)
-    get on-hand rows but no DRR/DOI row, and so simply don't appear on the DOI heatmap."""
-    today = datetime.date.today()
-    lookback_ymds = [(today - datetime.timedelta(days=d)).isoformat()
-                      for d in range(1, DARK_STORE_DRR_LOOKBACK_DAYS + 1)]
-    rows = []
-    for store, title_col in find_trackr_title_cols(uc_trackr_rows, DARK_STORE_FACILITIES).items():
-        series = parse_uc_sales_trackr_facility_block(uc_trackr_rows, title_col)["series"]
-        for sku in SKUS:
-            vals = [series[ymd][sku] for ymd in lookback_ymds if ymd in series]
-            drr = sum(vals) / len(vals) if vals else 0.0
-            on_hand = dark_store_on_hand.get(store, {}).get(sku, 0.0)
-            doi = (on_hand / drr) if drr > 0 else None
-            rows.append({"facility": store, "facility_type": "DARK_STORE", "sku": sku,
-                         "drr": drr, "doi": doi, "on_hand": on_hand})
-    return rows
-
-
-def supabase_config():
-    url = os.environ.get("SUPABASE_URL")
-    key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
-    if not url or not key:
-        sys.exit("Missing SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY environment variables.")
-    return url.rstrip("/"), key
-
-
-def upsert(supabase_url, key, table, rows, on_conflict):
-    if not rows:
-        sys.exit(f"Parsed zero rows for {table} -- aborting without touching it (a transient "
-                  f"fetch/parse failure looks the same as an empty sheet; refusing to wipe "
-                  f"existing data on that ambiguity).")
-    headers = {
-        "apikey": key, "Authorization": f"Bearer {key}", "Content-Type": "application/json",
-        "Prefer": "resolution=merge-duplicates,return=minimal",
-    }
-    r = requests.post(
-        f"{supabase_url}/rest/v1/{table}",
-        headers=headers, params={"on_conflict": on_conflict}, json=rows, timeout=REQUEST_TIMEOUT,
-    )
-    if not r.ok:
-        sys.exit(f"Upsert into {table} failed ({r.status_code}): {r.text[:500]}")
 
 
 def main():
@@ -489,7 +406,7 @@ def main():
     channel_on_hand = {}
     for r in channel_rows:
         channel_on_hand.setdefault(r["channel"], {})[r["sku"]] = r["qty"]
-    channel_drr_doi_rows = compute_channel_drr_doi(token, supabase_url, supabase_key, channel_on_hand)
+    channel_drr_doi_rows = compute_channel_drr_doi(token, channel_on_hand)
     upsert(supabase_url, supabase_key, "sop_channel_drr_doi", channel_drr_doi_rows, "channel,sku")
 
     uc_trackr_rows = get_values(token, WH_CHANNEL_SKU_ID, "'UC sales trackr'")

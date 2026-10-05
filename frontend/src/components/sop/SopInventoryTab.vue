@@ -6,9 +6,9 @@
 // Redesigned 2026-09-15 per Anish: (a) Croma + Vijay Sales clubbed into one
 // "MT" bucket, (b) the 3 UC-warehouse on-hand/in-transit/combined tables
 // removed from this tab, (c) replaced with a channel x SKU DRR/DOI table
-// (DRR = trailing 10-day actual sales average, DOI = forward walk against
-// each channel's own "Expected Sale" daily-trackr series -- see
-// scripts/sync_sop_inventory.py's compute_channel_drr_doi docstring).
+// (DRR = trailing 10-day average of each channel's own daily-trackr "Actual
+// Sales" block, DOI = that channel's inventory in the table above / DRR,
+// since 2026-10-05 -- see scripts/sync_sop_inventory.py's compute_channel_drr_doi).
 import { computed } from "vue";
 import { useSopInventoryData } from "../../composables/useSopInventoryData.js";
 import SummaryKpis from "../SummaryKpis.vue";
@@ -110,8 +110,8 @@ const kpiTiles = computed(() => [
 
   <h3 class="section-title" style="margin-bottom: 6px;">Channel DRR / DOI</h3>
   <p class="field-hint" style="margin: 0 0 10px;">
-    DRR: trailing 10-day average actual sales. DOI: forward-looking days of inventory against each
-    channel's own daily sales plan.
+    DRR: trailing 10-day average of each channel's Actual Sales (UC sales trackr / Az / FK / MT - Daily trackr).
+    DOI: current inventory (table above) &#247; DRR.
     <span class="chip chip-critical" style="margin-left: 6px;">DOI &lt; 10</span>
     <span class="chip chip-good">DOI &#8805; 30</span>
   </p>
