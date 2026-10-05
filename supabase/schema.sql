@@ -2162,6 +2162,50 @@ create policy last_mile_alerts_select on public.last_mile_alerts
   for select using (public.is_internal_staff());
 -- ---------------------------------------------------------------------
 
+-- Ops' own hand-entered status on an alerted AWB (Alerts tab's Flag column
+-- dropdown) -- deliberately a SEPARATE table, keyed on awb alone, not a
+-- column on last_mile_alerts. Every hourly sync writes a brand-new run_id
+-- and upserts on (run_id, awb) (see sync_last_mile_hourly.py), so even the
+-- same AWB gets an entirely new row next run -- anything written onto
+-- last_mile_alerts itself would vanish the moment the next sync's run
+-- becomes "latest". This table is never touched by the sync script, so a
+-- note survives across runs until the team changes or clears it.
+create table if not exists public.last_mile_alert_status (
+  awb text primary key,
+  status text,
+  updated_at timestamptz not null default now(),
+  updated_by uuid references auth.users(id) on delete set null,
+  updated_by_name text
+);
+
+-- closed added after the table's first release: "Close alert" lets ops
+-- suppress an AWB from the Alerts tab outright, independent of (and
+-- survives alongside) whatever status text is set -- see useLastMileData.js'
+-- closeAlert(). status was originally `not null`; closing an AWB that never
+-- had a status set needs to insert a row without one, so that constraint is
+-- dropped here (safe to re-run: a no-op once already dropped).
+alter table public.last_mile_alert_status alter column status drop not null;
+alter table public.last_mile_alert_status add column if not exists closed boolean not null default false;
+
+alter table public.last_mile_alert_status enable row level security;
+
+drop policy if exists last_mile_alert_status_select on public.last_mile_alert_status;
+create policy last_mile_alert_status_select on public.last_mile_alert_status
+  for select using (public.is_internal_staff());
+
+-- Same three roles that can see the Last Mile section at all (admin,
+-- management, operations -- see AdminApp.vue's canSeeLastMile) can write
+-- here; is_internal_staff() doesn't currently distinguish them (same
+-- known gap as every other internal table in this schema).
+drop policy if exists last_mile_alert_status_upsert on public.last_mile_alert_status;
+create policy last_mile_alert_status_upsert on public.last_mile_alert_status
+  for insert with check (public.is_internal_staff());
+
+drop policy if exists last_mile_alert_status_update on public.last_mile_alert_status;
+create policy last_mile_alert_status_update on public.last_mile_alert_status
+  for update using (public.is_internal_staff()) with check (public.is_internal_staff());
+-- ---------------------------------------------------------------------
+
 -- Open shipments: the FULL "not complete, not RTO" population -- every AWB
 -- in cohort (live, backlog, no_dispatch_date), whether or not it currently
 -- trips an alert. last_mile_alerts is a deliberately CURATED subset (only
@@ -2729,41 +2773,18 @@ create policy support_tickets_update on public.support_tickets
   using (public.is_internal_staff())
   with check (public.is_internal_staff());
 
--- Auto-raises a po_request ticket the moment a new PO lands, so staff
--- have a standing reminder to email the vendor a copy without the vendor
--- needing to ask first. SECURITY DEFINER so this fires regardless of who/
--- what triggered the underlying purchase_orders insert (normally
--- service_role via the Uniware sync, which bypasses RLS anyway) -- same
--- reasoning as queue_new_po_email() above, and this ticket coexists with
--- that same email-reminder cascade rather than replacing it: the vendor's
--- own "Request PO" button on PO Tracking still works and shows normally
--- regardless of whether this auto-ticket is still open, so if staff
--- haven't gotten to it, the vendor has their own timely escalation path.
-create or replace function public.queue_po_request_ticket()
-returns trigger
-language plpgsql
-security definer
-set search_path = public
-as $$
-begin
-  -- Same recency guard as queue_new_po_email() -- backfilling a brand-new
-  -- vendor's whole PO history shouldn't raise one ticket per historical PO.
-  if new.created_at is not null and new.created_at >= now() - interval '4 days' then
-    insert into public.support_tickets (vendor_code, vendor_name, category, po_code, subject, description, created_by_name)
-    values (
-      new.vendor_code, new.vendor_name, 'po_request', new.po_code,
-      'PO copy needed — ' || new.po_code,
-      'New purchase order raised -- please email a copy to the vendor.',
-      'System'
-    );
-  end if;
-  return new;
-end;
-$$;
-
+-- Removed 2026-10-05 (Kalrav): a new PO used to auto-raise a 'po_request'
+-- ticket the moment it landed, as a standing reminder for staff to email
+-- the vendor a copy. The vendor's own "Request PO" button on PO Tracking
+-- (which created the exact same kind of ticket, just vendor-initiated) is
+-- also removed as of this change -- vendors now only raise a ticket
+-- through the normal Raise a Ticket screen, when they actually need one.
+-- Historical 'po_request' tickets from before this change are untouched
+-- and still readable/filterable (the support_tickets category check
+-- constraint and ticketCategoryLabel()'s "PO request" label both stay).
+-- Explicit drops, not a plain deletion from this file, so an
+-- already-applied database converges on re-run, per this schema's
+-- idempotency contract.
 drop trigger if exists trg_queue_po_request_ticket on public.purchase_orders;
-create trigger trg_queue_po_request_ticket
-  after insert on public.purchase_orders
-  for each row
-  execute function public.queue_po_request_ticket();
+drop function if exists public.queue_po_request_ticket();
 -- ---------------------------------------------------------------------
