@@ -134,6 +134,24 @@ Deno.serve(async (req) => {
       global: { headers: { Authorization: authHeader } },
     });
 
+    // PO PDF download is internal-staff only as of 2026-10-05 (Kalrav) --
+    // removed from the vendor side of the portal, both the button and this
+    // function's own willingness to serve a vendor's request for it, so a
+    // vendor can't reach the same data by calling this Edge Function
+    // directly once the UI path is gone. RLS alone isn't enough here since
+    // a vendor's own JWT can legitimately read their own purchase_orders
+    // row (that's the point of RLS) -- this is an explicit role check on
+    // top, same pattern as every admin-only function in this project.
+    const { data: { user }, error: userErr } = await callerClient.auth.getUser();
+    if (userErr || !user) {
+      return json({ error: "Not authenticated" }, 401);
+    }
+    const { data: callerProfile, error: profileErr } = await callerClient
+      .from("profiles").select("role").eq("id", user.id).single();
+    if (profileErr || callerProfile?.role === "vendor") {
+      return json({ error: "Not authorized for this PO" }, 404);
+    }
+
     const { data: po, error: poErr } = await callerClient
       .from("purchase_orders")
       .select("po_code, facility")

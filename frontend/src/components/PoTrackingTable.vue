@@ -28,12 +28,10 @@ const props = defineProps({
   skuRows: { type: Array, default: () => [] },
   skuFilters: { type: Object, default: () => ({}) },
   onOpenSku: { type: Function, default: null },
-  // vendor.html only -- replaces the PO column's PDF download button with
-  // a "Request PO" button that raises a support ticket instead (staff
-  // email the PDF and mark it resolved from the admin Tickets screen).
-  showRequestPo: { type: Boolean, default: false },
-  onRequestPo: { type: Function, default: null }, // (poCode) => { data, error }
-  poRequestTickets: { type: Array, default: () => [] }, // this vendor's own tickets, to show "already requested"
+  // Real Uniware PO PDF download -- admin/management/operations/finance
+  // only as of 2026-10-05 (Kalrav); removed from vendor.html (get-po-pdf
+  // itself also refuses a vendor caller now, so this is UI-level only).
+  allowPdfDownload: { type: Boolean, default: true },
   // vendor.html only -- { bucket } set by a Dashboard shortcut ("5 POs need
   // an invoice") to land on that bucket; a fresh object each time, so
   // re-clicking the same shortcut re-applies it after a manual tab change.
@@ -139,28 +137,6 @@ function paymentBooked(poCode) {
   return uploads.length > 0 && uploads.every((u) => !!u.payment_status);
 }
 
-// The latest po_request ticket for this PO, whatever its status --
-// `poRequestTickets` is already newest-first (see useSupportTickets.js),
-// so the first match is the most recent request. A new PO auto-raises
-// one of these the moment it's synced in (see queue_po_request_ticket()
-// in schema.sql) -- but the button below still shows normally regardless
-// of whether one's open, so the vendor always has their own timely
-// escalation path if staff haven't gotten to it yet. Only once it's
-// actually resolved does this cell show that instead of the button.
-function latestPoRequest(poCode) {
-  return props.poRequestTickets.find((t) => t.po_code === poCode && t.category === "po_request");
-}
-const requestingCodes = reactive(new Set());
-async function handleRequestPo(poCode) {
-  if (!props.onRequestPo || requestingCodes.has(poCode)) return;
-  requestingCodes.add(poCode);
-  try {
-    await props.onRequestPo(poCode);
-  } finally {
-    requestingCodes.delete(poCode);
-  }
-}
-
 const activeBucket = ref("all");
 watch(() => props.focusBucket, (f) => { if (f?.bucket) activeBucket.value = f.bucket; });
 const bucketCounts = computed(() => {
@@ -218,7 +194,7 @@ const showingSkuData = computed(() => props.showBuckets && activeBucket.value ==
             <th v-if="vendorOptions">Vendor</th>
             <th>Facility</th><th>PO code</th><th>Created</th><th>Status</th>
             <th class="num">Qty ordered</th><th class="num">Received</th><th class="num">PO value</th>
-            <th>GRN / invoice</th><th class="col-tight">{{ showRequestPo ? "Request PO" : "PO" }}</th><th class="col-tight">Invoice</th>
+            <th>GRN / invoice</th><th class="col-tight">PO</th><th class="col-tight">Invoice</th>
           </tr>
           <tr class="filter-row">
             <td v-if="vendorOptions">
@@ -292,22 +268,8 @@ const showingSkuData = computed(() => props.showBuckets && activeBucket.value ==
             </template>
           </td>
           <td class="col-tight">
-            <template v-if="showRequestPo">
-              <template v-if="latestPoRequest(p.po_code)?.status === 'resolved'">
-                <span class="chip chip-good">
-                  Resolved{{ latestPoRequest(p.po_code).admin_response ? `, ${latestPoRequest(p.po_code).admin_response}` : "" }}
-                </span>
-                <button
-                  type="button" class="link-btn-inline" style="display: block; margin-top: 2px;"
-                  :disabled="requestingCodes.has(p.po_code)" @click.stop="handleRequestPo(p.po_code)"
-                >{{ requestingCodes.has(p.po_code) ? "Requesting…" : "Request again" }}</button>
-              </template>
-              <button
-                v-else class="link-btn-inline" :disabled="requestingCodes.has(p.po_code)"
-                @click.stop="handleRequestPo(p.po_code)"
-              >{{ requestingCodes.has(p.po_code) ? "Requesting…" : "Request PO" }}</button>
-            </template>
-            <DownloadPdfButton v-else :po-code="p.po_code" />
+            <DownloadPdfButton v-if="allowPdfDownload" :po-code="p.po_code" />
+            <span v-else class="cell-empty">–</span>
           </td>
           <td class="col-tight">
             <div class="invoice-upload-cell">

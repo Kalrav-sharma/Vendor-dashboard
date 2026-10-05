@@ -15,6 +15,10 @@ const props = defineProps({
   uploaderLabel: { type: String, default: "" }, // current user's display name, recorded on an uploaded row
   allowDispatchPlanning: { type: Boolean, default: false }, // true from both vendor.html and admin.html
   canViewInvoiceMatchDetails: { type: Boolean, default: false }, // admin/management only -- see InvoiceUploads.vue
+  // Real Uniware PO PDF download -- admin/management/operations/finance
+  // only as of 2026-10-05 (Kalrav); removed from vendor.html (get-po-pdf
+  // itself also refuses a vendor caller now, so this is UI-level only).
+  allowPdfDownload: { type: Boolean, default: true },
 });
 
 // Local per-SKU edit state for the two Dispatch Planning fields -- `items`
@@ -130,7 +134,7 @@ async function doSave(item, newDate, newQty, changeAudit) {
     <div><b>Created:</b> {{ fmtDate(po.created_at) }}</div>
     <div><b>PO value:</b> {{ fmtMoney(po.total_amount) }}</div>
     <div><b>Invoice no(s):</b> {{ invoices.length ? invoices.join(", ") : "not yet raised" }}</div>
-    <div><b>PO copy:</b> <DownloadPdfButton :po-code="po.po_code" /></div>
+    <div v-if="allowPdfDownload"><b>PO copy:</b> <DownloadPdfButton :po-code="po.po_code" /></div>
   </div>
 
   <div class="table-card"><div class="table-scroll">
