@@ -20,6 +20,11 @@ on:
 permissions:
   contents: read
 
+# One run at a time; a new trigger waits instead of racing the running one's writes.
+concurrency:
+  group: sync-sop-first-mile
+  cancel-in-progress: false
+
 jobs:
   sync:
     runs-on: ubuntu-latest

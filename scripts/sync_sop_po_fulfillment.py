@@ -18,9 +18,7 @@ sop_po_shortfall_rca) -- no LLM narrative generation anywhere; every
 structured data, exactly like the source script.
 
 Column indices for Raw Data Sheet are HARDCODED, not header-label-driven
--- deliberately, matching the source script exactly -- EXCEPT the SO Number
-and PO/ Gate Pass Number columns, which since 2026-10-03 are resolved by
-header label (see resolve_so_po_cols()). This tab's own
+-- deliberately, matching the source script exactly. This tab's own
 header labels are known to be STALE/WRONG relative to the actual data
 (e.g. the header says col 36 is "SO Number", but the real SO number
 lives in col 37, itself mislabeled "PO/ Gate Pass Number" -- verified
@@ -34,7 +32,6 @@ SUPABASE_SERVICE_ROLE_KEY (all already provisioned, no new secrets).
 Depends on Phase B's production_plan_snapshots table (shortfall RCA).
 """
 import datetime
-import re
 import sys
 import zoneinfo
 
@@ -77,13 +74,8 @@ RDH_DEST_COL = 5
 RDH_MOVTYPE_COL = 8
 RDH_CHANNEL_COL = 12
 RDH_SKU_COLS = {"M0": 18, "M1-2nd Gen": 19, "M2 Pro": 21, "M1 Pro": 22, "M3 Pro": 23, "M3": 24}
-# SO Number / PO number columns are resolved by header label at runtime (resolve_so_po_cols) --
-# hardcoded 37/38 broke on 2026-10-03 when the sheet's columns shifted back: the real SO numbers
-# ("SO13xxxx") now sit under the "SO Number" header (col 36) and PO ids under "PO/ Gate Pass
-# Number" (col 37), so col 37 was flagging nearly every PO as SO-confirmed.
-SO_NUM_HEADER = "SO NUMBER"
-PO_NUM_HEADER = "PO/ GATE PASS NUMBER"
-SO_VALUE_RE = re.compile(r"^SO\d+", re.I)
+RDH_SO_NUM_COL = 37
+RDH_PO_APPT_COL = 38
 
 CURRENT_YEAR = datetime.date.today().year
 
@@ -153,7 +145,7 @@ def parse_dispatch_records(rows):
     sorted most-recent-first per (warehouse, sku)."""
     dispatches = {wh: {s: [] for s in SKUS} for wh in WH_ORDER}
     for row in rows[1:]:
-        row = pad_row(row, max(RDH_SKU_COLS.values()) + 1)
+        row = pad_row(row, RDH_PO_APPT_COL + 1)
         origin_raw = str(row[RDH_ORIGIN_COL] or "").strip().upper()
         if origin_raw not in PRODUCTION_ORIGINS:
             continue
@@ -211,33 +203,12 @@ def compute_in_transit_etas(in_transit, dispatches, today):
     return eta_map
 
 
-def resolve_so_po_cols(rows):
-    """Find the SO Number and PO/ Gate Pass Number columns by header label, then sanity-check the
-    SO column against the data: it must hold "SO\\d+" values and no other column may hold more of
-    them. Aborts rather than silently scoring every PO with the wrong CONFIRMED flag."""
-    header = [" ".join(str(h or "").split()).upper() for h in rows[0]]
-    if SO_NUM_HEADER not in header or PO_NUM_HEADER not in header:
-        sys.exit(f"Raw Data Sheet header is missing '{SO_NUM_HEADER}' or '{PO_NUM_HEADER}' -- aborting.")
-    so_col, po_col = header.index(SO_NUM_HEADER), header.index(PO_NUM_HEADER)
-    so_counts = {}
-    for row in rows[1:]:
-        if len(row) > RDH_MOVTYPE_COL and str(row[RDH_MOVTYPE_COL] or "").strip() == "MM":
-            for c, v in enumerate(row):
-                if SO_VALUE_RE.match(str(v or "").strip()):
-                    so_counts[c] = so_counts.get(c, 0) + 1
-    if not so_counts.get(so_col) or max(so_counts.values()) > so_counts[so_col]:
-        sys.exit(f"'SO Number' header is col {so_col} but SO-number values are in cols {so_counts} -- "
-                 "header and data have drifted apart; aborting without writing.")
-    return so_col, po_col
-
-
 def parse_pos(rows, today, end_date):
     """Port of parsePOs(): individual channel-PO rows within the window, grouped
     posByDay[day_offset][wh][channel][sku] = [{qty, confirmed, po_number}, ...]."""
-    so_col, po_col = resolve_so_po_cols(rows)
     pos_by_day = {d: {} for d in range(WINDOW_DAYS)}
     for row in rows[1:]:
-        row = pad_row(row, max(so_col, po_col, max(RDH_SKU_COLS.values())) + 1)
+        row = pad_row(row, RDH_PO_APPT_COL + 1)
         ymd = parse_rdh_date(row[RDH_DATE_COL])
         if not ymd:
             continue
@@ -257,8 +228,8 @@ def parse_pos(rows, today, end_date):
         if day_offset < 0 or day_offset >= WINDOW_DAYS:
             continue
 
-        confirmed = str(row[so_col] or "").strip() != ""
-        po_number = str(row[po_col] or "").strip()
+        confirmed = str(row[RDH_SO_NUM_COL] or "").strip() != ""
+        po_number = str(row[RDH_PO_APPT_COL] or "").strip()
         pos_by_day[day_offset].setdefault(wh, {}).setdefault(channel, {})
         for sku in SKUS:
             qty = to_num(row[RDH_SKU_COLS[sku]])

@@ -5,6 +5,38 @@ import { defineConfig } from 'vite'
 
 const root = fileURLToPath(new URL('.', import.meta.url))
 
+// Must match SUPABASE_URL in src/supabaseClient.js.
+const SUPABASE_HOST = 'jfxfzulufaxrmopnvpqa.supabase.co'
+
+const CONTENT_SECURITY_POLICY = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  "font-src 'self' data: https://fonts.gstatic.com",
+  "img-src 'self' data: blob:",
+  `connect-src 'self' https://${SUPABASE_HOST} wss://${SUPABASE_HOST}`,
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+].join('; ')
+
+// GitHub Pages can't send security headers, so the built pages carry them as
+// <meta> tags instead. Build-only, so the dev server's HMR socket isn't blocked.
+function securityMetaTags() {
+  const tags =
+    `\n<meta http-equiv="Content-Security-Policy" content="${CONTENT_SECURITY_POLICY}">` +
+    '\n<meta name="referrer" content="strict-origin-when-cross-origin">'
+  const anchor = /<meta name="viewport"[^>]*>/
+  return {
+    name: 'security-meta-tags',
+    apply: 'build',
+    transformIndexHtml(html, ctx) {
+      if (!anchor.test(html)) throw new Error(`security-meta-tags: no viewport meta in ${ctx.filename}`)
+      return html.replace(anchor, (m) => m + tags)
+    },
+  }
+}
+
 // Multi-page build: each migrated page gets its own HTML entry. Built
 // output is copied manually into ../docs/ (see scripts/build-and-copy.sh)
 // rather than deploying dist/ directly, since docs/ also holds pages not
@@ -25,7 +57,7 @@ export default defineConfig({
   // allow-lists the domain, or drop it if a subdomain of an
   // already-trusted urbancompany.com becomes an option instead.)
   base: '/Vendor-dashboard/',
-  plugins: [vue()],
+  plugins: [vue(), securityMetaTags()],
   build: {
     assetsDir: 'vite-assets',
     rollupOptions: {

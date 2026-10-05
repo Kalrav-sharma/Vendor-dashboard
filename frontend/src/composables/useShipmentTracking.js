@@ -7,6 +7,7 @@
 // convention as usePurchaseOrders.js. Polls every 60s, same pattern too.
 import { ref, onMounted, onUnmounted } from "vue";
 import { supabase } from "../supabaseClient.js";
+import { setVisibleInterval, clearVisibleInterval } from "./polling.js";
 
 // The 3 courier tracking syncs (Bluedart/DTDC/Lets Transport) each run
 // every 30 min -- 5 min still feels responsive without re-polling
@@ -45,10 +46,10 @@ export function useShipmentTracking(vendorCode = null) {
   let intervalId = null;
   onMounted(async () => {
     await refresh();
-    intervalId = setInterval(refresh, POLL_INTERVAL_MS);
+    intervalId = setVisibleInterval(refresh, POLL_INTERVAL_MS);
   });
   onUnmounted(() => {
-    if (intervalId) clearInterval(intervalId);
+    if (intervalId) clearVisibleInterval(intervalId);
   });
 
   return { rows, loadError, refresh };

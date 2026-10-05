@@ -7,6 +7,7 @@
 // mounted while switching sidebar tabs), same reason that composable polls.
 import { ref, computed, onMounted, onUnmounted } from "vue";
 import { supabase } from "../supabaseClient.js";
+import { setVisibleInterval, clearVisibleInterval } from "./polling.js";
 
 // sync_mm_rate_card.py runs once/day -- 15 min is still far ahead of the
 // source without polling unchanged data (2026-09-25, Kalrav).
@@ -54,10 +55,10 @@ export function useRateCard() {
   let intervalId = null;
   onMounted(async () => {
     await refresh();
-    intervalId = setInterval(refresh, POLL_INTERVAL_MS);
+    intervalId = setVisibleInterval(refresh, POLL_INTERVAL_MS);
   });
   onUnmounted(() => {
-    if (intervalId) clearInterval(intervalId);
+    if (intervalId) clearVisibleInterval(intervalId);
   });
 
   return { rows, refresh, origins, destinations, truckSizes, findLane };

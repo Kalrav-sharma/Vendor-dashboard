@@ -3,6 +3,7 @@
 // scripts/sync_sop_sales.py.
 import { ref, onMounted, onUnmounted } from "vue";
 import { fetchAllRows } from "./sopPagedFetch.js";
+import { setVisibleInterval, clearVisibleInterval } from "./polling.js";
 
 // sync_sop_sales.py runs every 2 hrs (0 4-18/2) -- 15 min is still far
 // ahead of the source without polling unchanged data (2026-09-25, Kalrav).
@@ -21,10 +22,10 @@ export function useSopDailySalesData() {
   let intervalId = null;
   onMounted(async () => {
     await refresh();
-    intervalId = setInterval(refresh, POLL_INTERVAL_MS);
+    intervalId = setVisibleInterval(refresh, POLL_INTERVAL_MS);
   });
   onUnmounted(() => {
-    if (intervalId) clearInterval(intervalId);
+    if (intervalId) clearVisibleInterval(intervalId);
   });
 
   return { rows, loadError, refresh };

@@ -76,13 +76,15 @@ jobs:
         with:
           python-version: '3.11'
       - run: pip install -r requirements.txt
+      # Input goes through env, not ${{ }} in the script, so it can't inject shell commands next to these secrets.
       - run: |
           ARGS="--budget-minutes 20"
-          if [ -n "${{ github.event.inputs.adapters }}" ]; then
-            ARGS="$ARGS --adapters ${{ github.event.inputs.adapters }}"
+          if [ -n "$ADAPTERS" ]; then
+            ARGS="$ARGS --adapters $ADAPTERS"
           fi
           python scripts/sync_last_mile_hourly.py $ARGS
         env:
+          ADAPTERS: ${{ github.event.inputs.adapters }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           # Blue Dart: the adapter reads BLUEDART_LICENSE_KEY (American

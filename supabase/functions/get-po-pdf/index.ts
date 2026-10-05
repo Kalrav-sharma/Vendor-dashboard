@@ -35,9 +35,13 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
+const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 const UNIWARE_USERNAME = Deno.env.get("UNIWARE_USERNAME")!;
 const UNIWARE_PASSWORD = Deno.env.get("UNIWARE_PASSWORD")!;
 const UNIWARE_BASE_URL = "https://urbanclap.unicommerce.com";
+
+// Every download spends a call on the shared Uniware account the sync pipeline also depends on.
+const DOWNLOADS_PER_USER = { limit: 30, windowSeconds: 5 * 60 };
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -77,11 +81,6 @@ async function getUniwareToken(): Promise<string> {
           password: UNIWARE_PASSWORD,
         }),
       );
-      // TEMP DIAGNOSTIC (2026-09-17): does the OAuth token response also
-      // hand back a session cookie we could reuse for /data/user/
-      // switchfacility + /po/show, the way a real browser login does?
-      // Remove once answered either way.
-      console.log(`DIAG oauth/token response headers: ${JSON.stringify([...tokenResp.headers.entries()])}`);
       const rawBody = await tokenResp.text();
       if (!tokenResp.ok) {
         console.error(`Uniware oauth/token HTTP ${tokenResp.status}: ${rawBody.slice(0, 500)}`);
@@ -127,6 +126,9 @@ Deno.serve(async (req) => {
     if (!poCode) {
       return json({ error: "po_code query parameter is required" }, 400);
     }
+    if (poCode.length > 100) {
+      return json({ error: "Invalid po_code" }, 400);
+    }
 
     // Scoped to the caller's own JWT -- RLS decides visibility. If this
     // vendor doesn't own this PO (or it doesn't exist), we get zero rows.
@@ -144,6 +146,12 @@ Deno.serve(async (req) => {
       return json({ error: "Not found or not authorized for this PO" }, 404);
     }
 
+    // Counted only after RLS accepted the JWT above, so a forged token can't burn someone else's quota.
+    const userId = jwtSubject(authHeader);
+    if (userId && !(await underLimit(`po-pdf:${userId}`, DOWNLOADS_PER_USER))) {
+      return json({ error: "Too many PO downloads in a short time -- please wait a few minutes and try again." }, 429);
+    }
+
     if (!UNIWARE_USERNAME || !UNIWARE_PASSWORD) {
       return json({ error: "Server misconfigured: missing Uniware credentials" }, 500);
     }
@@ -159,17 +167,16 @@ Deno.serve(async (req) => {
     // exact call the browser UI's facility dropdown makes -- confirmed
     // body shape: {"facilityCode": "...", "currentUrl": "..."}) do
     // anything useful when called with just the bearer token, no cookie
-    // jar? Logging status + body either way. Remove once answered.
+    // jar? Remove once answered. Logs status only -- never the Set-Cookie
+    // session header or body, which landed Uniware session data in the logs.
     try {
       const switchResp = await fetch(`${UNIWARE_BASE_URL}/data/user/switchfacility`, {
         method: "POST",
         headers: { Authorization: `bearer ${uniwareToken}`, "Content-Type": "application/json" },
         body: JSON.stringify({ facilityCode: po.facility, currentUrl: "/purchaseOrders" }),
       });
-      const switchBody = await switchResp.text();
-      console.log(
-        `DIAG switchfacility HTTP ${switchResp.status} set-cookie=${switchResp.headers.get("set-cookie")} body=${switchBody.slice(0, 300)}`,
-      );
+      await switchResp.body?.cancel();
+      console.log(`DIAG switchfacility HTTP ${switchResp.status}`);
     } catch (e) {
       console.log(`DIAG switchfacility threw: ${e instanceof Error ? e.message : String(e)}`);
     }
@@ -211,6 +218,29 @@ Deno.serve(async (req) => {
     return json({ error: `Unexpected error: ${e instanceof Error ? e.message : String(e)}` }, 500);
   }
 });
+
+function jwtSubject(authHeader: string): string | null {
+  try {
+    const payload = authHeader.replace(/^Bearer\s+/i, "").split(".")[1];
+    const claims = JSON.parse(atob(payload.replace(/-/g, "+").replace(/_/g, "/")));
+    return typeof claims.sub === "string" ? claims.sub : null;
+  } catch {
+    return null;
+  }
+}
+
+// Fixed-window limiter via rate_limit_hit() (schema.sql); fails open so a missing/broken limiter never blocks downloads.
+async function underLimit(bucket: string, cfg: { limit: number; windowSeconds: number }): Promise<boolean> {
+  if (!SERVICE_ROLE_KEY) return true;
+  const { data, error } = await createClient(SUPABASE_URL, SERVICE_ROLE_KEY).rpc("rate_limit_hit", {
+    p_bucket: bucket, p_limit: cfg.limit, p_window_seconds: cfg.windowSeconds, p_cost: 1,
+  });
+  if (error) {
+    console.error(`rate_limit_hit(${bucket}) failed, allowing request: ${error.message}`);
+    return true;
+  }
+  return data !== false;
+}
 
 function json(body: unknown, status: number) {
   return new Response(JSON.stringify(body), {

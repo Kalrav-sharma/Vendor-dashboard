@@ -8,6 +8,7 @@
 // remaining consumer of the snapshot table.
 import { ref, onMounted, onUnmounted } from "vue";
 import { fetchAllRows } from "./sopPagedFetch.js";
+import { setVisibleInterval, clearVisibleInterval } from "./polling.js";
 
 // sync_sop_production.py runs every 30 min (4am-6pm) -- 5 min keeps this
 // feeling live without polling unchanged data (2026-09-25, Kalrav).
@@ -26,10 +27,10 @@ export function useSopProductionData() {
   let intervalId = null;
   onMounted(async () => {
     await refresh();
-    intervalId = setInterval(refresh, POLL_INTERVAL_MS);
+    intervalId = setVisibleInterval(refresh, POLL_INTERVAL_MS);
   });
   onUnmounted(() => {
-    if (intervalId) clearInterval(intervalId);
+    if (intervalId) clearVisibleInterval(intervalId);
   });
 
   return { dailyRows, loadError, refresh };

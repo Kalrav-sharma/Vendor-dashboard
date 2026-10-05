@@ -18,6 +18,16 @@ import { initTheme } from "./theme.js";
 // matters (avoiding a flash of the wrong theme).
 initTheme();
 
+// Clickjacking guard: GitHub Pages can't send frame-ancestors / X-Frame-Options. localhost is exempt for editor preview panes.
+if (window.top !== window.self && !["localhost", "127.0.0.1"].includes(window.location.hostname)) {
+  document.documentElement.style.display = "none";
+  try {
+    window.top.location.replace(window.location.href);
+  } catch {
+    // Navigation blocked (sandboxed/cross-origin parent): staying hidden is the protection.
+  }
+}
+
 const SUPABASE_URL = "https://jfxfzulufaxrmopnvpqa.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_LNoy7fE1VMV1V7ygcUhCaQ_J9Atuk1q";
 

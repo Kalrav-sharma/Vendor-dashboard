@@ -6,6 +6,7 @@
 import { ref, computed, onMounted, onUnmounted } from "vue";
 import { fetchAllRows } from "./sopPagedFetch.js";
 import { mondayOf, weekLabel, monthLabel } from "./useSlaTrendsData.js";
+import { setVisibleInterval, clearVisibleInterval } from "./polling.js";
 
 const POLL_INTERVAL_MS = 60 * 1000;
 const WEEKS_SHOWN = 16;
@@ -51,8 +52,8 @@ export function usePartnerOtdData() {
   const refreshKit = { week: computed(() => periods("refresh", "week")), month: computed(() => periods("refresh", "month")) };
 
   let timer = null;
-  onMounted(() => { refresh(); timer = setInterval(refresh, POLL_INTERVAL_MS); });
-  onUnmounted(() => clearInterval(timer));
+  onMounted(() => { refresh(); timer = setVisibleInterval(refresh, POLL_INTERVAL_MS); });
+  onUnmounted(() => clearVisibleInterval(timer));
 
   return { spares, refreshKit, loadError };
 }

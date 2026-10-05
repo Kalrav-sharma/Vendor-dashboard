@@ -4,6 +4,7 @@
 // and its toggles start at No; older weeks' rows stay in the tables but aren't shown.
 import { ref, computed, watch, onMounted, onUnmounted } from "vue";
 import { supabase } from "../supabaseClient.js";
+import { setVisibleInterval, clearVisibleInterval } from "./polling.js";
 
 const POLL_INTERVAL_MS = 5 * 60 * 1000;
 
@@ -55,8 +56,8 @@ export function useSlaPincodeAlerts(weekStartRef, editorLabel) {
 
   watch(weekStartRef, (w, old) => { if (w && w !== old) refresh(); });
   let timer = null;
-  onMounted(() => { refresh(); timer = setInterval(refresh, POLL_INTERVAL_MS); });
-  onUnmounted(() => clearInterval(timer));
+  onMounted(() => { refresh(); timer = setVisibleInterval(refresh, POLL_INTERVAL_MS); });
+  onUnmounted(() => clearVisibleInterval(timer));
 
   return { alerts, week, loaded, loadError, saveError, isRevised, setRevised, syncedAt, refresh };
 }

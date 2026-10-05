@@ -40,6 +40,9 @@ const WHATSAPP_TEMPLATE_LANG = Deno.env.get("WHATSAPP_TEMPLATE_LANG") || "en";
 
 const INTERNAL_ROLES = new Set(["admin", "management", "operations"]);
 
+// Real (billed) WhatsApp messages to outside vendors -- cap bursts per sender.
+const INTENTS_PER_USER = { limit: 30, windowSeconds: 10 * 60 };
+
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -85,6 +88,10 @@ Deno.serve(async (req) => {
     }
 
     const adminClient = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
+    if (!(await underLimit(adminClient, `vendor-intent:${user.id}`, INTENTS_PER_USER))) {
+      return json({ error: "Too many intents sent in a short time -- please wait a few minutes and try again." }, 429);
+    }
+
     const { data: contact, error: contactErr } = await adminClient
       .from("vendor_contacts").select("whatsapp_number").eq("vendor_name", vendor_name).single();
     if (contactErr || !contact) {
@@ -124,6 +131,18 @@ Deno.serve(async (req) => {
     return json({ error: `Unexpected error: ${e instanceof Error ? e.message : String(e)}` }, 500);
   }
 });
+
+// Fixed-window limiter via rate_limit_hit() (schema.sql); fails open so a missing/broken limiter never blocks sends.
+async function underLimit(adminClient: any, bucket: string, cfg: { limit: number; windowSeconds: number }) {
+  const { data, error } = await adminClient.rpc("rate_limit_hit", {
+    p_bucket: bucket, p_limit: cfg.limit, p_window_seconds: cfg.windowSeconds, p_cost: 1,
+  });
+  if (error) {
+    console.error(`rate_limit_hit(${bucket}) failed, allowing request: ${error.message}`);
+    return true;
+  }
+  return data !== false;
+}
 
 function json(body: unknown, status: number) {
   return new Response(JSON.stringify(body), {

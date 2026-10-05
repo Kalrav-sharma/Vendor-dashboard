@@ -10,5 +10,12 @@ supabase/.temp/
 scripts/.env
 scripts/.sla_rules_sync.log
 
+# Also local-only, and this repo is PUBLIC: payout spreadsheets (bank account
+# numbers / IFSC) and raw courier payloads (recipient names) from local runs.
+*.xlsx
+*.xls
+scripts/.dq/
+scripts/last_mile_lib/state/
+
 # Claude Code: per-turn commit subject, consumed and deleted by the Stop hook
 .claude/.commit-msg

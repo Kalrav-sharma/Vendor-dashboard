@@ -10,8 +10,9 @@
 // once, `run` is null and every list stays empty -- the page renders an
 // empty state rather than an error, same convention as every other
 // not-yet-synced tab in this app.
-import { ref, onMounted, onUnmounted } from "vue";
+import { ref } from "vue";
 import { supabase } from "../supabaseClient.js";
+import { useSharedPoll } from "./polling.js";
 
 // sync-last-mile.yml's tracking leg runs hourly (10:30am-11:30pm) -- 10
 // min keeps this well ahead of the source without polling unchanged
@@ -35,16 +36,18 @@ async function fetchAllPaged(table, runId, orderCol, pageSize = 1000) {
   return { data: rows, error: null };
 }
 
-export function useLastMileData() {
-  const run = ref(null);
-  const coverage = ref(null);
-  const dqSummary = ref(null);
-  const lspPerf = ref([]);
-  const worstLanes = ref([]);
-  const alerts = ref([]);
-  const openShipments = ref([]);
-  const loadError = ref("");
+// Module-level: the Last Mile section mounts all four tabs at once, and each used to fetch every table itself.
+const run = ref(null);
+const coverage = ref(null);
+const dqSummary = ref(null);
+const lspPerf = ref([]);
+const worstLanes = ref([]);
+const alerts = ref([]);
+const openShipments = ref([]);
+const loadError = ref("");
+const shared = { subscribers: 0, intervalId: null };
 
+export function useLastMileData() {
   async function refresh() {
     const { data: runs, error: runErr } = await supabase
       .from("last_mile_run").select("*").order("generated_at", { ascending: false }).limit(1);
@@ -91,14 +94,7 @@ export function useLastMileData() {
     loadError.value = e1?.message || e2?.message || e3?.message || e4?.message || e5?.message || e6?.message || "";
   }
 
-  let intervalId = null;
-  onMounted(async () => {
-    await refresh();
-    intervalId = setInterval(refresh, POLL_INTERVAL_MS);
-  });
-  onUnmounted(() => {
-    if (intervalId) clearInterval(intervalId);
-  });
+  useSharedPoll(shared, refresh, POLL_INTERVAL_MS);
 
   return { run, coverage, dqSummary, lspPerf, worstLanes, alerts, openShipments, loadError, refresh };
 }

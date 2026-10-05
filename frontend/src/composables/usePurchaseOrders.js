@@ -5,6 +5,7 @@
 import { ref, onMounted, onUnmounted } from "vue";
 import { supabase } from "../supabaseClient.js";
 import { visiblePos, dedupeInvoiceNumbers } from "../format.js";
+import { setVisibleInterval, clearVisibleInterval } from "./polling.js";
 
 // Matches refresh.yml's own 5-min Uniware sync cadence -- polling faster
 // than the source can change just burned Supabase egress/log quota for
@@ -88,10 +89,10 @@ export function usePurchaseOrders(vendorCode = null) {
   let intervalId = null;
   onMounted(async () => {
     await refresh();
-    intervalId = setInterval(refresh, POLL_INTERVAL_MS);
+    intervalId = setVisibleInterval(refresh, POLL_INTERVAL_MS);
   });
   onUnmounted(() => {
-    if (intervalId) clearInterval(intervalId);
+    if (intervalId) clearVisibleInterval(intervalId);
   });
 
   return { currentPos, grnsByPo, grnByCode, poItemsByPo, grnItemsByPoSku, lastUpdated, loadError, refresh, invoicesForItem };

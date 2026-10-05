@@ -11,6 +11,7 @@
 // Ratios are derived after summing, never averaged.
 import { ref, computed, onMounted, onUnmounted } from "vue";
 import { fetchAllRows } from "./sopPagedFetch.js";
+import { setVisibleInterval, clearVisibleInterval } from "./polling.js";
 
 const POLL_INTERVAL_MS = 5 * 60 * 1000;
 // Next week's row appears once it "starts": enough early deliveries against next week's
@@ -103,8 +104,8 @@ export function useHealthSlaData() {
   const locks = computed(() => weeks("locks"));
 
   let timer = null;
-  onMounted(() => { refresh(); timer = setInterval(refresh, POLL_INTERVAL_MS); });
-  onUnmounted(() => clearInterval(timer));
+  onMounted(() => { refresh(); timer = setVisibleInterval(refresh, POLL_INTERVAL_MS); });
+  onUnmounted(() => clearVisibleInterval(timer));
 
   return { ro, locks, loadError, lastSynced, refresh };
 }

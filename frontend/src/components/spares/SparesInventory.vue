@@ -103,11 +103,6 @@ const doiClass = (c) => {
   if (c.doi <= 30) return "cell-warn";
   return "cell-good";
 };
-// Inventory cells: red ≤ 10 units, yellow ≤ 20 units at that warehouse (same pills as DOI).
-const INV_LOW = 10;
-const INV_WARN = 20;
-const invClass = (c) =>
-  c.good <= INV_LOW ? "sp-doi cell-critical" : c.good <= INV_WARN ? "sp-doi cell-warn" : "";
 const fmt = (n) => (n == null ? "–" : Math.round(n).toLocaleString("en-IN"));
 const fmtDrr = (n) => (n > 0 ? (+n).toFixed(1) : "0");
 const fmtDoi = (c) => (c.good <= 0 ? "0" : c.doi == null ? "∞" : Math.floor(c.doi));
@@ -178,7 +173,7 @@ const deliveryText = (c) => {
             <td :class="{ dim: !r.category }">{{ r.category || "–" }}</td>
 
             <td v-for="(c, i) in r.cells" :key="'g' + i" class="num hc-num" :class="{ gl: i === 0 }">
-              <span v-if="c" :class="invClass(c)">{{ c.good > 0 ? fmt(c.good) : "0" }}</span><span v-else class="dash">–</span>
+              <span v-if="c">{{ c.good > 0 ? fmt(c.good) : "0" }}</span><span v-else class="dash">–</span>
             </td>
             <td class="num hc-num"><b>{{ fmt(r.totalGood) }}</b></td>
 

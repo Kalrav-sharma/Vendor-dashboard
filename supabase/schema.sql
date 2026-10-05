@@ -128,6 +128,7 @@ set search_path = public
 as $$
   update public.profiles set must_change_password = false where id = auth.uid();
 $$;
+revoke execute on function public.mark_password_changed() from public, anon;
 grant execute on function public.mark_password_changed() to authenticated;
 
 -- ---------------------------------------------------------------------
@@ -177,7 +178,7 @@ alter table public.profiles enable row level security;
 drop policy if exists profiles_select on public.profiles;
 create policy profiles_select on public.profiles
   for select
-  using (id = auth.uid() or public.is_internal_staff());
+  using (id = (select auth.uid()) or (select public.is_internal_staff()));
 
 -- No insert/update/delete policy for anon/authenticated on purpose: vendor
 -- accounts are created only via the admin Edge Function, which uses the
@@ -239,7 +240,7 @@ drop policy if exists purchase_orders_select on public.purchase_orders;
 create policy purchase_orders_select on public.purchase_orders
   for select
   using (
-    public.is_internal_staff()
+    (select public.is_internal_staff())
     or vendor_code = (select p.vendor_code from public.profiles p where p.id = auth.uid())
   );
 
@@ -268,7 +269,7 @@ drop policy if exists grns_select on public.grns;
 create policy grns_select on public.grns
   for select
   using (
-    public.is_internal_staff()
+    (select public.is_internal_staff())
     or vendor_code = (select p.vendor_code from public.profiles p where p.id = auth.uid())
   );
 
@@ -312,7 +313,7 @@ drop policy if exists po_items_select on public.po_items;
 create policy po_items_select on public.po_items
   for select
   using (
-    public.is_internal_staff()
+    (select public.is_internal_staff())
     or vendor_code = (select p.vendor_code from public.profiles p where p.id = auth.uid())
   );
 
@@ -322,17 +323,19 @@ create policy po_items_select on public.po_items
 -- actually touch to just the two estimate columns, so this can never be
 -- used to edit quantity/pricing/etc even if a buggy or malicious client
 -- included those fields in its update payload.
+-- The revoke is what makes that true: Supabase grants authenticated table-wide UPDATE by default, which a column grant alone doesn't narrow.
+revoke insert, update, delete on public.po_items from anon, authenticated;
 grant update (estimated_dispatch_date, estimated_dispatch_qty) on public.po_items to authenticated;
 
 drop policy if exists po_items_update_dispatch on public.po_items;
 create policy po_items_update_dispatch on public.po_items
   for update
   using (
-    public.is_internal_staff()
+    (select public.is_internal_staff())
     or vendor_code = (select p.vendor_code from public.profiles p where p.id = auth.uid())
   )
   with check (
-    public.is_internal_staff()
+    (select public.is_internal_staff())
     or vendor_code = (select p.vendor_code from public.profiles p where p.id = auth.uid())
   );
 
@@ -470,7 +473,7 @@ drop policy if exists po_item_shipments_select on public.po_item_shipments;
 create policy po_item_shipments_select on public.po_item_shipments
   for select
   using (
-    public.is_internal_staff()
+    (select public.is_internal_staff())
     or vendor_code = (select p.vendor_code from public.profiles p where p.id = auth.uid())
   );
 -- No insert/update/delete policy for authenticated -- only
@@ -529,7 +532,7 @@ drop policy if exists shipment_tracking_select on public.shipment_tracking;
 create policy shipment_tracking_select on public.shipment_tracking
   for select
   using (
-    public.is_internal_staff()
+    (select public.is_internal_staff())
     or vendor_code = (select p.vendor_code from public.profiles p where p.id = auth.uid())
   );
 -- No insert/update/delete policy for authenticated -- only
@@ -618,6 +621,7 @@ begin
 end;
 $$;
 
+revoke execute on function public.confirm_dispatched(text, text, text, text) from public, anon;
 grant execute on function public.confirm_dispatched(text, text, text, text) to authenticated;
 
 -- ---------------------------------------------------------------------
@@ -706,6 +710,7 @@ begin
 end;
 $$;
 
+revoke execute on function public.manual_confirm_dispatch(text, text, text, text, numeric, date) from public, anon;
 grant execute on function public.manual_confirm_dispatch(text, text, text, text, numeric, date) to authenticated;
 
 -- ---------------------------------------------------------------------
@@ -736,7 +741,7 @@ drop policy if exists grn_items_select on public.grn_items;
 create policy grn_items_select on public.grn_items
   for select
   using (
-    public.is_internal_staff()
+    (select public.is_internal_staff())
     or vendor_code = (select p.vendor_code from public.profiles p where p.id = auth.uid())
   );
 
@@ -771,7 +776,7 @@ drop policy if exists po_item_dispatch_changes_select on public.po_item_dispatch
 create policy po_item_dispatch_changes_select on public.po_item_dispatch_changes
   for select
   using (
-    public.is_internal_staff()
+    (select public.is_internal_staff())
     or vendor_code = (select p.vendor_code from public.profiles p where p.id = auth.uid())
   );
 
@@ -779,9 +784,23 @@ drop policy if exists po_item_dispatch_changes_insert on public.po_item_dispatch
 create policy po_item_dispatch_changes_insert on public.po_item_dispatch_changes
   for insert
   with check (
-    public.is_internal_staff()
-    or vendor_code = (select p.vendor_code from public.profiles p where p.id = auth.uid())
+    exists (
+      select 1 from public.purchase_orders po
+      where po.po_code = po_item_dispatch_changes.po_code and po.vendor_code = po_item_dispatch_changes.vendor_code
+    )
+    and (
+      (select public.is_internal_staff())
+      or vendor_code = (select p.vendor_code from public.profiles p where p.id = auth.uid())
+    )
   );
+
+-- Exactly the columns PoDetailModal.vue / DispatchPlanningTable.vue send; id and changed_at stay server-set.
+revoke insert, update, delete on public.po_item_dispatch_changes from anon, authenticated;
+grant insert (
+  po_code, item_sku, vendor_code, changed_by,
+  old_estimated_dispatch_date, old_estimated_dispatch_qty,
+  new_estimated_dispatch_date, new_estimated_dispatch_qty, reason
+) on public.po_item_dispatch_changes to authenticated;
 
 -- ---------------------------------------------------------------------
 -- po_invoice_uploads — vendor-uploaded invoice copy files (dispatch
@@ -868,6 +887,12 @@ alter table public.po_invoice_uploads add column if not exists credit_note_uploa
 -- included those fields in its update payload. po_invoice_uploads had no
 -- update policy at all before this -- vendors only ever inserted/deleted
 -- their own uploads -- so this is the first one.
+-- As with po_items, the revoke is what makes the column grants real. INSERT is
+-- column-scoped too, so a new row can't arrive pre-marked matched/paid.
+revoke insert, update on public.po_invoice_uploads from anon, authenticated;
+grant insert (
+  po_code, vendor_code, storage_path, file_name, file_size, uploaded_by, uploaded_by_name
+) on public.po_invoice_uploads to authenticated;
 grant update (
   credit_note_storage_path, credit_note_file_name, credit_note_file_size,
   credit_note_uploaded_by, credit_note_uploaded_by_name, credit_note_uploaded_at
@@ -877,12 +902,17 @@ drop policy if exists po_invoice_uploads_update_credit_note on public.po_invoice
 create policy po_invoice_uploads_update_credit_note on public.po_invoice_uploads
   for update
   using (
-    public.is_internal_staff()
+    (select public.is_internal_staff())
     or vendor_code = (select p.vendor_code from public.profiles p where p.id = auth.uid())
   )
   with check (
-    public.is_internal_staff()
-    or vendor_code = (select p.vendor_code from public.profiles p where p.id = auth.uid())
+    (credit_note_storage_path is null
+      or left(credit_note_storage_path, length(vendor_code) + 1) = vendor_code || '/')
+    and (credit_note_uploaded_by is null or credit_note_uploaded_by = (select auth.uid()))
+    and (
+      (select public.is_internal_staff())
+      or vendor_code = (select p.vendor_code from public.profiles p where p.id = auth.uid())
+    )
   );
 
 -- Superseded by the payment_* columns above. The Jarvis invoice-status
@@ -931,7 +961,7 @@ drop policy if exists po_invoice_uploads_select on public.po_invoice_uploads;
 create policy po_invoice_uploads_select on public.po_invoice_uploads
   for select
   using (
-    public.is_internal_staff()
+    (select public.is_internal_staff())
     or vendor_code = (select p.vendor_code from public.profiles p where p.id = auth.uid())
   );
 
@@ -940,6 +970,9 @@ create policy po_invoice_uploads_select on public.po_invoice_uploads
 -- so this can't be used to attach an invoice file to someone else's PO.
 -- An admin can insert on behalf of any vendor (same PO/vendor_code
 -- consistency check still applies -- just not restricted to their own).
+-- storage_path must sit in that vendor's own folder: check-invoice-match
+-- downloads it with service_role, so a path into another vendor's folder
+-- would otherwise leak that vendor's invoice into this row's OCR result.
 drop policy if exists po_invoice_uploads_insert on public.po_invoice_uploads;
 create policy po_invoice_uploads_insert on public.po_invoice_uploads
   for insert
@@ -948,8 +981,10 @@ create policy po_invoice_uploads_insert on public.po_invoice_uploads
       select 1 from public.purchase_orders po
       where po.po_code = po_invoice_uploads.po_code and po.vendor_code = po_invoice_uploads.vendor_code
     )
+    and left(storage_path, length(vendor_code) + 1) = vendor_code || '/'
+    and (uploaded_by is null or uploaded_by = (select auth.uid()))
     and (
-      public.is_internal_staff()
+      (select public.is_internal_staff())
       or vendor_code = (select p.vendor_code from public.profiles p where p.id = auth.uid())
     )
   );
@@ -959,7 +994,7 @@ create policy po_invoice_uploads_insert on public.po_invoice_uploads
 drop policy if exists po_invoice_uploads_delete on public.po_invoice_uploads;
 create policy po_invoice_uploads_delete on public.po_invoice_uploads
   for delete
-  using (uploaded_by = auth.uid() or public.is_internal_staff());
+  using (uploaded_by = (select auth.uid()) or (select public.is_internal_staff()));
 
 -- ---------------------------------------------------------------------
 -- Storage bucket "po-invoices" — private (not public), PDF-only; every
@@ -2696,7 +2731,7 @@ drop policy if exists support_tickets_select on public.support_tickets;
 create policy support_tickets_select on public.support_tickets
   for select
   using (
-    public.is_internal_staff()
+    (select public.is_internal_staff())
     or vendor_code = (select p.vendor_code from public.profiles p where p.id = auth.uid())
   );
 
@@ -2715,8 +2750,9 @@ create policy support_tickets_insert on public.support_tickets
         where po.po_code = support_tickets.po_code and po.vendor_code = support_tickets.vendor_code
       )
     )
+    and (created_by is null or created_by = (select auth.uid()))
     and (
-      public.is_internal_staff()
+      (select public.is_internal_staff())
       or vendor_code = (select p.vendor_code from public.profiles p where p.id = auth.uid())
     )
   );
@@ -2728,6 +2764,15 @@ create policy support_tickets_update on public.support_tickets
   for update
   using (public.is_internal_staff())
   with check (public.is_internal_staff());
+
+-- Exactly what useSupportTickets.js writes, so a vendor can't raise a ticket
+-- pre-filled with a fake staff reply / status, and staff can't rewrite it.
+revoke insert, update, delete on public.support_tickets from anon, authenticated;
+grant insert (
+  vendor_code, vendor_name, category, po_code, subject, description, created_by, created_by_name
+) on public.support_tickets to authenticated;
+grant update (status, admin_response, responded_by_name, resolved_at, updated_at)
+  on public.support_tickets to authenticated;
 
 -- Auto-raises a po_request ticket the moment a new PO lands, so staff
 -- have a standing reminder to email the vendor a copy without the vendor
@@ -2766,4 +2811,158 @@ create trigger trg_queue_po_request_ticket
   after insert on public.purchase_orders
   for each row
   execute function public.queue_po_request_ticket();
+-- ---------------------------------------------------------------------
+
+-- =======================================================================
+-- Privilege lockdown (2026-10-01). Supabase grants anon/authenticated ALL on
+-- every public table by default; RLS then decides rows. This narrows the
+-- grants themselves so a future policy mistake can't open a write path:
+--   - anon gets nothing (every page signs in first; RLS already gave anon no rows)
+--   - authenticated loses TRUNCATE/REFERENCES/TRIGGER everywhere, and
+--     INSERT/UPDATE/DELETE on every table the browser never writes. The
+--     browser-written tables keep the scoped grants set next to their policies.
+-- Must stay at the end of this file, after every table exists.
+-- =======================================================================
+do $$
+declare
+  t text;
+  all_tables text[] := array[
+    'profiles', 'purchase_orders', 'grns', 'po_items', 'po_email_events', 'po_item_shipments',
+    'shipment_tracking', 'grn_items', 'po_item_dispatch_changes', 'po_invoice_uploads',
+    'mm_rate_card', 'vendor_contacts', 'sop_inventory_channel', 'sop_inventory_uc_warehouse',
+    'sop_channel_drr_doi', 'sop_uniware_inventory', 'sop_dark_store_inventory', 'sop_facility_drr_doi',
+    'sop_sales_plan_actual', 'sop_daily_sales', 'sop_production_daily', 'production_plan_snapshots',
+    'sop_po_fulfillment_daily', 'sop_po_action_items', 'sop_po_shortfall_rca', 'sop_dispatch_plan',
+    'sop_dispatch_production_check', 'sop_dispatch_pinned_date', 'sop_first_mile_plan',
+    'sop_first_mile_plant', 'sop_first_mile_fill_rate', 'sop_first_mile_facility_util',
+    'sop_first_mile_missed_po', 'last_mile_watchlist', 'last_mile_poll_state', 'last_mile_run',
+    'last_mile_coverage', 'last_mile_dq_summary', 'last_mile_lsp_perf', 'last_mile_worst_lanes',
+    'last_mile_alerts', 'last_mile_open_shipments', 'last_mile_sla_rules', 'sla_trend_weekly',
+    'sla_rca_run', 'health_delay_weekly', 'sla_partner_otd_weekly', 'sla_pincode_alert',
+    'sla_pincode_revised', 'spares_sku_master', 'spares_wh_inventory', 'spares_drr',
+    'spares_status_override', 'spares_vendor_override', 'spares_category_override',
+    'vendor_login_attempts', 'support_tickets'
+  ];
+  browser_written text[] := array[
+    'po_items', 'po_item_dispatch_changes', 'po_invoice_uploads', 'support_tickets',
+    'sla_pincode_revised', 'spares_status_override', 'spares_vendor_override', 'spares_category_override'
+  ];
+begin
+  foreach t in array all_tables loop
+    if to_regclass('public.' || t) is null then
+      continue;
+    end if;
+    execute format('revoke all on public.%I from anon', t);
+    execute format('revoke truncate, references, trigger on public.%I from authenticated', t);
+    if not (t = any (browser_written)) then
+      execute format('revoke insert, update, delete on public.%I from authenticated', t);
+    end if;
+  end loop;
+end $$;
+
+revoke all on public.vendor_login_attempts from authenticated;
+
+-- ---------------------------------------------------------------------
+-- Rate limiting for the Edge Functions -- service_role only. Fixed-window
+-- counters keyed by bucket (e.g. 'signin-fail-ip:<ip>', 'invoice-check:<uid>').
+-- ---------------------------------------------------------------------
+create table if not exists public.api_rate_limits (
+  bucket text primary key,
+  window_start timestamptz not null default now(),
+  hits int not null default 0
+);
+create index if not exists api_rate_limits_window_start_idx on public.api_rate_limits (window_start);
+alter table public.api_rate_limits enable row level security;
+revoke all on public.api_rate_limits from anon, authenticated;
+grant select, insert, update, delete on public.api_rate_limits to service_role;
+
+-- True while `bucket` is within p_limit hits per window. p_cost 0 = check without counting.
+create or replace function public.rate_limit_hit(p_bucket text, p_limit int, p_window_seconds int, p_cost int default 1)
+returns boolean
+language plpgsql
+set search_path = public
+as $$
+declare
+  v_window interval := make_interval(secs => p_window_seconds);
+  v_hits int;
+begin
+  if p_cost <= 0 then
+    select hits into v_hits from public.api_rate_limits
+    where bucket = p_bucket and window_start > now() - v_window;
+    return coalesce(v_hits, 0) < p_limit;
+  end if;
+
+  insert into public.api_rate_limits as r (bucket, window_start, hits)
+  values (p_bucket, now(), p_cost)
+  on conflict (bucket) do update set
+    window_start = case when r.window_start <= now() - v_window then now() else r.window_start end,
+    hits = case when r.window_start <= now() - v_window then p_cost else r.hits + p_cost end
+  returning hits into v_hits;
+
+  if random() < 0.01 then
+    delete from public.api_rate_limits where window_start < now() - interval '1 day';
+  end if;
+
+  return v_hits <= p_limit;
+end;
+$$;
+revoke all on function public.rate_limit_hit(text, int, int, int) from public, anon, authenticated;
+grant execute on function public.rate_limit_hit(text, int, int, int) to service_role;
+
+-- Atomic replacement for vendor-code-auth's read-then-write failure counter
+-- (parallel guesses all read the same count and never reached the lockout).
+create or replace function public.vendor_login_record_failure(p_vendor_code text, p_max_attempts int, p_lockout_minutes int)
+returns void
+language sql
+set search_path = public
+as $$
+  insert into public.vendor_login_attempts as a (vendor_code, failed_count, locked_until)
+  values (
+    p_vendor_code,
+    case when p_max_attempts <= 1 then 0 else 1 end,
+    case when p_max_attempts <= 1 then now() + make_interval(mins => p_lockout_minutes) end
+  )
+  on conflict (vendor_code) do update set
+    failed_count = case when a.failed_count + 1 >= p_max_attempts then 0 else a.failed_count + 1 end,
+    locked_until = case
+      when a.failed_count + 1 >= p_max_attempts then now() + make_interval(mins => p_lockout_minutes)
+      when a.locked_until > now() then a.locked_until
+    end;
+$$;
+revoke all on function public.vendor_login_record_failure(text, int, int) from public, anon, authenticated;
+grant execute on function public.vendor_login_record_failure(text, int, int) to service_role;
+
+-- ---------------------------------------------------------------------
+-- Indexes for the app's hot queries (2026-10-01): latest-first listings,
+-- run-scoped S&OP / Last Mile reads, and the admin console's profile lists.
+-- ---------------------------------------------------------------------
+create index if not exists purchase_orders_created_at_idx on public.purchase_orders (created_at desc);
+create index if not exists po_item_shipments_vendor_code_idx on public.po_item_shipments (vendor_code, confirmed_at desc);
+create index if not exists po_item_shipments_confirmed_at_idx on public.po_item_shipments (confirmed_at desc);
+create index if not exists po_invoice_uploads_created_at_idx on public.po_invoice_uploads (created_at desc);
+create index if not exists support_tickets_created_at_idx on public.support_tickets (created_at desc);
+create index if not exists profiles_role_created_at_idx on public.profiles (role, created_at desc);
+create index if not exists idx_sop_po_action_items_run on public.sop_po_action_items (run_date);
+create index if not exists idx_sop_po_shortfall_rca_run on public.sop_po_shortfall_rca (run_date);
+create index if not exists idx_sop_dispatch_production_check_run on public.sop_dispatch_production_check (run_date, view_key);
+create index if not exists idx_last_mile_open_shipments_overdue on public.last_mile_open_shipments (run_id, days_overdue desc);
+create index if not exists idx_last_mile_alerts_overdue on public.last_mile_alerts (run_id, days_overdue desc);
+create index if not exists idx_health_delay_weekly_week on public.health_delay_weekly (week_start);
+
+-- vendor_code doubles as a login identifier, so it must be unique among vendor
+-- logins (the admin functions check first; this closes the race). Skipped with
+-- a notice while duplicates exist -- resolve them and re-run.
+do $$
+begin
+  if exists (
+    select 1 from public.profiles
+    where role = 'vendor' and vendor_code is not null
+    group by vendor_code having count(*) > 1
+  ) then
+    raise notice 'duplicate vendor codes in profiles -- profiles_vendor_code_unique_idx NOT created';
+  else
+    create unique index if not exists profiles_vendor_code_unique_idx
+      on public.profiles (vendor_code) where role = 'vendor';
+  end if;
+end $$;
 -- ---------------------------------------------------------------------

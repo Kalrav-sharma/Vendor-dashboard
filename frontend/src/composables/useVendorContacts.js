@@ -8,6 +8,7 @@
 import { ref, onMounted, onUnmounted } from "vue";
 import { supabase } from "../supabaseClient.js";
 import { resolveFunctionError } from "../functionError.js";
+import { setVisibleInterval, clearVisibleInterval } from "./polling.js";
 
 // No scheduled sync writes this -- only manual edits via the UI -- so
 // there's nothing to catch up on that fast; 5 min is plenty
@@ -43,10 +44,10 @@ export function useVendorContacts() {
   let intervalId = null;
   onMounted(async () => {
     await refresh();
-    intervalId = setInterval(refresh, POLL_INTERVAL_MS);
+    intervalId = setVisibleInterval(refresh, POLL_INTERVAL_MS);
   });
   onUnmounted(() => {
-    if (intervalId) clearInterval(intervalId);
+    if (intervalId) clearVisibleInterval(intervalId);
   });
 
   return { contacts, refresh, contactFor, saveContact, deleteContact };

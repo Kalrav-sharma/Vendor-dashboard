@@ -5,6 +5,7 @@
 // newest 8 runs.
 import { ref, onMounted, onUnmounted } from "vue";
 import { supabase } from "../supabaseClient.js";
+import { setVisibleInterval, clearVisibleInterval } from "./polling.js";
 
 const POLL_INTERVAL_MS = 60 * 1000;
 
@@ -29,8 +30,8 @@ export function useSlaRcaData() {
   }
 
   let timer = null;
-  onMounted(() => { refresh(); timer = setInterval(refresh, POLL_INTERVAL_MS); });
-  onUnmounted(() => clearInterval(timer));
+  onMounted(() => { refresh(); timer = setVisibleInterval(refresh, POLL_INTERVAL_MS); });
+  onUnmounted(() => clearVisibleInterval(timer));
 
   return { run, loaded, loadError, refresh };
 }

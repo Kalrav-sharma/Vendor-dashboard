@@ -41,6 +41,8 @@ const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+const CHANGES_PER_USER = { limit: 10, windowSeconds: 60 * 60 };
+
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -80,13 +82,17 @@ Deno.serve(async (req) => {
 
     const body = await req.json();
     const newEmail = String(body?.new_email ?? "").trim().toLowerCase();
-    if (!newEmail || !EMAIL_RE.test(newEmail)) {
+    if (!newEmail || newEmail.length > 254 || !EMAIL_RE.test(newEmail)) {
       return json({ error: "Enter a valid email address." }, 400);
     }
 
     // Elevated client -- service_role bypasses RLS entirely. Only used
     // from here on, only for this one caller's own auth user + profile row.
     const adminClient = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
+
+    if (!(await underLimit(adminClient, `vendor-change-email:${user.id}`, CHANGES_PER_USER))) {
+      return json({ error: "Too many email changes in a short time -- please wait a while and try again." }, 429);
+    }
 
     const { error: updateAuthErr } = await adminClient.auth.admin.updateUserById(user.id, {
       email: newEmail,
@@ -112,6 +118,18 @@ Deno.serve(async (req) => {
     return json({ error: `Unexpected error: ${e instanceof Error ? e.message : String(e)}` }, 500);
   }
 });
+
+// Fixed-window limiter via rate_limit_hit() (schema.sql); fails open so a missing/broken limiter never blocks the change.
+async function underLimit(adminClient: any, bucket: string, cfg: { limit: number; windowSeconds: number }) {
+  const { data, error } = await adminClient.rpc("rate_limit_hit", {
+    p_bucket: bucket, p_limit: cfg.limit, p_window_seconds: cfg.windowSeconds, p_cost: 1,
+  });
+  if (error) {
+    console.error(`rate_limit_hit(${bucket}) failed, allowing request: ${error.message}`);
+    return true;
+  }
+  return data !== false;
+}
 
 function json(body: unknown, status: number) {
   return new Response(JSON.stringify(body), {

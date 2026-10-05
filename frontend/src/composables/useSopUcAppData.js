@@ -9,20 +9,23 @@
 // would otherwise keep serving yesterday's numbers with nothing to show it.
 //
 // Same shape as useSopInventoryData.js: fetch on mount, poll every 60s.
-import { ref, onMounted, onUnmounted } from "vue";
+import { ref } from "vue";
 import { supabase } from "../supabaseClient.js";
+import { useSharedPoll } from "./polling.js";
 
 // sync_sop_inventory.py runs every 30 min (4am-6pm) -- 5 min keeps this
 // feeling live without polling unchanged data (2026-09-25, Kalrav).
 const POLL_INTERVAL_MS = 5 * 60 * 1000;
 
-export function useSopUcAppData() {
-  const warehouseRows = ref([]);
-  const darkStoreRows = ref([]);
-  const facilityDrrDoiRows = ref([]);
-  const stockSyncedAt = ref(null);
-  const loadError = ref("");
+// Module-level: shared by the UC App + PLS tab and the Health Card's inventory-risk view.
+const warehouseRows = ref([]);
+const darkStoreRows = ref([]);
+const facilityDrrDoiRows = ref([]);
+const stockSyncedAt = ref(null);
+const loadError = ref("");
+const shared = { subscribers: 0, intervalId: null };
 
+export function useSopUcAppData() {
   async function refresh() {
     const [{ data: w, error: e1 }, { data: d, error: e2 }, { data: f, error: e3 }, { data: s }] =
       await Promise.all([
@@ -42,14 +45,7 @@ export function useSopUcAppData() {
     loadError.value = e1?.message || e2?.message || e3?.message || "";
   }
 
-  let intervalId = null;
-  onMounted(async () => {
-    await refresh();
-    intervalId = setInterval(refresh, POLL_INTERVAL_MS);
-  });
-  onUnmounted(() => {
-    if (intervalId) clearInterval(intervalId);
-  });
+  useSharedPoll(shared, refresh, POLL_INTERVAL_MS);
 
   return { warehouseRows, darkStoreRows, facilityDrrDoiRows, stockSyncedAt, loadError, refresh };
 }

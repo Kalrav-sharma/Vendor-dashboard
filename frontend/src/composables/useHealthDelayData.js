@@ -6,6 +6,7 @@
 // The same sync writes the delayed orders themselves to health_delay_orders (CSV download).
 import { ref, computed, onMounted, onUnmounted } from "vue";
 import { supabase } from "../supabaseClient.js";
+import { setVisibleInterval, clearVisibleInterval } from "./polling.js";
 
 const POLL_INTERVAL_MS = 5 * 60 * 1000;
 
@@ -59,8 +60,8 @@ export function useHealthDelayData() {
   }
 
   let timer = null;
-  onMounted(() => { refresh(); timer = setInterval(refresh, POLL_INTERVAL_MS); });
-  onUnmounted(() => clearInterval(timer));
+  onMounted(() => { refresh(); timer = setVisibleInterval(refresh, POLL_INTERVAL_MS); });
+  onUnmounted(() => clearVisibleInterval(timer));
 
   return { spares, refreshKit, loadError, lastSynced, refresh, fetchDelayedOrders };
 }

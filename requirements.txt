@@ -1,6 +1,7 @@
-requests
-google-auth
+# Pinned: every Actions run installs these right next to the service-role key, so a bad upstream release must not be picked up automatically.
+requests==2.34.2
+google-auth==2.59.1
 # Shadowfax (and some Blue Dart responses) serve Content-Encoding: br.
 # Without this, requests returns binary that looks like an empty page
 # rather than raising -- a silent wrong answer. See last_mile_lib/lsp/.
-brotli
+brotli==1.2.0

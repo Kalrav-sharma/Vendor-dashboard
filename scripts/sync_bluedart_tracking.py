@@ -167,7 +167,11 @@ def track_batch(login_id, licence_key, awbs):
         "scan": "1",
     }
     url = f"{BLUEDART_API}?{urllib.parse.urlencode(params)}"
-    r = requests.get(url, headers={"User-Agent": "lexcru-po-tracker/1.0"}, timeout=REQUEST_TIMEOUT)
+    try:
+        r = requests.get(url, headers={"User-Agent": "lexcru-po-tracker/1.0"}, timeout=REQUEST_TIMEOUT)
+    except requests.RequestException as e:
+        # The exception text embeds this URL, licence key included -- keep it out of the public Actions log.
+        sys.exit(f"Bluedart request failed ({type(e).__name__}) for batch of {len(awbs)} AWB(s).")
     if not r.ok:
         print(f"  Bluedart request failed ({r.status_code}) for batch of {len(awbs)} AWB(s) -- skipping.")
         return []

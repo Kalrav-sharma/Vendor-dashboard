@@ -24,7 +24,8 @@
 // Actions (body.action, defaults to "create" for backward compatibility
 // with callers that don't send it):
 //   - create:  { email, vendor_code, vendor_name, contact_name, contact_mobile }
-//     -- creates the auth user (password always DEFAULT_TEMP_PASSWORD below)
+//     -- creates the auth user (random per-login temp password, see
+//     generateTempPassword() below)
 //     + profiles row with must_change_password=true, and returns the temp
 //     password used so the admin console can display it.
 //   - revoke:  { user_id } -- bans the auth user via Supabase Auth's own
@@ -114,15 +115,23 @@ Deno.serve(async (req) => {
   }
 });
 
-// Every new vendor login starts with this exact password -- deliberately a
-// single known constant rather than admin-typed or randomly generated, so
-// onboarding never depends on securely transmitting a fresh secret. This is
-// safe specifically BECAUSE profiles.must_change_password (set below) forces
-// a real password change before the vendor can see anything else -- this
-// constant is only ever a login's very first password, never its lasting
-// one. The admin console displays whatever this function returns in its
-// response, so there's nowhere else that needs updating if this changes.
-const DEFAULT_TEMP_PASSWORD = "Native@01";
+// Random per login: the old shared constant is public in this repo, so any not-yet-activated login could be taken over.
+// No look-alike characters or quotes -- ManageAccess.vue shows it in quotes for the admin to copy.
+function generateTempPassword(): string {
+  const upper = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+  const lower = "abcdefghijkmnpqrstuvwxyz";
+  const digits = "23456789";
+  const symbols = "@#$%&*!?";
+  const all = upper + lower + digits + symbols;
+  const rand = (n: number) => crypto.getRandomValues(new Uint32Array(1))[0] % n;
+  const chars = [upper, lower, digits, symbols].map((set) => set[rand(set.length)]);
+  while (chars.length < 14) chars.push(all[rand(all.length)]);
+  for (let i = chars.length - 1; i > 0; i--) {
+    const j = rand(i + 1);
+    [chars[i], chars[j]] = [chars[j], chars[i]];
+  }
+  return chars.join("");
+}
 
 async function handleCreate(adminClient: ReturnType<typeof createClient>, body: any) {
   const { email, vendor_code, vendor_name, contact_name, contact_mobile } = body ?? {};
@@ -139,9 +148,10 @@ async function handleCreate(adminClient: ReturnType<typeof createClient>, body: 
     return json({ error: "That vendor code is already in use by another login." }, 400);
   }
 
+  const tempPassword = generateTempPassword();
   const { data: created, error: createErr } = await adminClient.auth.admin.createUser({
     email,
-    password: DEFAULT_TEMP_PASSWORD,
+    password: tempPassword,
     email_confirm: true,
   });
   if (createErr || !created?.user) {
@@ -166,7 +176,7 @@ async function handleCreate(adminClient: ReturnType<typeof createClient>, body: 
     return json({ error: `Failed to assign vendor profile: ${insertErr.message}` }, 400);
   }
 
-  return json({ ok: true, user_id: created.user.id, email, vendor_code, temp_password: DEFAULT_TEMP_PASSWORD });
+  return json({ ok: true, user_id: created.user.id, email, vendor_code, temp_password: tempPassword });
 }
 
 async function handleVendorAction(adminClient: ReturnType<typeof createClient>, action: string, body: any) {

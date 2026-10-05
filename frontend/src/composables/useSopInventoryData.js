@@ -5,18 +5,21 @@
 //
 // Same shape as useRateCard.js: fetch on mount, poll every 60s so an
 // already-open tab picks up the next sync without a manual refresh.
-import { ref, onMounted, onUnmounted } from "vue";
+import { ref } from "vue";
 import { supabase } from "../supabaseClient.js";
+import { useSharedPoll } from "./polling.js";
 
 // sync_sop_inventory.py runs every 30 min (4am-6pm) -- 5 min keeps this
 // feeling live without polling unchanged data (2026-09-25, Kalrav).
 const POLL_INTERVAL_MS = 5 * 60 * 1000;
 
-export function useSopInventoryData() {
-  const channelRows = ref([]);
-  const channelDrrDoiRows = ref([]);
-  const loadError = ref("");
+// Module-level: shared by the Inventory Overview tab and the Health Card's inventory-risk view.
+const channelRows = ref([]);
+const channelDrrDoiRows = ref([]);
+const loadError = ref("");
+const shared = { subscribers: 0, intervalId: null };
 
+export function useSopInventoryData() {
   async function refresh() {
     const [{ data: c, error: e1 }, { data: d, error: e2 }] = await Promise.all([
       supabase.from("sop_inventory_channel").select("*"),
@@ -27,14 +30,7 @@ export function useSopInventoryData() {
     loadError.value = e1?.message || e2?.message || "";
   }
 
-  let intervalId = null;
-  onMounted(async () => {
-    await refresh();
-    intervalId = setInterval(refresh, POLL_INTERVAL_MS);
-  });
-  onUnmounted(() => {
-    if (intervalId) clearInterval(intervalId);
-  });
+  useSharedPoll(shared, refresh, POLL_INTERVAL_MS);
 
   return { channelRows, channelDrrDoiRows, loadError, refresh };
 }

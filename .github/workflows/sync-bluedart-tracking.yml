@@ -13,9 +13,15 @@ on:
 permissions:
   contents: read
 
+# One run at a time; a new trigger waits instead of racing the running one's writes.
+concurrency:
+  group: sync-bluedart-tracking
+  cancel-in-progress: false
+
 jobs:
   sync:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 

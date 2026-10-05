@@ -31,10 +31,10 @@
 //     OPTIONAL here (unlike admin-create-vendor, where they're required)
 //     -- every access type can carry a contact person's name/number, same
 //     shape as a vendor, just not mandatory for internal staff.
-//     Creates the auth user (password always DEFAULT_TEMP_PASSWORD below,
-//     same constant as admin-create-vendor's -- keep the two in sync if
-//     this ever changes) + profiles row with must_change_password=true,
-//     and returns the temp password so the admin console can display it.
+//     Creates the auth user (random per-login temp password, same
+//     generator as admin-create-vendor's -- keep the two in sync) +
+//     profiles row with must_change_password=true, and returns the temp
+//     password so the admin console can display it.
 //   - revoke:  { user_id } -- bans the auth user via Supabase Auth's own
 //     ban_duration (real enforcement, not just a hidden UI button), and
 //     mirrors it onto profiles.revoked.
@@ -127,9 +127,22 @@ Deno.serve(async (req) => {
   }
 });
 
-// Must match admin-create-vendor's DEFAULT_TEMP_PASSWORD -- see that
-// function's comment for why a single shared constant is safe here.
-const DEFAULT_TEMP_PASSWORD = "Native@01";
+// Same generator as admin-create-vendor (see why there); doubly important here since this can mint admin logins.
+function generateTempPassword(): string {
+  const upper = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+  const lower = "abcdefghijkmnpqrstuvwxyz";
+  const digits = "23456789";
+  const symbols = "@#$%&*!?";
+  const all = upper + lower + digits + symbols;
+  const rand = (n: number) => crypto.getRandomValues(new Uint32Array(1))[0] % n;
+  const chars = [upper, lower, digits, symbols].map((set) => set[rand(set.length)]);
+  while (chars.length < 14) chars.push(all[rand(all.length)]);
+  for (let i = chars.length - 1; i > 0; i--) {
+    const j = rand(i + 1);
+    [chars[i], chars[j]] = [chars[j], chars[i]];
+  }
+  return chars.join("");
+}
 
 async function handleCreate(adminClient: ReturnType<typeof createClient>, body: any) {
   const { email, display_name, role, contact_name, contact_mobile } = body ?? {};
@@ -140,9 +153,10 @@ async function handleCreate(adminClient: ReturnType<typeof createClient>, body: 
     return json({ error: `role must be one of: ${[...CREATABLE_ROLES].join(", ")}` }, 400);
   }
 
+  const tempPassword = generateTempPassword();
   const { data: created, error: createErr } = await adminClient.auth.admin.createUser({
     email,
-    password: DEFAULT_TEMP_PASSWORD,
+    password: tempPassword,
     email_confirm: true,
   });
   if (createErr || !created?.user) {
@@ -170,7 +184,7 @@ async function handleCreate(adminClient: ReturnType<typeof createClient>, body: 
     return json({ error: `Failed to assign profile: ${insertErr.message}` }, 400);
   }
 
-  return json({ ok: true, user_id: created.user.id, email, role, temp_password: DEFAULT_TEMP_PASSWORD });
+  return json({ ok: true, user_id: created.user.id, email, role, temp_password: tempPassword });
 }
 
 async function handleTeamAction(adminClient: ReturnType<typeof createClient>, action: string, body: any) {

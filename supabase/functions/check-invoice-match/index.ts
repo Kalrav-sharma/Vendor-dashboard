@@ -60,6 +60,10 @@ const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY")!;
 const ANTHROPIC_MODEL = "claude-sonnet-5";
 const BUCKET = "po-invoices";
 
+// Each check sends the whole PDF to a paid model; these stop a looping client running up the bill.
+const CHECKS_PER_USER = { limit: 40, windowSeconds: 10 * 60 };
+const CHECKS_PER_UPLOAD = { limit: 6, windowSeconds: 10 * 60 };
+
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -92,7 +96,7 @@ Deno.serve(async (req) => {
     // scripts/resync_mismatched_invoices.py's daily sweep, which already
     // holds this same secret to write straight to the DB, so accepting it
     // here grants nothing it couldn't already do.
-    const isSystemCaller = authHeader === `Bearer ${SERVICE_ROLE_KEY}`;
+    const isSystemCaller = timingSafeEqual(authHeader, `Bearer ${SERVICE_ROLE_KEY}`);
 
     let upload;
     if (isSystemCaller) {
@@ -121,6 +125,18 @@ Deno.serve(async (req) => {
         return json({ error: "Invoice upload not found or not accessible" }, 404);
       }
       upload = data;
+
+      if (
+        !(await underLimit(adminClient, `invoice-check:${user.id}`, CHECKS_PER_USER)) ||
+        !(await underLimit(adminClient, `invoice-check-upload:${upload.id}`, CHECKS_PER_UPLOAD))
+      ) {
+        return json({ error: "Too many invoice checks in a short time -- please wait a few minutes and try again." }, 429);
+      }
+    }
+
+    // The download below runs as service_role, so the row's (client-written) path must stay inside its own vendor's folder.
+    if (typeof upload.storage_path !== "string" || !upload.storage_path.startsWith(`${upload.vendor_code}/`)) {
+      return json({ error: "This upload's file path doesn't belong to its vendor." }, 400);
     }
 
     // From here on we have a real upload row -- guaranteed to record SOME
@@ -446,6 +462,27 @@ async function recordResult(adminClient: any, uploadId: number, status: string, 
     return json({ error: `Checked, but failed to save the result: ${error.message}` }, 500);
   }
   return json({ ok: true, match_status: status, match_summary: summary, match_details: details });
+}
+
+function timingSafeEqual(a: string, b: string) {
+  const x = new TextEncoder().encode(a);
+  const y = new TextEncoder().encode(b);
+  if (x.length !== y.length) return false;
+  let diff = 0;
+  for (let i = 0; i < x.length; i++) diff |= x[i] ^ y[i];
+  return diff === 0;
+}
+
+// Fixed-window limiter via rate_limit_hit() (schema.sql); fails open so a missing/broken limiter never blocks checks.
+async function underLimit(adminClient: any, bucket: string, cfg: { limit: number; windowSeconds: number }) {
+  const { data, error } = await adminClient.rpc("rate_limit_hit", {
+    p_bucket: bucket, p_limit: cfg.limit, p_window_seconds: cfg.windowSeconds, p_cost: 1,
+  });
+  if (error) {
+    console.error(`rate_limit_hit(${bucket}) failed, allowing request: ${error.message}`);
+    return true;
+  }
+  return data !== false;
 }
 
 function arrayBufferToBase64(buf: ArrayBuffer) {

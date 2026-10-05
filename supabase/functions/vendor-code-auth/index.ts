@@ -38,7 +38,9 @@
 // This necessarily locks out every person sharing that vendor_code at
 // once, not just one person -- an accepted trade-off of the shared-
 // credential model, not a bug; the threshold is deliberately generous
-// for that reason.
+// for that reason. Failures are counted atomically (vendor_login_record_failure()),
+// plus per-IP / per-code caps via rate_limit_hit(); every limiter fails open.
+// redirect_to must be this app's reset-password.html (ALLOWED_REDIRECT_ORIGINS).
 //
 // Deploy with: supabase functions deploy vendor-code-auth --no-verify-jwt
 // (or toggle "Enforce JWT verification" OFF for this function in the
@@ -55,6 +57,9 @@ const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
 const GENERIC_SIGNIN_ERROR = "Incorrect vendor code or password.";
 const GENERIC_RESET_MESSAGE = "If an account exists for that vendor code, a password reset link has been sent to its recovery email.";
+// Auth's per-IP limit sees every vendor-code sign-in as this function's IP; hitting it isn't the vendor's failure.
+const BUSY_MESSAGE = "Sign-in is busy right now -- please try again in a minute.";
+const GENERIC_SERVER_ERROR = "Something went wrong. Please try again.";
 
 // A fixed, guaranteed-nonexistent credential -- used to burn roughly the
 // same amount of time as a real signInWithPassword call when the
@@ -65,6 +70,17 @@ const DUMMY_PASSWORD = "not-a-real-password";
 
 const MAX_ATTEMPTS = 10;
 const LOCKOUT_MINUTES = 15;
+
+const IP_SIGNIN_FAILURES = { limit: 30, windowSeconds: 15 * 60 };
+const IP_RESETS = { limit: 10, windowSeconds: 60 * 60 };
+const CODE_RESETS = { limit: 3, windowSeconds: 60 * 60 };
+
+const MAX_FIELD_LENGTH = 256;
+
+const ALLOWED_REDIRECT_ORIGINS = new Set(
+  (Deno.env.get("ALLOWED_REDIRECT_ORIGINS") ?? "https://kalrav-sharma.github.io")
+    .split(",").map((s) => s.trim().replace(/\/+$/, "")).filter(Boolean),
+);
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -81,26 +97,77 @@ Deno.serve(async (req) => {
     const action = body?.action;
 
     const adminClient = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
+    const ip = clientIp(req);
 
     if (action === "signin") {
-      return await handleSignin(adminClient, body);
+      return await handleSignin(adminClient, body, ip);
     }
     if (action === "reset") {
-      return await handleReset(adminClient, body);
+      return await handleReset(adminClient, body, ip);
     }
-    return json({ error: `Unknown action: ${action}` }, 400);
+    return json({ error: "Unknown action" }, 400);
   } catch (e) {
-    return json({ error: `Unexpected error: ${e instanceof Error ? e.message : String(e)}` }, 500);
+    console.error(`vendor-code-auth unexpected error: ${e instanceof Error ? e.message : String(e)}`);
+    return json({ error: GENERIC_SERVER_ERROR }, 500);
   }
 });
 
-async function isLockedOut(adminClient: ReturnType<typeof createClient>, vendorCode: string): Promise<boolean> {
+// Untyped schema: ReturnType<typeof createClient> would type every rpc() arg as undefined.
+type Db = any;
+type Limit = { limit: number; windowSeconds: number };
+
+function isShortString(v: unknown): v is string {
+  return typeof v === "string" && v.length > 0 && v.length <= MAX_FIELD_LENGTH;
+}
+
+// null (skip per-IP limits) when unknown or private, so clients are never lumped into one shared bucket.
+function clientIp(req: Request): string | null {
+  const raw = req.headers.get("cf-connecting-ip") ?? req.headers.get("x-forwarded-for")?.split(",")[0] ?? "";
+  const ip = raw.trim().toLowerCase();
+  if (!ip || ip.length > 64) return null;
+  if (/^(10\.|127\.|0\.|169\.254\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|::1$|::$|f[cd][0-9a-f]{2}:|fe80:)/.test(ip)) return null;
+  return ip;
+}
+
+// cost 0 = check without counting. Fails open so a missing/broken limiter never blocks sign-in.
+async function underLimit(db: Db, bucket: string, cfg: Limit, cost = 1): Promise<boolean> {
+  const { data, error } = await db.rpc("rate_limit_hit", {
+    p_bucket: bucket, p_limit: cfg.limit, p_window_seconds: cfg.windowSeconds, p_cost: cost,
+  });
+  if (error) {
+    console.error(`rate_limit_hit(${bucket}) failed, allowing request: ${error.message}`);
+    return true;
+  }
+  return data !== false;
+}
+
+function isAllowedRedirect(value: unknown): value is string {
+  if (typeof value !== "string" || value.length > 2048) return false;
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return false;
+  }
+  const isLocalDev = url.protocol === "http:" && (url.hostname === "localhost" || url.hostname === "127.0.0.1");
+  if (!isLocalDev && !(url.protocol === "https:" && ALLOWED_REDIRECT_ORIGINS.has(url.origin))) return false;
+  return url.pathname.endsWith("/reset-password.html");
+}
+
+async function isLockedOut(adminClient: Db, vendorCode: string): Promise<boolean> {
   const { data } = await adminClient
     .from("vendor_login_attempts").select("locked_until").eq("vendor_code", vendorCode).maybeSingle();
   return !!(data?.locked_until && new Date(data.locked_until).getTime() > Date.now());
 }
 
-async function recordFailure(adminClient: ReturnType<typeof createClient>, vendorCode: string) {
+async function recordFailure(adminClient: Db, vendorCode: string) {
+  const { error } = await adminClient.rpc("vendor_login_record_failure", {
+    p_vendor_code: vendorCode, p_max_attempts: MAX_ATTEMPTS, p_lockout_minutes: LOCKOUT_MINUTES,
+  });
+  if (!error) return;
+
+  // Fallback until the SQL migration is applied: the original (racy) read-then-write.
+  console.error(`vendor_login_record_failure failed, using fallback: ${error.message}`);
   const { data } = await adminClient
     .from("vendor_login_attempts").select("failed_count").eq("vendor_code", vendorCode).maybeSingle();
   const nextCount = (data?.failed_count ?? 0) + 1;
@@ -112,13 +179,22 @@ async function recordFailure(adminClient: ReturnType<typeof createClient>, vendo
   });
 }
 
-async function clearAttempts(adminClient: ReturnType<typeof createClient>, vendorCode: string) {
+async function clearAttempts(adminClient: Db, vendorCode: string) {
   await adminClient.from("vendor_login_attempts").delete().eq("vendor_code", vendorCode);
 }
 
-async function handleSignin(adminClient: ReturnType<typeof createClient>, body: any) {
+async function registerFailure(adminClient: Db, vendorCode: string, ip: string | null) {
+  await recordFailure(adminClient, vendorCode);
+  if (ip) await underLimit(adminClient, `signin-fail-ip:${ip}`, IP_SIGNIN_FAILURES);
+}
+
+async function handleSignin(adminClient: Db, body: any, ip: string | null) {
   const { vendor_code, password } = body ?? {};
-  if (!vendor_code || !password) {
+  if (!isShortString(vendor_code) || !isShortString(password)) {
+    return json({ error: GENERIC_SIGNIN_ERROR }, 400);
+  }
+
+  if (ip && !(await underLimit(adminClient, `signin-fail-ip:${ip}`, IP_SIGNIN_FAILURES, 0))) {
     return json({ error: GENERIC_SIGNIN_ERROR }, 400);
   }
 
@@ -136,14 +212,16 @@ async function handleSignin(adminClient: ReturnType<typeof createClient>, body: 
 
   if (!profile?.email) {
     // Burn comparable time to a real attempt, then fail exactly the same way.
-    await authClient.auth.signInWithPassword({ email: DUMMY_EMAIL, password: DUMMY_PASSWORD });
-    await recordFailure(adminClient, vendor_code);
+    const { error: dummyErr } = await authClient.auth.signInWithPassword({ email: DUMMY_EMAIL, password: DUMMY_PASSWORD });
+    if (dummyErr?.status === 429) return json({ error: BUSY_MESSAGE }, 503);
+    await registerFailure(adminClient, vendor_code, ip);
     return json({ error: GENERIC_SIGNIN_ERROR }, 400);
   }
 
   const { data: signIn, error: signInErr } = await authClient.auth.signInWithPassword({ email: profile.email, password });
+  if (signInErr?.status === 429) return json({ error: BUSY_MESSAGE }, 503);
   if (signInErr || !signIn?.session) {
-    await recordFailure(adminClient, vendor_code);
+    await registerFailure(adminClient, vendor_code, ip);
     return json({ error: GENERIC_SIGNIN_ERROR }, 400);
   }
 
@@ -151,14 +229,19 @@ async function handleSignin(adminClient: ReturnType<typeof createClient>, body: 
   return json({ access_token: signIn.session.access_token, refresh_token: signIn.session.refresh_token }, 200);
 }
 
-async function handleReset(adminClient: ReturnType<typeof createClient>, body: any) {
+async function handleReset(adminClient: Db, body: any, ip: string | null) {
   const { identifier, redirect_to } = body ?? {};
-  if (identifier && redirect_to) {
-    const { data: profile } = await adminClient
-      .from("profiles").select("email").eq("role", "vendor").eq("vendor_code", identifier).maybeSingle();
-    if (profile?.email) {
-      const authClient = createClient(SUPABASE_URL, ANON_KEY);
-      await authClient.auth.resetPasswordForEmail(profile.email, { redirectTo: redirect_to });
+  if (isShortString(identifier) && isAllowedRedirect(redirect_to)) {
+    const withinLimits =
+      (!ip || (await underLimit(adminClient, `reset-ip:${ip}`, IP_RESETS))) &&
+      (await underLimit(adminClient, `reset-code:${identifier}`, CODE_RESETS));
+    if (withinLimits) {
+      const { data: profile } = await adminClient
+        .from("profiles").select("email").eq("role", "vendor").eq("vendor_code", identifier).maybeSingle();
+      if (profile?.email) {
+        const authClient = createClient(SUPABASE_URL, ANON_KEY);
+        await authClient.auth.resetPasswordForEmail(profile.email, { redirectTo: redirect_to });
+      }
     }
   }
   // Always the same response, whether or not identifier resolved to anything.

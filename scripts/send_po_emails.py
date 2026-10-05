@@ -40,6 +40,7 @@ manual test run. Credentials/config, as GitHub Actions repo secrets:
 import os
 import sys
 from datetime import datetime, timedelta, timezone
+from html import escape
 
 import requests
 
@@ -117,6 +118,7 @@ def vendor_email_map(session, sb_url, sb_key):
 
 
 def new_po_email_html(po_code, vendor_name):
+    po_code, vendor_name = escape(po_code), escape(vendor_name)
     return (
         f"<p>Hi {vendor_name},</p>"
         f"<p>A new purchase order <b>{po_code}</b> has been created for you on the Native/UC vendor portal.</p>"
@@ -129,10 +131,11 @@ def new_po_email_html(po_code, vendor_name):
 def next_dispatch_email_html(po_code, vendor_name, item):
     pending = item.get("pending_quantity")
     pending_line = f"There are still <b>{pending:g}</b> unit(s) pending" if pending else "There may still be units pending"
+    po_code, vendor_name = escape(po_code), escape(vendor_name)
     return (
         f"<p>Hi {vendor_name},</p>"
-        f"<p>Thanks -- the estimated dispatch for <b>{item['item_sku']}</b> "
-        f"({item.get('item_name') or ''}) on purchase order <b>{po_code}</b> has been confirmed.</p>"
+        f"<p>Thanks -- the estimated dispatch for <b>{escape(item['item_sku'])}</b> "
+        f"({escape(item.get('item_name') or '')}) on purchase order <b>{po_code}</b> has been confirmed.</p>"
         f"<p>{pending_line} on this SKU. Please log in to <a href=\"{PORTAL_URL}\">the portal</a> and provide a "
         f"new estimated dispatch date and quantity for the remaining balance.</p>"
     )
@@ -140,9 +143,10 @@ def next_dispatch_email_html(po_code, vendor_name, item):
 
 def reminder_email_html(po_code, vendor_name, pending_items):
     rows = "".join(
-        f"<tr><td>{it['item_sku']}</td><td>{it.get('item_name') or ''}</td></tr>"
+        f"<tr><td>{escape(it['item_sku'])}</td><td>{escape(it.get('item_name') or '')}</td></tr>"
         for it in pending_items
     )
+    po_code, vendor_name = escape(po_code), escape(vendor_name)
     return (
         f"<p>Hi {vendor_name},</p>"
         f"<p>Purchase order <b>{po_code}</b> still needs an estimated dispatch date and quantity for the "
