@@ -1,12 +1,14 @@
 <script setup>
-// Health Card › Delayed Orders. Spares | Refresh toggle and # | % toggle (% = band count ÷ that
-// week's orders). Order weeks × mutually exclusive bands of days past promise: >3 (4–5),
-// >5 (6–10), >10 (11–15), >15 (16+). CSV = the delayed orders behind every cell, both products.
+// Spares › Spares Delivery (moved from Health Card › Delayed Orders on 2026-10-05). Only OPEN
+// orders already past promise: placed/packed (not dispatched yet) or in transit/OFD; delivered,
+// cancelled and RTO orders are excluded by the sync. Spares | Refresh toggle and # | % toggle
+// (% = band count ÷ that week's orders). Order weeks × mutually exclusive bands of days past
+// promise: >3 (4–5), >5 (6–10), >10 (11–15), >15 (16+). CSV = the orders behind every cell, both products.
 import { ref, computed } from "vue";
 import { downloadCsv } from "../sla/slaUtil.js";
 
 const props = defineProps({
-  title: { type: String, default: "Delayed Orders" },
+  title: { type: String, default: "Spares Delivery" },
   spares: { type: Array, required: true },
   refreshKit: { type: Array, required: true },
   fetchOrders: { type: Function, required: true },
@@ -40,14 +42,14 @@ async function download() {
   csvError.value = "";
   try {
     const rows = await props.fetchOrders();
-    if (!rows.length) { csvError.value = "No delayed orders synced yet."; return; }
+    if (!rows.length) { csvError.value = "No open delayed orders synced yet."; return; }
     const headers = ["Product", "Week", "Week start", "Order ID", "Order date", "Promised delivery", "Days past promise", "Band",
       "Status", "Shipment status", "Shipped date", "Delivered date", "City", "WH", "Partner", "DSP", "Docket no", "SKU"];
     const out = rows.map(r => [r.product === "refresh" ? "Refresh" : "Spares", r.week_no != null ? `W${r.week_no}` : "", r.week_start,
       r.order_code, r.order_date, r.promised_date, r.delay_days, r.band, r.current_status, r.shipment_status, r.shipped_date,
       r.delivered_date, r.city, r.wh, r.partner, r.dsp, r.docket_no, r.sku]);
     const cur = props.spares[0]?.weekStart || new Date().toISOString().slice(0, 10);
-    downloadCsv(`delayed_orders_${cur}.csv`, headers, out);
+    downloadCsv(`open_delayed_orders_${cur}.csv`, headers, out);
   } catch (e) {
     csvError.value = `Couldn't fetch delayed orders: ${e.message}`;
   } finally {
@@ -71,7 +73,7 @@ async function download() {
           <button :class="{ active: product === 'refresh' }" @click="product = 'refresh'">Refresh</button>
         </span>
         <span class="hc-toggle">
-          <button :disabled="busy" title="Delayed orders, Spares + Refresh, all weeks shown" @click="download">{{ busy ? "…" : "CSV ↓" }}</button>
+          <button :disabled="busy" title="Open delayed orders, Spares + Refresh, all weeks shown" @click="download">{{ busy ? "…" : "CSV ↓" }}</button>
         </span>
       </span>
     </div>

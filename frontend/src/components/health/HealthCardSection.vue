@@ -9,7 +9,8 @@
 //   2. Delivery Experience
 //     2.1 SLA & Demand Share sla_trend_weekly, RO + Locks (useHealthSlaData.js)
 //     2.2 SLA Adherence     sla_trend_weekly LSP split   (useHealthSlaData.js)
-//     2.3 Delayed Orders          health_delay_weekly (+ health_delay_orders for CSV) (useHealthDelayData.js)
+//                           + Spares/Refresh by city tier, health_sla_kit_weekly (useHealthKitSlaData.js)
+//     (Delayed Orders moved to Spares › Spares Delivery on 2026-10-05)
 //   3. Payment Pendency    (admin/management/finance only -- canSeePaymentDashboard)
 //     3.1 Overdue Payments  po_invoice_uploads via useInvoiceUploads (loaded by AdminApp)
 //     3.2 Payment Outlook   due now / due in 7d / stuck in 3-way recon (usePaymentPendency.js)
@@ -20,13 +21,12 @@ import HealthSyncButton from "./HealthSyncButton.vue";
 import HealthInventoryRisk from "./HealthInventoryRisk.vue";
 import HealthSlaDemand from "./HealthSlaDemand.vue";
 import HealthSlaAdherence from "./HealthSlaAdherence.vue";
-import HealthDelayedOrders from "./HealthDelayedOrders.vue";
 import HealthPaymentPendency from "./HealthPaymentPendency.vue";
 import HealthPaymentOutlook from "./HealthPaymentOutlook.vue";
 import SparesSummary from "../spares/SparesSummary.vue";
 import { useHealthInventoryRisk } from "../../composables/useHealthInventoryRisk.js";
 import { useHealthSlaData } from "../../composables/useHealthSlaData.js";
-import { useHealthDelayData } from "../../composables/useHealthDelayData.js";
+import { useHealthKitSlaData } from "../../composables/useHealthKitSlaData.js";
 import { useSparesData } from "../../composables/useSparesData.js";
 import { useInvoiceUploads } from "../../composables/useInvoiceUploads.js";
 
@@ -37,7 +37,7 @@ const props = defineProps({
 
 const inv = useHealthInventoryRisk();
 const sla = useHealthSlaData();
-const delay = useHealthDelayData();
+const kitSla = useHealthKitSlaData();
 const { allUploads } = useInvoiceUploads(); // singleton, fetched by AdminApp on login
 const spares = useSparesData(null); // read-only here: Appendix edits stay in the Spares section
 
@@ -51,12 +51,12 @@ const stale = (t, h) => !t || (Date.now() - new Date(t).getTime()) / 3600000 > h
     <HealthSyncButton @done="refreshAll" />
     <span :class="{ stale: stale(inv.stockSyncedAt.value, 14) }">Stock {{ stamp(inv.stockSyncedAt.value) }}</span>
     <span :class="{ stale: stale(sla.lastSynced.value, 30) }">SLA {{ stamp(sla.lastSynced.value) }}</span>
-    <span :class="{ stale: stale(delay.lastSynced.value, 30) }">Delays {{ stamp(delay.lastSynced.value) }}</span>
+    <span :class="{ stale: stale(kitSla.lastSynced.value, 30) }">Spares/Refresh SLA {{ stamp(kitSla.lastSynced.value) }}</span>
     <span :class="{ stale: stale(spares.stockSyncedAt.value, 3) || stale(spares.drrSyncedAt.value, 30) }">Spares {{ stamp(spares.stockSyncedAt.value) }}</span>
   </div>
 
-  <div v-if="inv.loadError.value || sla.loadError.value || delay.loadError.value || spares.loadError.value" class="form-error">
-    Couldn't load: {{ inv.loadError.value || sla.loadError.value || delay.loadError.value || spares.loadError.value }}
+  <div v-if="inv.loadError.value || sla.loadError.value || kitSla.loadError.value || spares.loadError.value" class="form-error">
+    Couldn't load: {{ inv.loadError.value || sla.loadError.value || kitSla.loadError.value || spares.loadError.value }}
   </div>
 
   <HealthSection id="inventory" title="1. Inventory View">
@@ -70,9 +70,8 @@ const stale = (t, h) => !t || (Date.now() - new Date(t).getTime()) / 3600000 > h
     <HealthSlaDemand :ro="sla.ro.value" :locks="sla.locks.value" title="2.1 SLA & Demand Share" />
     <!-- single child: 2.2 takes the left column, the width of 2.1's SLA table -->
     <div class="hc-pair hc-view hc-pair-views">
-      <HealthSlaAdherence :ro="sla.ro.value" :locks="sla.locks.value" title="2.2 SLA Adherence" />
+      <HealthSlaAdherence :ro="sla.ro.value" :locks="sla.locks.value" :spares="kitSla.spares.value" :refresh-kit="kitSla.refreshKit.value" title="2.2 SLA Adherence" />
     </div>
-    <HealthDelayedOrders title="2.3 Delayed Orders" :spares="delay.spares.value" :refresh-kit="delay.refreshKit.value" :fetch-orders="delay.fetchDelayedOrders" />
   </HealthSection>
 
   <HealthSection v-if="props.showPayments" id="payments" title="3. Payment Pendency">

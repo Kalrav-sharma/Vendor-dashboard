@@ -2788,3 +2788,29 @@ create policy support_tickets_update on public.support_tickets
 drop trigger if exists trg_queue_po_request_ticket on public.purchase_orders;
 drop function if exists public.queue_po_request_ticket();
 -- ---------------------------------------------------------------------
+
+-- Logistics Health Card › SLA Adherence for Spares / Refresh -- added 2026-10-05.
+-- One row per (product, order week, tier). tier: 'pan' | 'top5' (Mumbai, Delhi,
+-- Bangalore, Hyderabad, Kolkata) | 'next4' (Chennai, Pune, Ahmedabad, Lucknow) |
+-- 'other'. Delivered orders only; cancelled/RTO excluded. orders/on_time = on time
+-- by the query's own promise (spares: Jarvis 578703, refresh: 579905). tat_sum/tat_n
+-- = delivery days (spares: 578703 DELIVERY_TAT; refresh: 508892 DELIVERY_DAYS).
+-- Written only from the VPN-side sync (~/.claude/scripts/sla_portal/).
+create table if not exists public.health_sla_kit_weekly (
+  id bigserial primary key,
+  product text not null,
+  week_start date not null,
+  tier text not null,
+  week_no int,
+  orders int not null default 0,
+  on_time int not null default 0,
+  tat_sum numeric not null default 0,
+  tat_n int not null default 0,
+  synced_at timestamptz not null default now(),
+  unique (product, week_start, tier)
+);
+alter table public.health_sla_kit_weekly enable row level security;
+drop policy if exists health_sla_kit_weekly_select on public.health_sla_kit_weekly;
+create policy health_sla_kit_weekly_select on public.health_sla_kit_weekly
+  for select using (public.is_internal_staff());
+-- ---------------------------------------------------------------------
