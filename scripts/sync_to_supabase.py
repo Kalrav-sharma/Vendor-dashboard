@@ -434,9 +434,8 @@ def merge_duplicate_item_rows(rows, key_fields, sum_fields):
     return list(merged.values())
 
 
-def upsert_rows(session, supabase_url, key, table, on_conflict, rows):
-    if not rows:
-        return
+def _upsert_batch(session, supabase_url, key, table, on_conflict, rows):
+    """One HTTP request, no retry/splitting -- just reports ok/response."""
     r = session.post(
         f"{supabase_url}/rest/v1/{table}",
         headers={**supabase_headers(key), "Prefer": "resolution=merge-duplicates,return=minimal"},
@@ -444,8 +443,43 @@ def upsert_rows(session, supabase_url, key, table, on_conflict, rows):
         json=rows,
         timeout=REQUEST_TIMEOUT,
     )
-    if not r.ok:
-        print(f"WARN: upsert into {table} failed ({r.status_code}): {r.text[:500]}", file=sys.stderr)
+    return r
+
+
+def upsert_rows(session, supabase_url, key, table, on_conflict, rows, key_fields=None):
+    """Upserts `rows` into `table`, isolating a bad row instead of letting it
+    take every other row in the batch down with it.
+
+    PostgREST sends a multi-row upsert as ONE SQL statement, so previously a
+    single bad row anywhere in the batch (a stray duplicate conflict key, a
+    NULL in a NOT NULL column, any constraint violation) failed the WHOLE
+    request -- every PO/GRN refreshed that run lost its line items, not just
+    the offending one. Real incident: PGNU/PO2627/0404 and (confirmed
+    2026-10-05) PKLU/PO2627/0174 both sat with zero po_items for weeks
+    because of this, invisible until someone noticed the SKU table was empty
+    in the portal -- is_settled() kept retrying them, but every retry hit the
+    SAME shared-batch failure and lost them again.
+
+    Fix: try the whole batch first (so the normal, nothing-wrong case costs
+    exactly the one request it always did). Only on failure, split the batch
+    in half and retry each half -- recursing down to individual rows, which
+    isolates exactly which row(s) are bad. Every good row in the batch still
+    gets written; only the genuinely bad row(s) are dropped, each logged by
+    its own conflict key (key_fields) and the real error, not a vague
+    "something in this 600-row batch failed" message.
+    """
+    if not rows:
+        return
+    r = _upsert_batch(session, supabase_url, key, table, on_conflict, rows)
+    if r.ok:
+        return
+    if len(rows) == 1:
+        identity = {f: rows[0].get(f) for f in (key_fields or [])} or rows[0]
+        print(f"WARN: upsert into {table} failed for {identity} ({r.status_code}): {r.text[:500]}", file=sys.stderr)
+        return
+    mid = len(rows) // 2
+    upsert_rows(session, supabase_url, key, table, on_conflict, rows[:mid], key_fields)
+    upsert_rows(session, supabase_url, key, table, on_conflict, rows[mid:], key_fields)
 
 
 # ---------------------------------------------------------------------
@@ -551,8 +585,8 @@ def main():
         sum_fields=["quantity", "received_quantity", "pending_quantity", "rejected_quantity", "subtotal", "total"],
     )
 
-    upsert_rows(session, supabase_url, supabase_key, "purchase_orders", "po_code", po_rows)
-    upsert_rows(session, supabase_url, supabase_key, "po_items", "po_code,item_sku", po_item_rows)
+    upsert_rows(session, supabase_url, supabase_key, "purchase_orders", "po_code", po_rows, key_fields=["po_code"])
+    upsert_rows(session, supabase_url, supabase_key, "po_items", "po_code,item_sku", po_item_rows, key_fields=["po_code", "item_sku"])
 
     # 3. GRNs for any PO refreshed this run that has at least one receipt.
     grn_rows = []
@@ -571,8 +605,8 @@ def main():
         grn_item_rows, key_fields=["grn_code", "item_sku"], sum_fields=["quantity", "rejected_quantity"],
     )
 
-    upsert_rows(session, supabase_url, supabase_key, "grns", "grn_code", grn_rows)
-    upsert_rows(session, supabase_url, supabase_key, "grn_items", "grn_code,item_sku", grn_item_rows)
+    upsert_rows(session, supabase_url, supabase_key, "grns", "grn_code", grn_rows, key_fields=["grn_code"])
+    upsert_rows(session, supabase_url, supabase_key, "grn_items", "grn_code,item_sku", grn_item_rows, key_fields=["grn_code", "item_sku"])
 
     # Always touch a heartbeat file (with a fresh timestamp, so it always
     # differs) so the GitHub Actions workflow always has something to
