@@ -572,21 +572,6 @@ def main():
         for fut in as_completed(futs):
             facility, code = futs[fut]
             po = fut.result()
-            # --force is explicit, named, and rare (a human went looking for this exact
-            # PO) -- unlike the rest of this loop, which stays quiet on the routine paths
-            # so a 300-PO backfill run doesn't drown itself in noise, a forced code always
-            # gets its full outcome printed, success or not. Added 2026-10-05 debugging
-            # PKLU/PO2627/0174: two separate --force runs reported zero problems anywhere
-            # in this function, yet the portal kept showing no line items for it, with no
-            # way to tell whether the PO was actually reached by this loop at all.
-            if code in force_codes:
-                if po is None:
-                    print(f"FORCE-DEBUG: {code} ({facility}) -- fetch FAILED (see WARN above)", file=sys.stderr)
-                else:
-                    print(f"FORCE-DEBUG: {code} ({facility}) -- fetch succeeded, "
-                          f"vendorCode={po.get('vendorCode')!r}, "
-                          f"purchaseOrderItems={len(po.get('purchaseOrderItems') or [])} "
-                          f"(raw keys: {sorted(po.keys())})", file=sys.stderr)
             if po is None:
                 continue  # fetch_po_detail already printed its own WARN
             vendor_code = po.get("vendorCode")
@@ -596,9 +581,6 @@ def main():
                 po_item_rows.extend(item_rows)
                 if inflow_count > 0:
                     inflow_counts[code] = (facility, vendor_code)
-                if code in force_codes:
-                    print(f"FORCE-DEBUG: {code} -- matched vendor_map, built {len(item_rows)} item row(s): "
-                          f"{[r['item_sku'] for r in item_rows]}", file=sys.stderr)
             elif code in existing:
                 # Fetched fine, but this PO's current Uniware vendorCode doesn't match any
                 # known vendor login -- previously silent (identical code path to a
@@ -606,10 +588,7 @@ def main():
                 # on purpose: a facility-wide search surfaces every vendor's codes, most of
                 # which legitimately belong to nobody with a login yet). This branch is the
                 # narrower, actually-suspicious case: a PO ALREADY on file in Supabase (so
-                # it matched a vendor login at some point) now doesn't. Confirmed live
-                # 2026-10-05: PKLU/PO2627/0174 kept coming back from Uniware with real data
-                # on every run, including --force, but never got (re-)written because of
-                # exactly this branch -- invisible until now.
+                # it matched a vendor login at some point) now doesn't.
                 print(f"WARN: {code} ({facility}) already on file but now has vendorCode {vendor_code!r}, "
                       f"which matches no known vendor login -- skipped, kept stale.", file=sys.stderr)
 
@@ -617,10 +596,6 @@ def main():
         po_item_rows, key_fields=["po_code", "item_sku"],
         sum_fields=["quantity", "received_quantity", "pending_quantity", "rejected_quantity", "subtotal", "total"],
     )
-
-    for code in force_codes:
-        rows_for_code = [r for r in po_item_rows if r["po_code"] == code]
-        print(f"FORCE-DEBUG: {code} -- {len(rows_for_code)} item row(s) about to be upserted: {rows_for_code}", file=sys.stderr)
 
     upsert_rows(session, supabase_url, supabase_key, "purchase_orders", "po_code", po_rows, key_fields=["po_code"])
     upsert_rows(session, supabase_url, supabase_key, "po_items", "po_code,item_sku", po_item_rows, key_fields=["po_code", "item_sku"])
