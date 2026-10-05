@@ -8,6 +8,15 @@
 .hc-stamps { display: flex; justify-content: flex-end; gap: 12px; flex-wrap: wrap; margin: -6px 0 12px; font-size: 0.72rem; color: var(--muted); }
 .hc-stamps span::before { content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--good); margin-right: 5px; vertical-align: 1px; }
 .hc-stamps span.stale::before { background: var(--open); }
+/* Sync now (HealthSyncButton.vue): sits at the start of the stamps row */
+.hc-stamps { align-items: center; }
+.hc-sync { display: inline-flex; align-items: center; gap: 8px; margin-right: auto; }
+.hc-sync-btn { font: inherit; font-weight: 600; padding: 3px 10px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); cursor: pointer; }
+.hc-sync-btn:hover:not(:disabled) { background: var(--accent-soft); }
+.hc-sync-btn:disabled { cursor: wait; opacity: 0.6; }
+.hc-sync-msg { font-style: normal; }
+.hc-sync-msg.done { color: var(--good); }
+.hc-sync-msg.failed { color: var(--critical); }
 
 .hc-view { margin-bottom: 18px; }
 .hc-caption { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }

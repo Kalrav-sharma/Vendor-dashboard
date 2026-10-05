@@ -1,5 +1,6 @@
 <script setup>
-// Logistics Health Card: the portal's landing section. Views stack one below another with
+// Logistics Health Card: the portal's landing section. "Sync now" (HealthSyncButton.vue)
+// starts the RO + Spares inventory syncs on demand. Views stack one below another with
 // no switcher (the user asked for this on 2026-09-25). A new workstream view is one more
 // component in the stack. Each numbered section collapses from its header (HealthSection.vue).
 //   1. Inventory View
@@ -15,6 +16,7 @@
 import "./health.css";
 import "../spares/spares.css";
 import HealthSection from "./HealthSection.vue";
+import HealthSyncButton from "./HealthSyncButton.vue";
 import HealthInventoryRisk from "./HealthInventoryRisk.vue";
 import HealthSlaDemand from "./HealthSlaDemand.vue";
 import HealthSlaAdherence from "./HealthSlaAdherence.vue";
@@ -40,11 +42,13 @@ const { allUploads } = useInvoiceUploads(); // singleton, fetched by AdminApp on
 const spares = useSparesData(null); // read-only here: Appendix edits stay in the Spares section
 
 const stamp = t => (t ? new Date(t).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "–");
+const refreshAll = () => Promise.all([inv.refresh(), spares.refresh()]);
 const stale = (t, h) => !t || (Date.now() - new Date(t).getTime()) / 3600000 > h;
 </script>
 
 <template>
   <div class="hc-stamps">
+    <HealthSyncButton @done="refreshAll" />
     <span :class="{ stale: stale(inv.stockSyncedAt.value, 14) }">Stock {{ stamp(inv.stockSyncedAt.value) }}</span>
     <span :class="{ stale: stale(sla.lastSynced.value, 30) }">SLA {{ stamp(sla.lastSynced.value) }}</span>
     <span :class="{ stale: stale(delay.lastSynced.value, 30) }">Delays {{ stamp(delay.lastSynced.value) }}</span>
