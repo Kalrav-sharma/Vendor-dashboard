@@ -1,0 +1,127 @@
+/* --- Finance theme (admin.html only, finance role only -- AdminApp.vue adds
+   .finance-shell to .app-shell when effectiveRole === "finance"; every other
+   role keeps the plain Admin Console look, untouched). Finance's entire nav
+   is just Payment Dashboard / Action Required / Vendor Payments, so this
+   reskins the whole shell rather than one page -- same elevated-card,
+   night-violet-sidebar visual language as vendor.html's vendor-theme.css
+   (that file's own header comment explains the reasoning), minus the
+   Dashboard/My Performance pieces finance doesn't have an equivalent of.
+   Colours stay on shared.css's tokens; the only new ones are the sidebar's
+   and the elevation shadows, copied from vendor-theme.css so the two
+   "reskinned" experiences in this app read as one family, not two. --- */
+:root {
+  --f-side-bg: #1D1535;
+  --f-side-ink: #F3EFFD;
+  --f-side-muted: #ADA2CF;
+  --f-side-line: rgba(255, 255, 255, 0.08);
+  --f-side-hover: rgba(255, 255, 255, 0.06);
+  --f-side-active: rgba(154, 124, 242, 0.24);
+  --f-side-bar: #B89DFF;
+  --f-elev: 0 1px 2px rgba(29, 21, 53, 0.05), 0 2px 10px rgba(29, 21, 53, 0.04);
+  --f-elev-hover: 0 8px 22px rgba(78, 48, 180, 0.13);
+  --f-head-bg: #F8F6FD;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --f-side-bg: #100C1B;
+    --f-side-line: rgba(255, 255, 255, 0.06);
+    --f-elev: 0 1px 2px rgba(0, 0, 0, 0.3);
+    --f-elev-hover: 0 8px 22px rgba(0, 0, 0, 0.45);
+    --f-head-bg: #1C1926;
+  }
+}
+:root[data-theme="dark"] {
+  --f-side-bg: #100C1B;
+  --f-side-line: rgba(255, 255, 255, 0.06);
+  --f-elev: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --f-elev-hover: 0 8px 22px rgba(0, 0, 0, 0.45);
+  --f-head-bg: #1C1926;
+}
+
+/* --- Sidebar --- */
+.finance-shell .sidebar { width: 216px; background: var(--f-side-bg); border-right: none; padding: 22px 0 14px; }
+.finance-shell .sidebar .brand { padding: 0 22px 18px; border-bottom: 1px solid var(--f-side-line); margin-bottom: 12px; }
+.finance-shell .sidebar .brand-logo { filter: invert(1); } /* logo artwork is black on transparent -- white on this sidebar */
+.finance-shell .sidebar-app-name { color: var(--f-side-muted); font-weight: 500; font-size: 0.8rem; letter-spacing: 0.01em; }
+.finance-shell .nav-item,
+.finance-shell .profile-trigger {
+  width: calc(100% - 20px); margin: 1px 10px; padding: 9px 12px; border-left: none; border-radius: 8px;
+  color: var(--f-side-muted); transition: background 0.15s, color 0.15s;
+}
+.finance-shell .nav-item:hover,
+.finance-shell .profile-trigger:hover { color: var(--f-side-ink); background: var(--f-side-hover); }
+.finance-shell .nav-item.active { color: #fff; background: var(--f-side-active); font-weight: 600; box-shadow: inset 3px 0 0 var(--f-side-bar); }
+.finance-shell .nav-item:focus-visible,
+.finance-shell .profile-trigger:focus-visible { outline: 2px solid var(--f-side-bar); outline-offset: -2px; }
+.finance-shell .sidebar-account { border-top: 1px solid var(--f-side-line); margin-top: auto; padding-top: 12px; }
+.finance-shell .profile-trigger-icon { background: var(--f-side-active); color: var(--f-side-ink); width: 24px; height: 24px; }
+.finance-shell .profile-trigger-icon svg { width: 13px; height: 13px; }
+
+@media (max-width: 700px) {
+  .finance-shell .sidebar { width: 100%; padding: 8px 6px; flex-direction: row; align-items: center; }
+  .finance-shell .nav-item { width: auto; margin: 0 2px; flex-shrink: 0; border-bottom: none; }
+  .finance-shell .nav-item.active { box-shadow: inset 0 -3px 0 var(--f-side-bar); }
+  .finance-shell .sidebar-account { border-top: none; margin-top: 0; padding: 0 4px; }
+  .finance-shell .profile-trigger { width: auto; margin: 0; }
+}
+
+/* --- Page chrome --- */
+.finance-shell .wrap { padding-top: 34px; }
+.finance-shell header.page-head { border-bottom: none; padding-bottom: 0; margin-bottom: 24px; }
+.finance-shell h1 { font-size: 1.65rem; font-weight: 700; letter-spacing: -0.02em; }
+.finance-shell .scope { max-width: 72ch; line-height: 1.5; }
+
+/* A page fades in when switched to -- v-show flips display, which restarts
+   a CSS animation on its own. Applied to every Finance page's own root --
+   see the "tab-panel" class on the three content divs in AdminApp.vue. */
+.finance-shell .tab-panel { animation: f-tab-in 0.22s ease-out; }
+@keyframes f-tab-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .finance-shell .tab-panel { animation: none; } }
+
+/* --- Cards: one elevation language for panels, tables and tiles --- */
+.finance-shell .panel,
+.finance-shell .table-card,
+.finance-shell .kpis,
+.finance-shell .pay-detail { border-radius: 14px; box-shadow: var(--f-elev); }
+.finance-shell th { background: var(--f-head-bg); text-transform: none; letter-spacing: 0; font-size: 0.76rem; color: var(--muted); }
+.finance-shell .filter-row td { background: var(--f-head-bg); }
+.finance-shell tbody tr { transition: background 0.12s; }
+.finance-shell td.mono { white-space: nowrap; }
+.finance-shell tbody tr.clickable-row:hover,
+.finance-shell tbody tr:hover { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+
+.finance-shell .kpi { padding: 16px 18px; }
+.finance-shell .kpi .label { text-transform: none; letter-spacing: 0; font-size: 0.78rem; font-weight: 500; }
+.finance-shell .kpi .value { font-size: 1.4rem; }
+
+/* --- Bucket tabs: segmented, the active one filled --- */
+.finance-shell .bucket-tabs { gap: 6px; margin-bottom: 16px; }
+.finance-shell .bucket-tab { border-radius: 999px; padding: 7px 8px 7px 14px; box-shadow: var(--f-elev); }
+.finance-shell .bucket-tab .bucket-count {
+  min-width: 24px; padding: 2px 7px; border-radius: 999px; text-align: center; font-size: 0.74rem;
+  background: var(--paper); color: var(--muted);
+}
+.finance-shell .bucket-tab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.finance-shell .bucket-tab.active .bucket-count { background: rgba(255, 255, 255, 0.22); color: #fff; }
+.finance-shell .bucket-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* --- Fields, buttons --- */
+.finance-shell .field input, .finance-shell .field select, .finance-shell .field textarea { background: var(--surface); border-color: var(--line-strong); border-radius: 9px; }
+.finance-shell .field input:hover, .finance-shell .field select:hover, .finance-shell .field textarea:hover { border-color: var(--accent); }
+.finance-shell .icon-btn { padding: 7px; margin: -7px; border-radius: 8px; }
+.finance-shell .icon-btn:hover { background: var(--accent-soft); }
+.finance-shell .chip { border-radius: 999px; padding: 3px 10px; }
+.finance-shell .link-btn-inline { text-decoration-color: color-mix(in srgb, var(--accent) 40%, transparent); }
+.finance-shell .link-btn-inline:hover { text-decoration-color: var(--accent); }
+.finance-shell .fin-btn,
+.finance-shell .pay-vendor-nav button { border-radius: 9px; box-shadow: var(--f-elev); }
+.finance-shell .fin-btn:hover:not(:disabled),
+.finance-shell .pay-vendor-nav button:hover:not(:disabled) { box-shadow: var(--f-elev-hover); }
+.finance-shell button.primary-btn { border-radius: 9px; transition: background 0.15s, box-shadow 0.15s; }
+.finance-shell button.primary-btn:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 88%, #000); box-shadow: var(--f-elev-hover); }
+
+/* --- Modal --- */
+.finance-shell .modal-overlay { background: rgba(20, 14, 38, 0.55); backdrop-filter: blur(3px); }
+.finance-shell .modal-box { border-radius: 16px; animation: f-modal-in 0.18s ease-out; }
+@keyframes f-modal-in { from { opacity: 0; transform: translateY(8px) scale(0.99); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .finance-shell .modal-box { animation: none; } }

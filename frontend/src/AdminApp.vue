@@ -391,7 +391,7 @@ async function signOut() {
     </div>
   </div>
 
-  <div v-else-if="ready" class="app-shell">
+  <div v-else-if="ready" class="app-shell" :class="{ 'finance-shell': effectiveRole === 'finance' }">
     <SidebarNav v-model="activeNav" :brand="sidebarBrand" :lockup="effectiveRole === 'management'" :items="navItems">
       <template #account>
         <ProfileMenu :display-name="whoLine" :email="myEmail" :access="ROLE_LABELS[myRole] || myRole" :role="myRole" :vendors="poVendorOptions" :on-sign-out="signOut" />
@@ -454,7 +454,7 @@ async function signOut() {
           />
         </div>
 
-        <div v-if="canSeeFinanceWorklist" v-show="activeNav === 'action-required'">
+        <div v-if="canSeeFinanceWorklist" v-show="activeNav === 'action-required'" class="tab-panel">
           <FinanceActionRequired
             :uploads="allUploads" :pos-with-payment="posWithPaymentNoInvoice" :pos="currentPos"
             :vendor-label="vendorLabel" :on-open-po="openPoDetailModal" :on-open-vendor="openVendorPayments"
@@ -462,7 +462,7 @@ async function signOut() {
           />
         </div>
 
-        <div v-if="canSeePaymentDashboard" v-show="activeNav === 'payment-dashboard'">
+        <div v-if="canSeePaymentDashboard" v-show="activeNav === 'payment-dashboard'" class="tab-panel">
           <PaymentExecutiveSummary
             :uploads="allUploads" :pos-with-payment="posWithPaymentNoInvoice" :pos-needing-invoice="posNeedingInvoice"
             :vendor-label="vendorLabel" :on-open-po="openPoDetailModal"
@@ -470,7 +470,7 @@ async function signOut() {
           />
         </div>
 
-        <div v-if="canSeeFinanceWorklist" v-show="activeNav === 'vendor-payments'">
+        <div v-if="canSeeFinanceWorklist" v-show="activeNav === 'vendor-payments'" class="tab-panel">
           <PaymentVendorView
             v-model="paymentVendor" :vendor-options="paymentVendorOptions"
             :uploads="allUploads" :pos-with-payment="posWithPaymentNoInvoice" :pos-needing-invoice="posNeedingInvoice"
