@@ -201,7 +201,13 @@ export function useInvoiceUploads() {
     }
   }
 
+  // A row split out of a multi-invoice PDF (parent_upload_id set -- see check-invoice-match)
+  // shares the file with the file's own row, so it can't be removed on its own: removing the
+  // file's own row removes the file, and the database removes its split-out rows with it.
   async function deleteInvoice(row) {
+    if (row.parent_upload_id) {
+      return { ok: false, error: "This invoice is part of a file holding several invoices -- remove the file's first invoice to remove the whole file." };
+    }
     workingIds.add(row.id);
     try {
       await supabase.storage.from(BUCKET).remove([row.storage_path]);

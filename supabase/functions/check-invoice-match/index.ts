@@ -37,6 +37,15 @@
 // confirmed receipt to compare against, so the result is "needs_review"
 // rather than a hard pass/fail.
 //
+// One PDF can hold several invoices (2026-10-06: PBRU/PO2627/0345's upload carried both
+// IND/26-27/270418 and IND/26-27/270394, and only the first was ever read). Every distinct
+// invoice in the file is now extracted and checked on its own: the first stays on the file's
+// own po_invoice_uploads row, each extra one gets its own row sharing the same storage_path
+// (parent_upload_id -> the file's row, invoice_index = its position in the file), so payout
+// sync, credit notes and GRN matching all work per invoice. A re-check on any of them re-reads
+// the whole file. Extra rows for invoices no longer found are removed unless Finance or the
+// vendor has already acted on them (payment status, credit note, or booked).
+//
 // Required secrets (Project Settings -> Edge Functions -> Secrets):
 //   ANTHROPIC_API_KEY  -- pay-as-you-go key from console.anthropic.com,
 //                         separate from any Claude.ai/Claude Code login
@@ -92,7 +101,7 @@ Deno.serve(async (req) => {
     // scripts/resync_mismatched_invoices.py's daily sweep, which already
     // holds this same secret to write straight to the DB, so accepting it
     // here grants nothing it couldn't already do.
-    const isSystemCaller = authHeader === `Bearer ${SERVICE_ROLE_KEY}`;
+    const isSystemCaller = await isServiceKey(authHeader.replace(/^Bearer\s+/i, ""));
 
     let upload;
     if (isSystemCaller) {
@@ -123,6 +132,15 @@ Deno.serve(async (req) => {
       upload = data;
     }
 
+    // A re-check on an extra invoice split out of a multi-invoice PDF re-reads the whole file,
+    // so it runs on the file's own row. (Authorization already passed on the row asked for;
+    // the parent is the same vendor's same file.)
+    if (upload.parent_upload_id) {
+      const { data: parent } = await adminClient
+        .from("po_invoice_uploads").select("*").eq("id", upload.parent_upload_id).single();
+      if (parent) upload = parent;
+    }
+
     // From here on we have a real upload row -- guaranteed to record SOME
     // result (an "error" status if nothing else) before returning, no
     // matter what fails below. Without this, an unanticipated failure
@@ -144,71 +162,67 @@ Deno.serve(async (req) => {
       const grnsList = grns || [];
       const poItemsList = poItems || [];
 
-      let extracted;
+      let invoices: any[];
       try {
         const pdfBase64 = arrayBufferToBase64(await fileBlob.arrayBuffer());
-        extracted = await extractInvoiceData(pdfBase64);
+        invoices = await extractInvoices(pdfBase64);
       } catch (e) {
         return await recordResult(
           adminClient, upload.id, "error",
           `Couldn't read the invoice PDF: ${e instanceof Error ? e.message : String(e)}`, null
         );
       }
-
-      // A single vendor invoice can cover more than one GRN (e.g. goods
-      // dispatched together but receipted as separate batches in
-      // Uniware, all citing the same invoice number) -- match ALL GRNs
-      // sharing this invoice number, not just the first one found, and
-      // compare the invoice against their combined total. Comparing
-      // against only one of several genuinely made a correct invoice
-      // look like a mismatch.
-      const matchingGrns = grnsList.filter((g) => {
-        const gNo = normalizeCode(g.vendor_invoice_number);
-        return gNo && gNo === normalizeCode(extracted.invoice_number);
-      });
-
-      let grnItems: any[] = [];
-      if (matchingGrns.length) {
-        const { data } = await adminClient
-          .from("grn_items").select("quantity, item_sku").in("grn_code", matchingGrns.map((g) => g.grn_code));
-        grnItems = data || [];
+      if (!invoices.length) {
+        return await recordResult(adminClient, upload.id, "error", "No invoice could be read from this PDF.", null);
       }
 
-      const { status, summary, discrepancies, referenceLabel } = compareInvoiceToReference(
-        extracted, po, matchingGrns, grnItems, grnsList, poItemsList
-      );
+      const { data: childRows } = await adminClient
+        .from("po_invoice_uploads").select("*").eq("parent_upload_id", upload.id);
+      const children = childRows || [];
+      const keyOf = (x: any) => normalizeCode(x?.invoice_number);
+      // The file's own row keeps the invoice it already had when that's still in the file, so
+      // a re-check never shuffles payment / credit-note data between invoices; otherwise the
+      // first invoice in page order.
+      const currentKey = keyOf(upload.match_details?.extracted);
+      let primaryIdx = invoices.findIndex((x) => currentKey && keyOf(x) === currentKey);
+      if (primaryIdx < 0) primaryIdx = 0;
+      const multi = invoices.length > 1;
 
-      // Many vendor invoices don't print a due date or payment terms at
-      // all -- rather than leave the Payment Dashboard blank, fall back
-      // to Kalrav's stated default: 45 days from the invoice date.
-      // Flagged as estimated so it's never confused with a date actually
-      // printed on the invoice.
-      let dueDate = extracted.invoice_due_date || null;
-      let dueDateEstimated = false;
-      if (!dueDate && extracted.invoice_date) {
-        const invoiceDate = new Date(extracted.invoice_date);
-        if (!isNaN(invoiceDate.getTime())) {
-          invoiceDate.setUTCDate(invoiceDate.getUTCDate() + 45);
-          dueDate = invoiceDate.toISOString().slice(0, 10);
-          dueDateEstimated = true;
+      let primary: any = null;
+      for (let i = 0; i < invoices.length; i++) {
+        const r = await checkOneInvoice(adminClient, invoices[i], po, grnsList, poItemsList);
+        const fields = {
+          match_status: r.status, match_summary: r.summary, match_details: r.details,
+          checked_at: new Date().toISOString(), invoice_index: multi ? i + 1 : null,
+        };
+        if (i === primaryIdx) {
+          const { error } = await adminClient.from("po_invoice_uploads").update(fields).eq("id", upload.id);
+          if (error) return json({ error: `Checked, but failed to save the result: ${error.message}` }, 500);
+          primary = r;
+          continue;
         }
+        const existing = children.find((c: any) => keyOf(c.match_details?.extracted) === keyOf(invoices[i]));
+        const { error } = existing
+          ? await adminClient.from("po_invoice_uploads").update(fields).eq("id", existing.id)
+          : await adminClient.from("po_invoice_uploads").insert({
+            ...fields,
+            parent_upload_id: upload.id,
+            po_code: upload.po_code, vendor_code: upload.vendor_code,
+            storage_path: upload.storage_path, file_name: upload.file_name, file_size: upload.file_size,
+            uploaded_by: upload.uploaded_by, uploaded_by_name: upload.uploaded_by_name,
+            created_at: upload.created_at, // same upload moment -- not a "newer" invoice on the PO
+          });
+        if (error) return json({ error: `Checked, but failed to save invoice ${invoices[i].invoice_number || i + 1}: ${error.message}` }, 500);
       }
 
-      const grnValueSum = matchingGrns.length
-        ? matchingGrns.reduce((s, g) => s + (Number(g.total_received_amount) || 0), 0)
-        : null;
+      const foundKeys = new Set(invoices.map(keyOf));
+      const stale = children.filter((c: any) => !foundKeys.has(keyOf(c.match_details?.extracted))
+        && !c.payment_status && !c.credit_note_storage_path && !c.finance_booked_at);
+      if (stale.length) await adminClient.from("po_invoice_uploads").delete().in("id", stale.map((c: any) => c.id));
 
-      return await recordResult(adminClient, upload.id, status, summary, {
-        extracted, reference: referenceLabel, discrepancies,
-        // Explicit, easy-to-read fields for the Payment Dashboard --
-        // pulled from the same data already used for the comparison
-        // above, so there's no second source of truth to drift out of sync.
-        invoice_value: Number.isFinite(extracted.grand_total) && extracted.grand_total >= 0 ? Number(extracted.grand_total) : null,
-        invoice_due_date: dueDate,
-        invoice_due_date_estimated: dueDateEstimated,
-        grn_value: grnValueSum,
-        grn_codes: matchingGrns.map((g) => g.grn_code),
-        po_value: po?.total_amount ?? null,
+      return json({
+        ok: true, match_status: primary.status, match_summary: primary.summary, match_details: primary.details,
+        invoices_found: invoices.length,
       });
     } catch (e) {
       return await recordResult(
@@ -221,13 +235,84 @@ Deno.serve(async (req) => {
   }
 });
 
-async function extractInvoiceData(pdfBase64: string) {
+// One extracted invoice against the PO and its GRNs -- the same logic that used to run inline
+// for the single invoice read per file.
+async function checkOneInvoice(adminClient: any, extracted: any, po: any, grnsList: any[], poItemsList: any[]) {
+  // A single vendor invoice can cover more than one GRN (e.g. goods
+  // dispatched together but receipted as separate batches in
+  // Uniware, all citing the same invoice number) -- match ALL GRNs
+  // sharing this invoice number, not just the first one found, and
+  // compare the invoice against their combined total. Comparing
+  // against only one of several genuinely made a correct invoice
+  // look like a mismatch.
+  const matchingGrns = grnsList.filter((g) => {
+    const gNo = normalizeCode(g.vendor_invoice_number);
+    return gNo && gNo === normalizeCode(extracted.invoice_number);
+  });
+
+  let grnItems: any[] = [];
+  if (matchingGrns.length) {
+    const { data } = await adminClient
+      .from("grn_items").select("quantity, item_sku").in("grn_code", matchingGrns.map((g) => g.grn_code));
+    grnItems = data || [];
+  }
+
+  const { status, summary, discrepancies, referenceLabel } = compareInvoiceToReference(
+    extracted, po, matchingGrns, grnItems, grnsList, poItemsList
+  );
+
+  // Many vendor invoices don't print a due date or payment terms at
+  // all -- rather than leave the Payment Dashboard blank, fall back
+  // to Kalrav's stated default: 45 days from the invoice date.
+  // Flagged as estimated so it's never confused with a date actually
+  // printed on the invoice.
+  let dueDate = extracted.invoice_due_date || null;
+  let dueDateEstimated = false;
+  if (!dueDate && extracted.invoice_date) {
+    const invoiceDate = new Date(extracted.invoice_date);
+    if (!isNaN(invoiceDate.getTime())) {
+      invoiceDate.setUTCDate(invoiceDate.getUTCDate() + 45);
+      dueDate = invoiceDate.toISOString().slice(0, 10);
+      dueDateEstimated = true;
+    }
+  }
+
+  const grnValueSum = matchingGrns.length
+    ? matchingGrns.reduce((s, g) => s + (Number(g.total_received_amount) || 0), 0)
+    : null;
+
+  return {
+    status, summary,
+    details: {
+      extracted, reference: referenceLabel, discrepancies,
+      // Explicit, easy-to-read fields for the Payment Dashboard --
+      // pulled from the same data already used for the comparison
+      // above, so there's no second source of truth to drift out of sync.
+      invoice_value: Number.isFinite(extracted.grand_total) && extracted.grand_total >= 0 ? Number(extracted.grand_total) : null,
+      invoice_due_date: dueDate,
+      invoice_due_date_estimated: dueDateEstimated,
+      grn_value: grnValueSum,
+      grn_codes: matchingGrns.map((g) => g.grn_code),
+      po_value: po?.total_amount ?? null,
+    },
+  };
+}
+
+// Every distinct invoice in the PDF, in page order. Copies of one invoice ("Original for
+// Recipient" / "Duplicate for Transporter") count once -- deduped here too by invoice number.
+async function extractInvoices(pdfBase64: string) {
   const tool = {
     name: "report_invoice_extraction",
-    description: "Report the structured data read off the invoice PDF.",
+    description: "Report the structured data read off every distinct invoice in the PDF.",
     input_schema: {
       type: "object",
       properties: {
+        invoices: {
+          type: "array",
+          description: "One entry per distinct invoice number in the PDF, in page order. A PDF may hold several different invoices; copies of the same invoice (e.g. Original / Duplicate / Triplicate) are ONE entry.",
+          items: {
+            type: "object",
+            properties: {
         invoice_number: { type: "string", description: "Invoice/document number as printed. Empty string if not found." },
         invoice_date: { type: "string", description: "Invoice date as ISO YYYY-MM-DD if determinable, else empty string." },
         invoice_due_date: {
@@ -246,7 +331,11 @@ async function extractInvoiceData(pdfBase64: string) {
         },
         extraction_confidence: { type: "string", enum: ["high", "medium", "low"] },
       },
-      required: ["invoice_number", "invoice_date", "invoice_due_date", "po_number_on_invoice", "grand_total", "line_quantities", "extraction_confidence"],
+            required: ["invoice_number", "invoice_date", "invoice_due_date", "po_number_on_invoice", "grand_total", "line_quantities", "extraction_confidence"],
+          },
+        },
+      },
+      required: ["invoices"],
     },
   };
 
@@ -259,7 +348,8 @@ async function extractInvoiceData(pdfBase64: string) {
     },
     body: JSON.stringify({
       model: ANTHROPIC_MODEL,
-      max_tokens: 2048,
+      // Room for many invoices in one file -- each entry is small, but a long multi-invoice PDF adds up.
+      max_tokens: 16000,
       tools: [tool],
       tool_choice: { type: "tool", name: "report_invoice_extraction" },
       messages: [{
@@ -269,6 +359,9 @@ async function extractInvoiceData(pdfBase64: string) {
           {
             type: "text",
             text: "Read this vendor invoice PDF and extract its data via the report_invoice_extraction tool. " +
+              "The PDF may contain more than one invoice -- report every distinct invoice number as its own entry, " +
+              "in page order, each with only its own line quantities and totals. Copies of the same invoice " +
+              "(Original for Recipient, Duplicate for Transporter, etc.) are one entry. " +
               "Read every printed quantity/total exactly -- don't guess or round.",
           },
         ],
@@ -281,9 +374,41 @@ async function extractInvoiceData(pdfBase64: string) {
     throw new Error(`Anthropic API error ${resp.status}: ${errBody.slice(0, 300)}`);
   }
   const data = await resp.json();
+  // A cut-off reply would silently drop the invoices past the cut -- refuse instead.
+  if (data.stop_reason === "max_tokens") {
+    throw new Error("This PDF holds more invoices than can be read in one go -- please upload them as smaller files.");
+  }
   const toolUse = (data.content || []).find((b: any) => b.type === "tool_use");
   if (!toolUse) throw new Error("Model didn't return a structured extraction.");
-  return toolUse.input;
+  const seen = new Set<string>();
+  return (toolUse.input?.invoices || []).filter((inv: any) => {
+    const k = normalizeCode(inv?.invoice_number);
+    if (!k) return true; // unreadable number -- keep, it's still an invoice
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+}
+
+// Is this bearer token a genuine service_role key? An exact match against this function's own
+// SUPABASE_SERVICE_ROLE_KEY isn't enough: Supabase can hand the function a differently-formatted
+// key than the one the scripts/GitHub secrets hold (both valid), and the daily mismatch sweep
+// was silently getting 401 "Not authenticated" on every re-check because of it (found
+// 2026-10-06). So: a token claiming role service_role counts only if Supabase's admin API --
+// which nothing but a real service key can call -- accepts it. A forged token fails there.
+async function isServiceKey(token: string) {
+  if (!token) return false;
+  if (token === SERVICE_ROLE_KEY) return true;
+  try {
+    const part = token.split(".")[1] || "";
+    const b64 = part.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(part.length / 4) * 4, "=");
+    if (JSON.parse(atob(b64))?.role !== "service_role") return false;
+  } catch {
+    return false;
+  }
+  const probe = createClient(SUPABASE_URL, token, { auth: { persistSession: false, autoRefreshToken: false } });
+  const { error } = await probe.auth.admin.listUsers({ page: 1, perPage: 1 });
+  return !error;
 }
 
 // Shared by invoice numbers AND PO codes -- both just need a

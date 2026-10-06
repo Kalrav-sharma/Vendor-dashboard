@@ -33,8 +33,14 @@ function toggleDetails(id) { expandedId.value = expandedId.value === id ? null :
 
 onMounted(() => fetchInvoices(props.poCode));
 
+// A PDF holding several invoices is one file but several rows (check-invoice-match splits it):
+// the file's own row first, then the split-out ones (parent_upload_id) -- see fileInvoiceCount.
+const fileInvoiceCount = (row) => rows.value.filter((r) => r.storage_path === row.storage_path).length;
+
 async function handleDelete(row) {
-  if (!window.confirm(`Remove "${row.file_name}" from this PO? This can't be undone.`)) return;
+  const n = fileInvoiceCount(row);
+  const what = n > 1 ? `"${row.file_name}" and all ${n} invoices in it` : `"${row.file_name}"`;
+  if (!window.confirm(`Remove ${what} from this PO? This can't be undone.`)) return;
   errorMsg.value = "";
   const result = await deleteInvoice(row);
   if (!result.ok) errorMsg.value = result.error;
@@ -74,12 +80,16 @@ function fmtSize(bytes) {
       <li v-for="row in rows" :key="row.id">
         <div class="invoice-upload-row-main">
           <button class="link-btn-inline" @click="viewInvoice(row)">{{ row.file_name }}</button>
+          <span
+            v-if="row.invoice_index" class="chip chip-info invoice-in-file"
+            :title="`This PDF holds ${fileInvoiceCount(row)} invoices -- each is checked and paid separately`"
+          >Invoice {{ row.invoice_index }} of {{ fileInvoiceCount(row) }} in this file</span>
           <MatchStatusChip :status="row.match_status" />
           <span class="invoice-upload-meta">
             Uploaded by {{ row.uploaded_by_name || "Unknown" }} ·
             <span class="mono">{{ fmtSize(row.file_size) }} · {{ fmtDate(row.created_at) }}</span>
           </span>
-          <button class="link-btn-inline invoice-upload-remove" :disabled="workingIds.has(row.id)" @click="handleDelete(row)">
+          <button v-if="!row.parent_upload_id" class="link-btn-inline invoice-upload-remove" :disabled="workingIds.has(row.id)" @click="handleDelete(row)">
             {{ workingIds.has(row.id) ? "Removing…" : "Remove" }}
           </button>
         </div>

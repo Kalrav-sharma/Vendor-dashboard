@@ -704,3 +704,4 @@ tr.vr-row > td:first-child { box-shadow: inset 3px 0 0 var(--critical); }
 .icl-actions li + li { margin-top: 4px; }
 .icl-details { margin: 10px 0 14px; font-size: 0.83rem; }
 .icl-details summary { cursor: pointer; color: var(--accent); font-weight: 500; }
+.invoice-in-file { font-size: 0.66rem; }

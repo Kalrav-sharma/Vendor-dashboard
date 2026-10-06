@@ -3002,3 +3002,26 @@ create policy grn_finance_handoffs_update on public.grn_finance_handoffs
   for update
   using ((select public.is_internal_staff()))
   with check ((select public.is_internal_staff()) and (decided_by is null or decided_by = (select auth.uid())));
+
+-- po_invoice_uploads: several invoices in one PDF -- added 2026-10-06. check-invoice-match now
+-- reads every invoice in an uploaded file; the first stays on the file's own row, each extra
+-- one gets its own row sharing the same storage_path (parent_upload_id -> the file's row,
+-- invoice_index = its position in the file). Deleting the file's row removes the split-out
+-- rows with it. storage_path is therefore unique per FILE row only, not per row.
+alter table public.po_invoice_uploads
+  add column if not exists parent_upload_id bigint references public.po_invoice_uploads(id) on delete cascade;
+alter table public.po_invoice_uploads add column if not exists invoice_index integer;
+do $$
+declare c text;
+begin
+  for c in
+    select con.conname from pg_constraint con
+    join pg_attribute a on a.attrelid = con.conrelid and a.attnum = any(con.conkey)
+    where con.conrelid = 'public.po_invoice_uploads'::regclass and con.contype = 'u' and a.attname = 'storage_path'
+  loop
+    execute format('alter table public.po_invoice_uploads drop constraint %I', c);
+  end loop;
+end $$;
+create unique index if not exists po_invoice_uploads_file_storage_path_idx
+  on public.po_invoice_uploads(storage_path) where parent_upload_id is null;
+create index if not exists po_invoice_uploads_parent_idx on public.po_invoice_uploads(parent_upload_id);
