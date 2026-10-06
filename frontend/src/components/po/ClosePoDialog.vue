@@ -71,6 +71,10 @@ async function submit() {
           {{ vendorName }} · {{ po.facility }} · raised {{ fmtDateOnly(po.created_at) }} ·
           {{ fmtNum(po.qty_ordered) }} units · {{ fmtMoney(po.total_amount) }}
         </p>
+        <p v-if="Number(po.qty_received) > 0" class="field-hint">
+          {{ fmtNum(po.qty_received) }} of {{ fmtNum(po.qty_ordered) }} units received -- closing cancels the
+          remaining {{ fmtNum(Math.max(0, Number(po.qty_ordered) - Number(po.qty_received))) }} in Uniware.
+        </p>
 
         <div class="field">
           <label for="close-po-reason">Reason</label>

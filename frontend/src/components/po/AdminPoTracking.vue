@@ -17,6 +17,7 @@ import { useVendorRequests, isRequestAnswered, REQUEST_KIND_META } from "../../c
 import { downloadCsv } from "../sla/slaUtil.js";
 import {
   fmtNum, fmtMoney, fmtMoneyCompact, fmtDateOnly, statusLabel, uniwarePoUrl, TERMINAL_STATUSES, poSortComparator, dedupeInvoiceNumbers,
+  paymentStatusLabel,
 } from "../../format.js";
 import "../payments/payments.css";
 import "./po-tracking.css";
@@ -163,11 +164,39 @@ const ago = (t) => {
 };
 const withdrawError = ref("");
 
-// --- Close PO in Uniware (Awaiting supply) -----------------------------------------------
+// --- Close PO in Uniware (Awaiting supply / Part-received) ------------------------------
 const closeDialogPo = ref(null);
 const closeNotice = ref("");
-// Its own column right after Invoice -- only on the tabs that can hold an Awaiting supply PO.
-const showCloseCol = computed(() => props.canChangeStage && ["all", "awaiting_grn"].includes(activeStage.value));
+// Its own column right after Invoice (and Payment, on Part-received) -- only on the tabs that
+// can hold an Awaiting supply or Part-received PO.
+const showCloseCol = computed(() => props.canChangeStage && ["all", "awaiting_grn", "part_received"].includes(activeStage.value));
+// Part-received tab only: where the PO's invoices stand on payment, beside the Close button.
+const showPayCol = computed(() => activeStage.value === "part_received");
+const tableCols = computed(() => 8 + (showPayCol.value ? 1 : 0) + (showCloseCol.value ? 1 : 0));
+
+// Payment position of a PO's invoices: every uploaded invoice's payment_status, or -- with no
+// portal invoice at all -- Finance's own payout-file status on the PO itself.
+function paymentSummary(p) {
+  const uploads = uploadsByPo[p.po_code] || [];
+  const entries = uploads.length
+    ? uploads.map((u) => ({ number: invoiceFields(u).number || "Invoice", status: u.payment_status || null }))
+    : (p.payment_status ? [{ number: "No portal invoice (Finance ledger)", status: p.payment_status }] : []);
+  const paid = entries.filter((e) => e.status === "paid").length;
+  const booked = entries.filter((e) => e.status && e.status !== "paid").length;
+  return {
+    entries, total: entries.length, paid, booked, notBooked: entries.length - paid - booked,
+    allPaid: entries.length > 0 && paid === entries.length,
+    tip: entries.map((e) => `${e.number}: ${paymentStatusLabel(e.status)}`).join("\n") || "No invoice uploaded yet",
+  };
+}
+// A Part-received PO can only be closed once every invoice on it is paid -- closing earlier
+// would cut off the rest of the supply while money is still in flight.
+function closeBlockedReason(d) {
+  if (d.stage === "awaiting_grn") return "";
+  const s = paymentSummary(d.p);
+  if (!s.total) return "No invoice on this PO yet -- it can be closed once its invoices are uploaded and paid.";
+  return s.allPaid ? "" : `${s.total - s.paid} of ${s.total} invoice${s.total === 1 ? "" : "s"} not paid yet -- close once all are paid.`;
+}
 function onClosed({ poCode, status, warning }) {
   closeNotice.value = `${poCode} closed in Uniware (now ${status}).` + (warning ? ` ${warning}` : "");
   props.onPoClosed?.();
@@ -324,13 +353,15 @@ function uploadStatus(poCode) {
 
 function exportCsv() {
   const headers = ["Vendor", "PO code", "Facility", "Created", "Age (days)", "Stage", "Uniware status",
-    "Qty ordered", "Qty received", "Fill %", "PO value", "GRN invoice numbers", "GRN received value", "Invoices uploaded", "Invoiced qty not yet GRN'd"];
+    "Qty ordered", "Qty received", "Fill %", "PO value", "GRN invoice numbers", "GRN received value", "Invoices uploaded", "Invoiced qty not yet GRN'd",
+    "Invoices paid"];
   const out = tableRows.value.map((d) => {
     const g = grnInfo(d.p.po_code);
     return [props.vendorLabel(d.p.vendor_code, d.p.vendor_name), d.p.po_code, d.p.facility, fmtDateOnly(d.p.created_at), d.age ?? "",
       stageLabel(d.p, d.stage), statusLabel(d.p.status), d.p.qty_ordered ?? "", d.p.qty_received ?? "", Math.round(d.fill),
       d.p.total_amount ?? "", g.invoices.join(" | "), g.recv, (uploadsByPo[d.p.po_code] || []).length,
-      d.stage === "grn_pending" ? grnGap(d.p).invoiced - grnGap(d.p).received : ""];
+      d.stage === "grn_pending" ? grnGap(d.p).invoiced - grnGap(d.p).received : "",
+      paymentSummary(d.p).total ? `${paymentSummary(d.p).paid}/${paymentSummary(d.p).total}` : ""];
   });
   const tab = activeStage.value === "all" ? "all" : activeStage.value;
   downloadCsv(`po_tracking_${tab}_${new Date().toISOString().slice(0, 10)}.csv`, headers, out);
@@ -434,12 +465,13 @@ function openUploadModal(p) {
           <th class="num"><button type="button" class="po-sort" @click="toggleSort('value')">PO value{{ sortMark("value") }}</button></th>
           <th>GRN / invoice</th>
           <th class="col-tight">Invoice</th>
+          <th v-if="showPayCol">Payment</th>
           <th v-if="showCloseCol" class="col-tight">Close</th>
         </tr>
       </thead>
       <tbody>
         <tr v-if="!tableRows.length">
-          <td :colspan="showCloseCol ? 9 : 8" class="empty-state">
+          <td :colspan="tableCols" class="empty-state">
             No purchase orders {{ activeStage === "all" ? "match these filters" : `in ${STAGE_BY_KEY[activeStage].label}` }}.
             <button v-if="hasLocalFilters" type="button" class="link-btn-inline" @click="clearFilters">Clear filters</button>
           </td>
@@ -514,10 +546,24 @@ function openUploadModal(p) {
               >{{ uploadStatus(d.p.po_code).uploaded }}/{{ uploadStatus(d.p.po_code).expected }}</span>
             </div>
           </td>
+          <td v-if="showPayCol" class="po-pay" :title="paymentSummary(d.p).tip">
+            <span v-if="!paymentSummary(d.p).total" class="cell-empty">no invoice yet</span>
+            <template v-else>
+              <span class="chip" :class="paymentSummary(d.p).allPaid ? 'chip-good' : paymentSummary(d.p).paid ? 'chip-open' : 'chip-muted'">
+                {{ paymentSummary(d.p).allPaid ? "All paid" : `${paymentSummary(d.p).paid} of ${paymentSummary(d.p).total} paid` }}
+              </span>
+              <div v-if="!paymentSummary(d.p).allPaid" class="po-pay-sub">
+                <template v-if="paymentSummary(d.p).booked">{{ paymentSummary(d.p).booked }} booked</template>
+                <template v-if="paymentSummary(d.p).booked && paymentSummary(d.p).notBooked"> · </template>
+                <template v-if="paymentSummary(d.p).notBooked">{{ paymentSummary(d.p).notBooked }} not booked</template>
+              </div>
+            </template>
+          </td>
           <td v-if="showCloseCol" class="col-tight" @click.stop>
             <button
-              v-if="d.stage === 'awaiting_grn'" type="button" class="po-close-btn"
-              title="Close this PO in Uniware" @click="closeDialogPo = d.p"
+              v-if="d.stage === 'awaiting_grn' || d.stage === 'part_received'" type="button" class="po-close-btn"
+              :disabled="!!closeBlockedReason(d)" :title="closeBlockedReason(d) || 'Close this PO in Uniware'"
+              @click="closeDialogPo = d.p"
             >Close PO</button>
           </td>
         </tr>
