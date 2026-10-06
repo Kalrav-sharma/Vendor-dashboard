@@ -5,7 +5,8 @@
 // "New" marks invoices that became ready since this browser last opened the page.
 import { ref, computed, watch } from "vue";
 import { fmtMoney, fmtMoneyCompact, fmtDateOnly } from "../../format.js";
-import { paymentLedger, sumAmount } from "../../composables/usePaymentSummary.js";
+import { paymentLedger, sumAmount, ledgerKey } from "../../composables/usePaymentSummary.js";
+import { useGrnHandoffs } from "../../composables/useGrnHandoffs.js";
 import { financeQueues, daysSince, lastPayoutSync } from "../../composables/useFinanceActions.js";
 import { useInvoiceUploads } from "../../composables/useInvoiceUploads.js";
 import { downloadCsv } from "../sla/slaUtil.js";
@@ -28,7 +29,36 @@ const props = defineProps({
 
 const { viewCreditNote, markInvoiceBooked, unmarkInvoiceBooked, workingIds } = useInvoiceUploads();
 
-const queues = computed(() => financeQueues(paymentLedger(props.uploads, props.posWithPayment)));
+// GRN pending invoices ops handed over (From Ops · GRN tab) -- latest handoff per invoice,
+// keyed the way the ledger collapses duplicate uploads.
+const { handoffs, fetchHandoffs, decideHandoff, working: handoffWorking } = useGrnHandoffs();
+fetchHandoffs();
+const handoffByKey = computed(() => {
+  const uploadById = new Map(props.uploads.map((u) => [u.id, u]));
+  const m = {};
+  for (const h of handoffs.value) { // newest first
+    const u = uploadById.get(h.upload_id);
+    if (!u) continue;
+    const k = ledgerKey(u);
+    if (!m[k]) m[k] = h;
+  }
+  return m;
+});
+const queues = computed(() => financeQueues(paymentLedger(props.uploads, props.posWithPayment), handoffByKey.value));
+
+async function proceedWithPayment(e) {
+  const comment = window.prompt(`Proceed with payment on ${e.inv} (${e.po})? It moves to Ready to book.\n\nOptional note for ops:`, "");
+  if (comment === null) return;
+  const res = await decideHandoff(e.handoff, "approved", comment, props.bookerLabel);
+  if (!res.ok) alert(`Couldn't update: ${res.error}`);
+}
+async function sendBack(e) {
+  const comment = window.prompt(`Send ${e.inv} (${e.po}) back to ops? It returns to PO Tracking › GRN pending.\n\nComment for ops (required):`, "");
+  if (comment === null) return;
+  if (!comment.trim()) { alert("Add a comment so ops know what to do."); return; }
+  const res = await decideHandoff(e.handoff, "returned", comment, props.bookerLabel);
+  if (!res.ok) alert(`Couldn't update: ${res.error}`);
+}
 
 // Ready tab's "Mark as booked" / Booked tab's "Undo" -- a plain DB update (finance_booked_*,
 // see schema.sql), not the payout-sync columns, so it's immediate and doesn't fight the next
@@ -72,7 +102,7 @@ const refreshedAt = ref(new Date());
 const refreshing = ref(false);
 async function refresh() {
   refreshing.value = true;
-  try { await props.onRefresh(); refreshedAt.value = new Date(); } finally { refreshing.value = false; }
+  try { await Promise.all([props.onRefresh(), fetchHandoffs()]); refreshedAt.value = new Date(); } finally { refreshing.value = false; }
 }
 const timeTxt = (d) => d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
 
@@ -108,6 +138,7 @@ const kpis = computed(() => {
 // --- Tabs + filters ------------------------------------------------------------------------
 const TABS = [
   { key: "ready", label: "Ready to book" },
+  { key: "ops", label: "From Ops · GRN" },
   { key: "booked", label: "Booked · awaiting payout" },
   { key: "attention", label: "Needs attention" },
   { key: "waiting", label: "Waiting on others" },
@@ -127,6 +158,7 @@ const byDue = (a, b) => (b.days ?? -9999) - (a.days ?? -9999);
 const byTime = (k) => (a, b) => String(a[k] || "").localeCompare(String(b[k] || ""));
 const SORTS = {
   ready: (a, b) => byDue(a, b) || byTime("readySince")(a, b),
+  ops: byTime("waitingSince"),
   booked: byDue,
   attention: byTime("receivedAt"),
   waiting: byTime("waitingSince"),
@@ -154,9 +186,14 @@ const agoTxt = (iso) => { const d = daysSince(iso); return d == null ? "–" : d
 
 // --- CSV -----------------------------------------------------------------------------------
 const CSV = {
+  ops: {
+    headers: ["Vendor", "PO code", "Invoice number", "Invoice value", "GRN value", "Ops note", "Sent by", "Sent on"],
+    row: (e) => [props.vendorLabel(e.vendorCode), e.po, e.inv, e.amount, e.grnAmount, e.handoff.ops_note || "",
+      e.handoff.sent_by_name || "", (e.handoff.sent_at || "").slice(0, 10)],
+  },
   ready: {
     headers: ["Vendor", "PO code", "Invoice number", "Basis", "Invoice value", "GRN value", "Due date", "Due date estimated", "Days overdue", "Ready since"],
-    row: (e) => [props.vendorLabel(e.vendorCode), e.po, e.inv, e.basis === "cn" ? "Credit note uploaded" : "Reconciled",
+    row: (e) => [props.vendorLabel(e.vendorCode), e.po, e.inv, e.basis === "cn" ? "Credit note uploaded" : e.basis === "ops" ? "Approved from GRN pending" : "Reconciled",
       e.amount, e.grnAmount, e.due, e.estimated ? "yes" : "", e.days != null && e.days > 0 ? e.days : "", (e.readySince || "").slice(0, 10)],
   },
   booked: {
@@ -217,6 +254,7 @@ function exportCsv() {
         <option value="">Reconciled + credit note</option>
         <option value="reconciled">Reconciled</option>
         <option value="cn">Credit note uploaded</option>
+        <option value="ops">Approved from GRN pending</option>
       </select>
     </div>
     <div class="field fin-search">
@@ -236,6 +274,10 @@ function exportCsv() {
           <th>Vendor</th><th>PO code</th><th>Invoice number</th><th>Basis</th>
           <th class="num">Invoice value</th><th class="num">GRN value</th><th>Due date</th><th>Due</th>
           <th class="num" title="Days since it became ready to book (reconciled, or credit note uploaded)">Waiting</th><th>Invoice</th>
+        </tr>
+        <tr v-else-if="tab === 'ops'">
+          <th>Vendor</th><th>PO code</th><th>Invoice number</th>
+          <th class="num">Invoice value</th><th class="num">GRN value</th><th>From ops</th><th class="num">Waiting</th><th>Invoice</th>
         </tr>
         <tr v-else-if="tab === 'booked'">
           <th>Vendor</th><th>PO code</th><th>Invoice number</th><th class="num">Amount</th>
@@ -265,12 +307,26 @@ function exportCsv() {
           </td>
 
           <template v-if="tab === 'ready'">
-            <td><span class="chip" :class="e.basis === 'cn' ? 'chip-open' : 'chip-good'">{{ e.basis === "cn" ? "Credit note uploaded" : "Reconciled" }}</span></td>
+            <td>
+              <span class="chip" :class="e.basis === 'cn' ? 'chip-open' : e.basis === 'ops' ? 'chip-info' : 'chip-good'"
+                :title="e.basis === 'ops' ? `Approved by ${e.handoff?.decided_by_name || 'Finance'}${e.handoff?.finance_comment ? ': ' + e.handoff.finance_comment : ''}` : ''"
+              >{{ e.basis === "cn" ? "Credit note uploaded" : e.basis === "ops" ? "Approved from GRN pending" : "Reconciled" }}</span>
+            </td>
             <td class="num mono">{{ fmtMoney(e.amount) }}</td>
             <td class="num mono" :class="{ critical: e.grnAmount != null && e.amount != null && Math.round(e.grnAmount) !== Math.round(e.amount) }">{{ fmtMoney(e.grnAmount) }}</td>
             <td class="mono">{{ fmtDateOnly(e.due) }}<span v-if="e.estimated" class="due-date-estimated-mark" title="Not printed on the invoice -- estimated as 45 days from the invoice date.">*</span></td>
             <td><span :class="dueChip(e).cls">{{ dueChip(e).text }}</span></td>
             <td class="num mono">{{ agoTxt(e.readySince) }}</td>
+          </template>
+
+          <template v-else-if="tab === 'ops'">
+            <td class="num mono">{{ fmtMoney(e.amount) }}</td>
+            <td class="num mono" :class="{ critical: e.grnAmount != null && e.amount != null && Math.round(e.grnAmount) !== Math.round(e.amount) }">{{ fmtMoney(e.grnAmount) }}</td>
+            <td class="fin-ops-note">
+              <div v-if="e.handoff.ops_note">“{{ e.handoff.ops_note }}”</div>
+              <span class="fin-booked-sub">{{ e.handoff.sent_by_name || "Ops" }}</span>
+            </td>
+            <td class="num mono">{{ agoTxt(e.waitingSince) }}</td>
           </template>
 
           <template v-else-if="tab === 'booked'">
@@ -316,6 +372,10 @@ function exportCsv() {
               v-if="tab === 'ready'" type="button" class="fin-btn fin-book-btn"
               :disabled="isBooking(e)" @click="handleMarkBooked(e)"
             >{{ isBooking(e) ? "Booking…" : "Mark as booked" }}</button>
+            <template v-if="tab === 'ops'">
+              <button type="button" class="fin-btn fin-book-btn" :disabled="handoffWorking" @click="proceedWithPayment(e)">Proceed with payment</button>
+              <button type="button" class="fin-btn fin-book-btn" :disabled="handoffWorking" @click="sendBack(e)">Send back</button>
+            </template>
           </td>
         </tr>
       </tbody>
@@ -323,6 +383,7 @@ function exportCsv() {
   </div></div>
   <p class="field-hint">
     <template v-if="tab === 'ready'">Reconciled = PO, GRN and invoice match. Credit note uploaded = the mismatch has a vendor credit note against it -- check it before booking. A GRN value in red differs from the invoice value.</template>
+    <template v-else-if="tab === 'ops'">Handed over from PO Tracking › GRN pending: the invoiced quantity is more than the warehouse has GRN'd. Proceed with payment to move it to Ready to book, or send it back to ops with a comment -- it returns to their GRN pending tab.</template>
     <template v-else-if="tab === 'booked'">Booked in Oracle per the payout file, or marked booked by Finance in the portal while that sync catches up -- either way, payout not made yet. A portal mark can be undone if it was a mis-click; it clears itself once the sync confirms the real status, nothing to do there.</template>
     <template v-else-if="tab === 'attention'">The portal can't move these on its own. The payout sync matches on invoice number, so an invoice with none read will never pick up a booked/paid status.</template>
     <template v-else>Not bookable yet: the vendor owes a credit note, or the warehouse hasn't raised the GRN. Use this list to chase.</template>

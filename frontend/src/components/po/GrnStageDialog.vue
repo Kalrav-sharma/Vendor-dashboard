@@ -6,6 +6,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { fmtNum, fmtDateOnly } from "../../format.js";
 import { useVendorRequests } from "../../composables/useVendorRequests.js";
 import { useInvoiceUploads } from "../../composables/useInvoiceUploads.js";
+import { useGrnHandoffs } from "../../composables/useGrnHandoffs.js";
 
 const props = defineProps({
   modelValue: { type: Boolean, required: true },
@@ -20,10 +21,13 @@ const emit = defineEmits(["update:modelValue"]);
 const OPTIONS = [
   { kind: "credit_note", label: "Request credit note", sub: "The shortfall stands -- the vendor issues a credit note against this invoice." },
   { kind: "reupload_invoice", label: "Ask vendor to re-upload invoice", sub: "The invoice itself is wrong -- the vendor uploads a corrected one." },
+  { kind: "finance", label: "Move to Finance", sub: "Finance decides: proceed with payment as it stands, or send it back here with a comment. The vendor isn't notified." },
   { kind: "dummy_po_invoice", label: "Created dummy PO", sub: "The extra units were received -- a new PO was raised in Uniware to GRN them. The vendor uploads the invoice for that PO." },
 ];
 
-const { createRequests, working } = useVendorRequests();
+const { createRequests, working: requestWorking } = useVendorRequests();
+const { sendToFinance, working: handoffWorking } = useGrnHandoffs();
+const working = computed(() => requestWorking.value || handoffWorking.value);
 const kind = ref("credit_note");
 const selected = ref([]);
 const note = ref("");
@@ -33,6 +37,7 @@ const PLACEHOLDERS = {
   credit_note: "e.g. 40 units short-received at Bombay on 3 Oct -- please issue a CN for the difference.",
   reupload_invoice: "e.g. Invoice shows 120 units at the wrong rate -- please upload a corrected invoice.",
   dummy_po_invoice: "e.g. 4 extra units received on invoice LMF-2627/4676 -- please upload the invoice for these 4 units against this PO.",
+  finance: "e.g. 4 units short; warehouse confirms only 116 received -- OK to pay against the GRN value?",
 };
 const dummyPo = computed(() => props.vendorPos.find((p) => p.po_code === dummyPoCode.value.trim()) || null);
 // Whether the picked dummy PO already has its invoice -- then the request is answered at once
@@ -68,7 +73,9 @@ async function submit() {
       : "Enter the dummy PO's code.";
     return;
   }
-  const res = await createRequests(uploads, kind.value, note.value, props.requesterLabel, dummyPo.value?.po_code);
+  const res = kind.value === "finance"
+    ? await sendToFinance(uploads, note.value, props.requesterLabel)
+    : await createRequests(uploads, kind.value, note.value, props.requesterLabel, dummyPo.value?.po_code);
   if (!res.ok) { errorMsg.value = `Couldn't send the request: ${res.error}`; return; }
   emit("update:modelValue", false);
 }
@@ -111,16 +118,17 @@ async function submit() {
         </div>
 
         <div class="field grn-stage-note">
-          <label for="grn-stage-note">Note to vendor</label>
+          <label for="grn-stage-note">{{ kind === "finance" ? "Note to Finance" : "Note to vendor" }}</label>
           <textarea id="grn-stage-note" v-model="note" rows="3" maxlength="1000" :placeholder="PLACEHOLDERS[kind]"></textarea>
         </div>
-        <p class="field-hint">The vendor sees this on their next login, on their Payments page, and with an upload button on the invoice.</p>
+        <p v-if="kind === 'finance'" class="field-hint">Finance sees this in Action Required › From Ops · GRN. If they send it back, it returns to this GRN pending tab with their comment.</p>
+        <p v-else class="field-hint">The vendor sees this on their next login, on their Payments page, and with an upload button on the invoice.</p>
 
         <div v-if="errorMsg" class="form-error">{{ errorMsg }}</div>
         <div class="grn-stage-actions">
           <button type="button" class="fin-btn" :disabled="working" @click="close">Cancel</button>
           <button type="button" class="primary-btn" :disabled="working || !selected.length" @click="submit">
-            {{ working ? "Saving…" : kind === "dummy_po_invoice" && dummyHasInvoice ? "Save" : "Send to vendor" }}
+            {{ working ? "Saving…" : kind === "finance" ? "Send to Finance" : kind === "dummy_po_invoice" && dummyHasInvoice ? "Save" : "Send to vendor" }}
           </button>
         </div>
       </div>

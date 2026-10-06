@@ -14,6 +14,7 @@ import GrnStageDialog from "./GrnStageDialog.vue";
 import ClosePoDialog from "./ClosePoDialog.vue";
 import { useInvoiceUploads } from "../../composables/useInvoiceUploads.js";
 import { useVendorRequests, isRequestAnswered, REQUEST_KIND_META } from "../../composables/useVendorRequests.js";
+import { useGrnHandoffs } from "../../composables/useGrnHandoffs.js";
 import { downloadCsv } from "../sla/slaUtil.js";
 import {
   fmtNum, fmtMoney, fmtMoneyCompact, fmtDateOnly, statusLabel, uniwarePoUrl, TERMINAL_STATUSES, poSortComparator, dedupeInvoiceNumbers,
@@ -49,6 +50,16 @@ watch(() => props.rows, (rows) => fetchUploadCounts(rows.map((p) => p.po_code)),
 // Credit-note / corrected-invoice requests the team has sent vendors (useVendorRequests.js).
 const { requests, latestByUpload, fetchRequests, withdrawRequest } = useVendorRequests();
 onMounted(() => fetchRequests());
+
+// Ops -> Finance handoffs (useGrnHandoffs.js). The latest one per invoice decides: with
+// Finance or approved -> that invoice's shortfall is Finance's call, out of GRN pending;
+// returned -> back in GRN pending, with Finance's comment shown on the row.
+const { latestByUpload: handoffByUpload, fetchHandoffs } = useGrnHandoffs();
+onMounted(() => fetchHandoffs());
+const handoffOf = (u) => (u.payment_status === "paid" ? null : handoffByUpload.value[u.id] || null);
+const handedOff = (u) => ["with_finance", "approved"].includes(handoffOf(u)?.status);
+// Handoffs still waiting on Finance for a PO -- shown under its With Finance chip.
+const pendingHandoffs = (p) => (uploadsByPo[p.po_code] || []).map(handoffOf).filter((h) => h?.status === "with_finance");
 // A dummy-PO request is answered by an upload on the dummy PO, which may not be in view.
 watch(requests, (list) => fetchUploadCounts(list.map((r) => r.target_po_code).filter(Boolean)));
 const uploadsFor = (poCode) => uploadsByPo[poCode] || [];
@@ -134,11 +145,12 @@ function grnGap(p) {
     const fromPool = Math.min(pool, x.invQty - x.covered);
     x.covered += fromPool; pool -= fromPool;
     const covered = x.covered;
-    if (x.u.payment_status === "paid" || requestOf(x.u)) continue;
+    if (x.u.payment_status === "paid" || requestOf(x.u) || handedOff(x.u)) continue;
     if (covered < x.invQty - 0.01) {
       invoiced += x.invQty; received += covered;
       shortInvoices.push(x.number);
-      shortUploads.push({ upload: x.u, number: x.number, invQty: x.invQty, grnQty: covered });
+      const h = handoffOf(x.u);
+      shortUploads.push({ upload: x.u, number: x.number, invQty: x.invQty, grnQty: covered, returned: h?.status === "returned" ? h : null });
     }
   }
   return { pending: shortInvoices.length > 0, invoiced, received, invoices: shortInvoices, shortUploads };
@@ -539,17 +551,27 @@ function openUploadModal(p) {
           </td>
           <td>
             <span class="chip" :class="`chip-${STAGE_BY_KEY[d.stage].cls}`">{{ stageLabel(d.p, d.stage) }}</span>
-            <div v-if="d.stage === 'with_finance'" class="substep-boxes po-substeps">
-              <span
-                v-for="(s, i) in financeSteps(d.p)" :key="i" class="substep-box" :class="s.ok ? 'substep-good' : 'substep-critical'"
-                role="img" :aria-label="s.tip" :data-tip="s.tip"
-              ></span>
-            </div>
+            <template v-if="d.stage === 'with_finance'">
+              <div class="substep-boxes po-substeps">
+                <span
+                  v-for="(s, i) in financeSteps(d.p)" :key="i" class="substep-box" :class="s.ok ? 'substep-good' : 'substep-critical'"
+                  role="img" :aria-label="s.tip" :data-tip="s.tip"
+                ></span>
+              </div>
+              <div
+                v-for="h in pendingHandoffs(d.p)" :key="`ho-${h.id}`" class="po-request"
+                :title="h.ops_note ? `Note to Finance: ${h.ops_note}` : 'No note'"
+              >From GRN pending · {{ h.sent_by_name || "Ops" }} · {{ ago(h.sent_at) }}</div>
+            </template>
             <template v-else-if="d.stage === 'grn_pending'">
               <div
                 class="po-grn-gap mono"
                 :title="`Invoice ${grnGap(d.p).invoices.join(', ')} -- invoiced ${fmtNum(grnGap(d.p).invoiced)}, GRN'd ${fmtNum(grnGap(d.p).received)}`"
               >Inv {{ fmtNum(grnGap(d.p).invoiced) }} · GRN {{ fmtNum(grnGap(d.p).received) }}</div>
+              <div
+                v-for="s in grnGap(d.p).shortUploads.filter((x) => x.returned)" :key="`ret-${s.upload.id}`" class="po-fin-returned"
+                :title="`Sent back by ${s.returned.decided_by_name || 'Finance'} ${ago(s.returned.decided_at)}`"
+              >Finance: “{{ s.returned.finance_comment }}”</div>
             </template>
             <div v-else-if="d.stage === 'with_vendor'" class="po-request">
               <div v-for="r in openRequests(d.p)" :key="r.id" :title="r.note ? `Note to vendor: ${r.note}` : 'No note'">

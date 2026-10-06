@@ -17,21 +17,34 @@
 //              sync matches on invoice number, so those would never pick up a status).
 //   waiting    not booked and blocked on someone else: a credit note from the vendor
 //              (mismatch) or a GRN from the warehouse (GRN pending). For chasing, not booking.
+//   ops        handed over from admin PO Tracking › GRN pending (grn_finance_handoffs, see
+//              useGrnHandoffs.js) -- Finance proceeds with payment (the invoice then joins
+//              ready, basis "ops") or sends it back to ops with a comment.
+// handoffByKey: ledger key -> latest handoff for that invoice (ledgerKey in usePaymentSummary.js).
 import { reconciliationLabel } from "../reconciliation.js";
 
 const DAY = 86400000;
 const STALE_CHECK_MS = DAY; // a match check still "running" after a day has stalled
 
-export function financeQueues(ledger) {
+export function financeQueues(ledger, handoffByKey = {}) {
   const now = Date.now();
   const invoices = ledger.filter((e) => e.kind === "invoice");
+  const handoff = (e) => (e.pay === "paid" ? null : handoffByKey[e.key] || null);
+  const withFinance = (e) => handoff(e)?.status === "with_finance";
+  const approved = (e) => handoff(e)?.status === "approved";
 
   const ready = invoices
-    .filter((e) => e.pay === "none" && !e.bookedAt && (e.recon === "matched" || (e.recon === "mismatch" && e.cnSubmitted)))
+    .filter((e) => e.pay === "none" && !e.bookedAt && !withFinance(e)
+      && (e.recon === "matched" || (e.recon === "mismatch" && e.cnSubmitted) || approved(e)))
     .map((e) => {
-      const basis = e.recon === "matched" ? "reconciled" : "cn";
-      return { ...e, basis, readySince: (basis === "cn" ? e.cnAt : e.checkedAt) || e.receivedAt };
+      const basis = e.recon === "matched" ? "reconciled" : approved(e) ? "ops" : "cn";
+      const since = basis === "cn" ? e.cnAt : basis === "ops" ? handoff(e).decided_at : e.checkedAt;
+      return { ...e, basis, handoff: handoff(e), readySince: since || e.receivedAt };
     });
+
+  const ops = invoices
+    .filter((e) => e.pay !== "paid" && withFinance(e))
+    .map((e) => ({ ...e, handoff: handoff(e), waitingSince: handoff(e).sent_at }));
 
   const booked = ledger
     .filter((e) => e.pay === "booked" || (e.kind === "invoice" && e.pay === "none" && e.bookedAt))
@@ -52,7 +65,8 @@ export function financeQueues(ledger) {
   }
 
   const waiting = invoices
-    .filter((e) => e.pay === "none" && ((e.recon === "mismatch" && !e.cnSubmitted) || e.recon === "needs_review"))
+    .filter((e) => e.pay === "none" && !withFinance(e) && !approved(e)
+      && ((e.recon === "mismatch" && !e.cnSubmitted) || e.recon === "needs_review"))
     .map((e) => ({
       ...e,
       waitingOn: e.recon === "needs_review" ? "Warehouse · GRN" : "Vendor · credit note",
@@ -60,7 +74,7 @@ export function financeQueues(ledger) {
       waitingSince: e.checkedAt || e.receivedAt,
     }));
 
-  return { ready, booked, attention, waiting };
+  return { ready, ops, booked, attention, waiting };
 }
 
 // Whole days since an ISO timestamp (null-safe).

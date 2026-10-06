@@ -72,3 +72,4 @@
 .fin-booked-sub { display: block; font-size: 0.72rem; color: var(--muted); margin-top: 3px; }
 .fin-undo { display: block; font-size: 0.74rem; margin-top: 3px; }
 @media (max-width: 700px) { .fin-toolbar .field, .fin-toolbar .fin-search { width: 100%; } .fin-toolbar-end { margin-left: 0; } }
+.fin-ops-note { max-width: 280px; font-size: 0.8rem; white-space: normal; }

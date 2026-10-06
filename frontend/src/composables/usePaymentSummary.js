@@ -27,13 +27,19 @@ const payOf = (s) => (s === "paid" ? "paid" : s ? "booked" : "none");
 // copies = how many uploads collapsed into this one invoice; row = the kept upload row
 // bookedAt/bookedBy = Finance's own "mark as booked" (finance_booked_*), separate from pay/
 // paidAt above, which come only from the payout-file sync -- see useFinanceActions.js
+// The key paymentLedger() collapses duplicate uploads of one invoice under -- exported so
+// other per-upload data (e.g. GRN -> Finance handoffs) can be matched to a ledger entry.
+export const ledgerKey = (r) => {
+  const inv = r.match_details?.extracted?.invoice_number;
+  return inv ? `${r.vendor_code}|${String(inv).trim().toLowerCase()}` : r.id;
+};
+
 export function paymentLedger(uploads, posWithPayment = []) {
   const today = new Date(new Date().toDateString());
   const byKey = new Map();
   const copies = new Map();
   for (const r of uploads) {
-    const inv = r.match_details?.extracted?.invoice_number;
-    const key = inv ? `${r.vendor_code}|${String(inv).trim().toLowerCase()}` : r.id;
+    const key = ledgerKey(r);
     copies.set(key, (copies.get(key) || 0) + 1);
     const prev = byKey.get(key);
     if (prev && !(prev.payment_status !== "paid" && r.payment_status === "paid")) continue;

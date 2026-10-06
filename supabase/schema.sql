@@ -2950,3 +2950,55 @@ create policy invoice_vendor_requests_insert on public.invoice_vendor_requests
       )
     )
   );
+
+-- ---------------------------------------------------------------------
+-- grn_finance_handoffs -- added 2026-10-06. Admin PO Tracking › GRN pending › Change stage ›
+-- "Move to Finance": ops hands a short-GRN'd invoice to Finance instead of the vendor.
+-- Finance (Action Required › From Ops · GRN) either approves it -- status 'approved', the
+-- invoice joins Ready to book -- or returns it with a comment -- status 'returned', the PO
+-- goes back to GRN pending showing that comment. The latest row per upload is what counts.
+-- Staff-only both ways; the vendor never sees these.
+-- ---------------------------------------------------------------------
+create table if not exists public.grn_finance_handoffs (
+  id bigint generated always as identity primary key,
+  upload_id bigint not null references public.po_invoice_uploads(id) on delete cascade,
+  po_code text not null references public.purchase_orders(po_code) on delete cascade,
+  vendor_code text not null,
+  ops_note text,
+  status text not null default 'with_finance' check (status in ('with_finance', 'approved', 'returned')),
+  sent_by uuid references auth.users(id) on delete set null,
+  sent_by_name text,
+  sent_at timestamptz not null default now(),
+  finance_comment text,
+  decided_by uuid references auth.users(id) on delete set null,
+  decided_by_name text,
+  decided_at timestamptz
+);
+create index if not exists grn_finance_handoffs_upload_id_idx on public.grn_finance_handoffs(upload_id);
+
+alter table public.grn_finance_handoffs enable row level security;
+
+drop policy if exists grn_finance_handoffs_select on public.grn_finance_handoffs;
+create policy grn_finance_handoffs_select on public.grn_finance_handoffs
+  for select using ((select public.is_internal_staff()));
+
+drop policy if exists grn_finance_handoffs_insert on public.grn_finance_handoffs;
+create policy grn_finance_handoffs_insert on public.grn_finance_handoffs
+  for insert
+  with check (
+    (select public.is_internal_staff())
+    and sent_by = (select auth.uid())
+    and exists (
+      select 1 from public.po_invoice_uploads u
+      where u.id = grn_finance_handoffs.upload_id
+        and u.po_code = grn_finance_handoffs.po_code
+        and u.vendor_code = grn_finance_handoffs.vendor_code
+    )
+  );
+
+-- Finance's decision (approve / return with comment) is the only edit.
+drop policy if exists grn_finance_handoffs_update on public.grn_finance_handoffs;
+create policy grn_finance_handoffs_update on public.grn_finance_handoffs
+  for update
+  using ((select public.is_internal_staff()))
+  with check ((select public.is_internal_staff()) and (decided_by is null or decided_by = (select auth.uid())));
