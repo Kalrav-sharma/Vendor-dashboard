@@ -435,7 +435,7 @@ async function signOut() {
             :facility-options="facilityOptions" :status-options="statusOptions"
             :vendor-options="vendorOptions" :vendor-label="vendorLabel"
             :grns-by-po="grnsByPo" :grn-items-by-po-sku="grnItemsByPoSku" :on-open-po="openPoDetailModal" :uploader-label="whoLine"
-            :can-change-stage="canChangePoStage" :on-po-closed="refreshPos"
+            :can-change-stage="canChangePoStage" :on-po-closed="refreshPos" :all-pos="currentPos"
           />
         </div>
 

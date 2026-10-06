@@ -2912,3 +2912,41 @@ alter table public.po_close_log enable row level security;
 drop policy if exists po_close_log_select on public.po_close_log;
 create policy po_close_log_select on public.po_close_log
   for select using ((select public.is_internal_staff()));
+
+-- invoice_vendor_requests: 'dummy_po_invoice' -- added 2026-10-06. When an invoice covers more
+-- than its PO could hold (e.g. PUHY/PO2627/0432 ordered 116, invoiced and received 120), the
+-- team raises an extra "dummy" PO in Uniware for the difference (PUHY/PO2627/0562, 4 units) to
+-- GRN it, then asks the vendor to upload the invoice for that dummy PO. target_po_code is the
+-- dummy PO; answered once it has any invoice uploaded (useVendorRequests.js).
+alter table public.invoice_vendor_requests
+  add column if not exists target_po_code text references public.purchase_orders(po_code) on delete cascade;
+alter table public.invoice_vendor_requests drop constraint if exists invoice_vendor_requests_kind_check;
+alter table public.invoice_vendor_requests add constraint invoice_vendor_requests_kind_check
+  check (kind in ('credit_note', 'reupload_invoice', 'dummy_po_invoice'));
+alter table public.invoice_vendor_requests drop constraint if exists invoice_vendor_requests_target_check;
+alter table public.invoice_vendor_requests add constraint invoice_vendor_requests_target_check
+  check ((kind = 'dummy_po_invoice') = (target_po_code is not null));
+
+-- Same insert rule as before, plus: a dummy PO must be another PO of the same vendor.
+drop policy if exists invoice_vendor_requests_insert on public.invoice_vendor_requests;
+create policy invoice_vendor_requests_insert on public.invoice_vendor_requests
+  for insert
+  with check (
+    (select public.is_internal_staff())
+    and requested_by = (select auth.uid())
+    and exists (
+      select 1 from public.po_invoice_uploads u
+      where u.id = invoice_vendor_requests.upload_id
+        and u.po_code = invoice_vendor_requests.po_code
+        and u.vendor_code = invoice_vendor_requests.vendor_code
+    )
+    and (
+      target_po_code is null
+      or exists (
+        select 1 from public.purchase_orders t
+        where t.po_code = invoice_vendor_requests.target_po_code
+          and t.vendor_code = invoice_vendor_requests.vendor_code
+          and t.po_code <> invoice_vendor_requests.po_code
+      )
+    )
+  );

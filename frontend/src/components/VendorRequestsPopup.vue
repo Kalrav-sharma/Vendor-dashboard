@@ -5,7 +5,7 @@
 // refreshed uploads), and the pop-up closes itself once nothing is left.
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { fmtDateOnly } from "../format.js";
-import { REQUEST_KIND_META } from "../composables/useVendorRequests.js";
+import { REQUEST_KIND_META, vendorCtaFor, answerPoCode } from "../composables/useVendorRequests.js";
 import CreditNoteUploadModal from "./CreditNoteUploadModal.vue";
 import InvoiceUploadModal from "./InvoiceUploadModal.vue";
 
@@ -24,7 +24,7 @@ const childOpen = computed(() => !!(cnRow.value || reuploadRow.value));
 function answer(item) {
   const row = { ...item.upload, vendor_request: item.req };
   if (item.req.kind === "credit_note") cnRow.value = row;
-  else reuploadRow.value = row;
+  else reuploadRow.value = { ...row, po_code: answerPoCode(item.req, item.upload) };
 }
 
 watch([() => props.items.length, childOpen], ([n, child]) => { if (!n && !child) emit("close"); });
@@ -53,8 +53,11 @@ onUnmounted(() => document.removeEventListener("keydown", onKeydown));
           <div class="vr-popup-ref">
             PO <span class="mono">{{ it.upload.po_code }}</span> · Invoice <span class="mono">{{ invoiceNumber(it.upload) }}</span>
           </div>
+          <div v-if="it.req.kind === 'dummy_po_invoice'" class="vr-popup-ref">
+            Upload the invoice on new PO <span class="mono"><b>{{ it.req.target_po_code }}</b></span>
+          </div>
           <div v-if="it.req.note" class="vr-popup-note">“{{ it.req.note }}”</div>
-          <button type="button" class="vr-btn vr-popup-cta" @click="answer(it)">{{ REQUEST_KIND_META[it.req.kind].vendorCta }}</button>
+          <button type="button" class="vr-btn vr-popup-cta" @click="answer(it)">{{ vendorCtaFor(it.req) }}</button>
         </li>
       </ul>
 

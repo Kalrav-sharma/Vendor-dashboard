@@ -4,7 +4,7 @@ import { effectivePaymentStatus } from "../format.js";
 import { useInvoiceUploads } from "../composables/useInvoiceUploads.js";
 import CreditNoteUploadModal from "./CreditNoteUploadModal.vue";
 import InvoiceUploadModal from "./InvoiceUploadModal.vue";
-import { REQUEST_KIND_META } from "../composables/useVendorRequests.js";
+import { vendorCtaFor, answerPoCode } from "../composables/useVendorRequests.js";
 import downloadIcon from "../assets/icons/download.png";
 
 // row is required (not just status) -- the displayed status now depends on
@@ -31,7 +31,7 @@ function answerRequest() {
 
 <template>
   <div v-if="request" class="vr-cell">
-    <button class="link-btn-inline vr-cta" @click.stop="answerRequest">{{ REQUEST_KIND_META[request.kind].vendorCta }}</button>
+    <button class="link-btn-inline vr-cta" @click.stop="answerRequest">{{ vendorCtaFor(request) }}</button>
     <div v-if="request.note" class="vr-note">“{{ request.note }}”</div>
   </div>
 
@@ -48,7 +48,7 @@ function answerRequest() {
 
   <CreditNoteUploadModal v-if="status.needsCreditNote" v-model="modalOpen" :row="row" :uploader-label="uploaderLabel" />
   <InvoiceUploadModal
-    v-if="request?.kind === 'reupload_invoice'" v-model="invoiceModalOpen"
-    :po-code="row.po_code" :vendor-code="row.vendor_code" :uploader-label="uploaderLabel"
+    v-if="request && request.kind !== 'credit_note'" v-model="invoiceModalOpen"
+    :po-code="answerPoCode(request, row)" :vendor-code="row.vendor_code" :uploader-label="uploaderLabel"
   />
 </template>

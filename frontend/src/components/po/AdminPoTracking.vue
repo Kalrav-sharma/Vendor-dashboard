@@ -35,6 +35,7 @@ const props = defineProps({
   uploaderLabel: { type: String, default: "" }, // current user's display name -- recorded on uploads and vendor requests
   canChangeStage: { type: Boolean, default: false }, // may raise/withdraw vendor requests (GRN pending) and close POs in Uniware (Awaiting supply)
   onPoClosed: { type: Function, default: null }, // () => re-fetch POs after one is closed in Uniware
+  allPos: { type: Array, default: () => [] }, // every visible PO, unfiltered -- the dummy-PO picker's choices
 });
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
@@ -46,17 +47,20 @@ const { uploadsByPo, fetchUploadCounts } = useInvoiceUploads();
 watch(() => props.rows, (rows) => fetchUploadCounts(rows.map((p) => p.po_code)), { immediate: true });
 
 // Credit-note / corrected-invoice requests the team has sent vendors (useVendorRequests.js).
-const { latestByUpload, fetchRequests, withdrawRequest } = useVendorRequests();
+const { requests, latestByUpload, fetchRequests, withdrawRequest } = useVendorRequests();
 onMounted(() => fetchRequests());
+// A dummy-PO request is answered by an upload on the dummy PO, which may not be in view.
+watch(requests, (list) => fetchUploadCounts(list.map((r) => r.target_po_code).filter(Boolean)));
+const uploadsFor = (poCode) => uploadsByPo[poCode] || [];
 // An unpaid upload's request, and whether the vendor has answered it yet.
-function requestOf(u, uploads) {
+function requestOf(u) {
   const req = u.payment_status === "paid" ? null : latestByUpload.value[u.id];
-  return req ? { req, answered: isRequestAnswered(req, uploads) } : null;
+  return req ? { req, answered: isRequestAnswered(req, uploadsFor) } : null;
 }
 // Requests still waiting on the vendor, for a PO's "With vendor" stage.
 function openRequests(p) {
   const uploads = uploadsByPo[p.po_code] || [];
-  return uploads.map((u) => requestOf(u, uploads)).filter((r) => r && !r.answered).map((r) => r.req);
+  return uploads.map((u) => requestOf(u)).filter((r) => r && !r.answered).map((r) => r.req);
 }
 
 function grnInfo(poCode) {
@@ -68,10 +72,19 @@ function grnInfo(poCode) {
 }
 
 // --- GRN pending: invoiced qty the warehouse hasn't receipted yet -------------------------
-// Judged live, not from the stored match_status: an invoice checked before its GRN existed
-// stays "needs_review" forever (the daily re-check only re-runs mismatches), so instead each
-// unpaid upload's OCR'd qty is compared against the received qty on GRNs carrying the same
-// invoice number -- the same punctuation/case-insensitive match check-invoice-match uses.
+// Judged live, not from the stored match_status (an invoice checked before its GRN existed
+// stays "needs_review" forever -- the daily re-check only re-runs mismatches). An invoice's
+// qty is what was read off its PDF; GRN qty comes live from grn_items, linked to the PO
+// directly -- every GRN on the PO counts, not just ones whose invoice number matches:
+//   1. a GRN whose invoice number matches an uploaded invoice (same punctuation/case-
+//      insensitive match check-invoice-match uses) covers that invoice first;
+//   2. every other GRN on the PO -- plus whatever a matched GRN has beyond its invoice -- is
+//      pooled and covers the remaining invoices, oldest first --
+//      the warehouse often types the invoice number differently, or a vendor's upload carries
+//      a different number than the one GRN'd (2026-10-06: PGNU/PO2627/0470's GTS/26-27/295
+//      was GRN'd as GST/26-27/295 and showed as "GRN 0").
+// Only an unpaid invoice with no vendor request on it can put the PO in GRN pending, but paid
+// and requested invoices still take their share of the GRN qty first.
 const normalizeCode = (s) => (s || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase();
 const grnQtyByCode = computed(() => {
   const m = {};
@@ -87,26 +100,45 @@ function invoiceFields(u) {
   return { number: u.invoice_number ?? ex?.invoice_number, qtys: u.line_quantities ?? ex?.line_quantities };
 }
 // An invoice with a request on it leaves the gap: an open request puts the PO in "With
-// vendor" instead, and an answered one (credit note in, or a corrected invoice uploaded --
-// which is then judged on its own) settles that invoice's shortfall.
+// vendor" instead, and an answered one (credit note in, corrected invoice / dummy-PO invoice
+// uploaded) settles that invoice's shortfall.
 function grnGap(p) {
   const grns = props.grnsByPo[p.po_code] || [];
-  const uploads = uploadsByPo[p.po_code] || [];
+  const readable = (uploadsByPo[p.po_code] || []).map((u) => {
+    const { number, qtys } = invoiceFields(u);
+    const invQty = (Array.isArray(qtys) ? qtys : []).reduce((s, q) => s + (Number(q) >= 0 ? Number(q) : 0), 0);
+    return { u, number, invQty, key: normalizeCode(number) };
+  }).filter((x) => x.number && x.invQty > 0) // OCR couldn't read it -- nothing to judge against
+    .sort((a, b) => String(a.u.created_at || "").localeCompare(String(b.u.created_at || "")));
+
+  const invoiceKeys = new Set(readable.map((x) => x.key));
+  let pool = grns.filter((g) => !invoiceKeys.has(normalizeCode(g.vendor_invoice_number)))
+    .reduce((s, g) => s + (grnQtyByCode.value[g.grn_code] || 0), 0);
+  const matchedLeft = {}; // invoice key -> GRN qty still unallocated (two uploads can share a number)
+  for (const g of grns) {
+    const k = normalizeCode(g.vendor_invoice_number);
+    if (invoiceKeys.has(k)) matchedLeft[k] = (matchedLeft[k] || 0) + (grnQtyByCode.value[g.grn_code] || 0);
+  }
+
+  // Pass 1: matching invoice numbers; whatever a match leaves over joins the pool.
+  for (const x of readable) {
+    x.covered = Math.min(x.invQty, matchedLeft[x.key] || 0);
+    matchedLeft[x.key] = (matchedLeft[x.key] || 0) - x.covered;
+  }
+  pool += Object.values(matchedLeft).reduce((s, v) => s + Math.max(0, v), 0);
+  // Pass 2: the pool covers what's still short, oldest invoice first.
   let invoiced = 0, received = 0;
   const shortInvoices = [];
   const shortUploads = [];
-  for (const u of uploads) {
-    if (u.payment_status === "paid" || requestOf(u, uploads)) continue;
-    const { number, qtys } = invoiceFields(u);
-    const invQty = (Array.isArray(qtys) ? qtys : []).reduce((s, q) => s + (Number(q) >= 0 ? Number(q) : 0), 0);
-    if (!number || !(invQty > 0)) continue; // OCR couldn't read it -- nothing to judge against
-    const key = normalizeCode(number);
-    const grnQty = grns.filter((g) => key && normalizeCode(g.vendor_invoice_number) === key)
-      .reduce((s, g) => s + (grnQtyByCode.value[g.grn_code] || 0), 0);
-    if (grnQty < invQty - 0.01) {
-      invoiced += invQty; received += grnQty;
-      shortInvoices.push(number);
-      shortUploads.push({ upload: u, number, invQty, grnQty });
+  for (const x of readable) {
+    const fromPool = Math.min(pool, x.invQty - x.covered);
+    x.covered += fromPool; pool -= fromPool;
+    const covered = x.covered;
+    if (x.u.payment_status === "paid" || requestOf(x.u)) continue;
+    if (covered < x.invQty - 0.01) {
+      invoiced += x.invQty; received += covered;
+      shortInvoices.push(x.number);
+      shortUploads.push({ upload: x.u, number: x.number, invQty: x.invQty, grnQty: covered });
     }
   }
   return { pending: shortInvoices.length > 0, invoiced, received, invoices: shortInvoices, shortUploads };
@@ -158,6 +190,13 @@ function stageLabel(p, stage) {
 // --- Change stage (GRN pending -> With vendor) and withdraw -------------------------------
 const stageDialogPo = ref(null);
 const stageDialogUploads = computed(() => (stageDialogPo.value ? grnGap(stageDialogPo.value).shortUploads : []));
+// The same vendor's other POs, newest first -- where a dummy PO would be.
+const stageDialogVendorPos = computed(() => {
+  const po = stageDialogPo.value;
+  if (!po) return [];
+  return props.allPos.filter((x) => x.vendor_code === po.vendor_code && x.po_code !== po.po_code)
+    .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+});
 const ago = (t) => {
   const d = Math.floor((Date.now() - new Date(t)) / DAY_MS);
   return d <= 0 ? "today" : d === 1 ? "yesterday" : `${d}d ago`;
@@ -172,7 +211,9 @@ const closeNotice = ref("");
 const showCloseCol = computed(() => props.canChangeStage && ["all", "awaiting_grn", "part_received"].includes(activeStage.value));
 // Part-received tab only: where the PO's invoices stand on payment, beside the Close button.
 const showPayCol = computed(() => activeStage.value === "part_received");
-const tableCols = computed(() => 8 + (showPayCol.value ? 1 : 0) + (showCloseCol.value ? 1 : 0));
+// GRN pending tab only: Change stage gets its own column at the end of the row.
+const showStageCol = computed(() => props.canChangeStage && activeStage.value === "grn_pending");
+const tableCols = computed(() => 8 + (showPayCol.value ? 1 : 0) + (showCloseCol.value ? 1 : 0) + (showStageCol.value ? 1 : 0));
 
 // Payment position of a PO's invoices: every uploaded invoice's payment_status, or -- with no
 // portal invoice at all -- Finance's own payout-file status on the PO itself.
@@ -465,6 +506,7 @@ function openUploadModal(p) {
           <th class="num"><button type="button" class="po-sort" @click="toggleSort('value')">PO value{{ sortMark("value") }}</button></th>
           <th>GRN / invoice</th>
           <th class="col-tight">Invoice</th>
+          <th v-if="showStageCol" class="col-tight">Change stage</th>
           <th v-if="showPayCol">Payment</th>
           <th v-if="showCloseCol" class="col-tight">Close</th>
         </tr>
@@ -508,10 +550,10 @@ function openUploadModal(p) {
                 class="po-grn-gap mono"
                 :title="`Invoice ${grnGap(d.p).invoices.join(', ')} -- invoiced ${fmtNum(grnGap(d.p).invoiced)}, GRN'd ${fmtNum(grnGap(d.p).received)}`"
               >Inv {{ fmtNum(grnGap(d.p).invoiced) }} · GRN {{ fmtNum(grnGap(d.p).received) }}</div>
-              <button v-if="canChangeStage" type="button" class="link-btn-inline po-stage-btn" @click.stop="stageDialogPo = d.p">Change stage</button>
             </template>
             <div v-else-if="d.stage === 'with_vendor'" class="po-request">
               <div v-for="r in openRequests(d.p)" :key="r.id" :title="r.note ? `Note to vendor: ${r.note}` : 'No note'">
+                <template v-if="r.kind === 'dummy_po_invoice'">→ <span class="mono">{{ r.target_po_code }}</span> · </template>
                 {{ r.requested_by_name || "Team" }} · {{ ago(r.requested_at) }}
                 <button v-if="canChangeStage" type="button" class="link-btn-inline" @click.stop="withdraw(r)">Withdraw</button>
               </div>
@@ -545,6 +587,9 @@ function openUploadModal(p) {
                 :title="`${uploadStatus(d.p.po_code).uploaded} of ${uploadStatus(d.p.po_code).expected} invoice PDF(s) uploaded`"
               >{{ uploadStatus(d.p.po_code).uploaded }}/{{ uploadStatus(d.p.po_code).expected }}</span>
             </div>
+          </td>
+          <td v-if="showStageCol" class="col-tight" @click.stop>
+            <button v-if="d.stage === 'grn_pending'" type="button" class="po-stage-change-btn" @click="stageDialogPo = d.p">Change stage</button>
           </td>
           <td v-if="showPayCol" class="po-pay" :title="paymentSummary(d.p).tip">
             <span v-if="!paymentSummary(d.p).total" class="cell-empty">no invoice yet</span>
@@ -581,7 +626,7 @@ function openUploadModal(p) {
   />
 
   <GrnStageDialog
-    :model-value="!!stageDialogPo" :po="stageDialogPo" :short-uploads="stageDialogUploads"
+    :model-value="!!stageDialogPo" :po="stageDialogPo" :short-uploads="stageDialogUploads" :vendor-pos="stageDialogVendorPos"
     :vendor-name="stageDialogPo ? vendorLabel(stageDialogPo.vendor_code, stageDialogPo.vendor_name) : ''"
     :requester-label="uploaderLabel"
     @update:model-value="(v) => { if (!v) stageDialogPo = null }"

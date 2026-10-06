@@ -114,7 +114,7 @@ const pendingRequests = computed(() => {
   for (const u of allUploads.value) {
     const req = u.payment_status === "paid" ? null : latestByUpload.value[u.id];
     if (!req) continue;
-    if (!isRequestAnswered(req, allUploads.value.filter((x) => x.po_code === u.po_code))) out.push({ req, upload: u });
+    if (!isRequestAnswered(req, (code) => allUploads.value.filter((x) => x.po_code === code))) out.push({ req, upload: u });
   }
   return out;
 });
