@@ -164,8 +164,10 @@ export function summarise(entries, awaiting = []) {
 }
 
 // One summarise() per vendor, biggest outstanding first.
-export function vendorRollup(entries, awaiting, vendorLabel) {
-  const codes = new Set([...entries.map((e) => e.vendorCode), ...awaiting.map((p) => p.vendor_code)]);
+// allCodes: every vendor on the portal, so one with no invoices yet still gets a (zero) row.
+export function vendorRollup(entries, awaiting, vendorLabel, allCodes = []) {
+  const codes = new Set([...allCodes, ...entries.map((e) => e.vendorCode), ...awaiting.map((p) => p.vendor_code)]);
+  codes.delete(null); codes.delete(undefined); codes.delete("");
   return [...codes]
     .map((code) => ({
       code, label: vendorLabel(code),

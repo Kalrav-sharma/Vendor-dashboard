@@ -17,11 +17,14 @@ const props = defineProps({
   // (vendorCode) => void -- switches to Vendor Payments. null for a role without that tab
   // (management, 2026-10-02): the vendor name then shows as plain text, not a dead link.
   onOpenVendor: { type: Function, default: null },
+  // AdminApp's poVendorOptions codes -- every vendor on the portal, so the vendor-wise summary
+  // lists each one even before it has any invoices.
+  vendorCodes: { type: Array, default: () => [] },
 });
 
 const ledger = computed(() => paymentLedger(props.uploads, props.posWithPayment));
 const summary = computed(() => summarise(ledger.value, props.posNeedingInvoice));
-const vendors = computed(() => vendorRollup(ledger.value, props.posNeedingInvoice, props.vendorLabel));
+const vendors = computed(() => vendorRollup(ledger.value, props.posNeedingInvoice, props.vendorLabel, props.vendorCodes));
 </script>
 
 <template>

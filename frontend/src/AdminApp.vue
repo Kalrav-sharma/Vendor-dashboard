@@ -239,11 +239,13 @@ const posWithPaymentNoInvoice = computed(() =>
 
 // Payment Dashboard is the all-vendor executive summary (no invoice table); Vendor Payments
 // scopes the same KPIs/sections to one vendor and lists that vendor's invoices below them.
-// The picker offers every vendor with any payment data -- an uploaded invoice, a booked PO,
-// or a PO still awaiting its invoice -- alphabetically, defaulting to the first.
+// The picker offers every vendor on the portal (poVendorOptions) plus any other vendor with
+// payment data -- an uploaded invoice, a booked PO, or a PO still awaiting its invoice --
+// alphabetically, defaulting to the first. A vendor with nothing yet shows an empty view.
 const paymentVendor = ref("");
 const paymentVendorOptions = computed(() => {
   const codes = new Set([
+    ...poVendorOptions.value.map((v) => v.code),
     ...allUploads.value.map((u) => u.vendor_code),
     ...posNeedingInvoice.value.map((p) => p.vendor_code),
     ...posWithPaymentNoInvoice.value.map((p) => p.vendor_code),
@@ -462,6 +464,7 @@ async function signOut() {
             :uploads="allUploads" :pos-with-payment="posWithPaymentNoInvoice" :pos="currentPos"
             :vendor-label="vendorLabel" :on-open-po="openPoDetailModal" :on-open-vendor="openVendorPayments"
             :on-refresh="refreshPayments" :active="activeNav === 'action-required'" :booker-label="whoLine"
+            :vendor-codes="poVendorOptions.map((v) => v.code)"
           />
         </div>
 
@@ -469,7 +472,7 @@ async function signOut() {
           <PaymentExecutiveSummary
             :uploads="allUploads" :pos-with-payment="posWithPaymentNoInvoice" :pos-needing-invoice="posNeedingInvoice"
             :vendor-label="vendorLabel" :on-open-po="openPoDetailModal"
-            :on-open-vendor="canSeeFinanceWorklist ? openVendorPayments : null"
+            :on-open-vendor="canSeeFinanceWorklist ? openVendorPayments : null" :vendor-codes="poVendorOptions.map((v) => v.code)"
           />
         </div>
 

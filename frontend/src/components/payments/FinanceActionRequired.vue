@@ -25,6 +25,7 @@ const props = defineProps({
   onRefresh: { type: Function, required: true }, // async () => void -- re-fetches uploads
   active: { type: Boolean, default: true }, // this page is the visible tab
   bookerLabel: { type: String, default: "" }, // current user's display name, recorded on a "Mark as booked"
+  vendorCodes: { type: Array, default: () => [] }, // every vendor on the portal -- the Vendor filter lists them all
 });
 
 const { viewCreditNote, markInvoiceBooked, unmarkInvoiceBooked, workingIds } = useInvoiceUploads();
@@ -149,7 +150,8 @@ const search = ref("");
 const basis = ref(""); // ready tab only: "" | "reconciled" | "cn"
 
 const vendorChoices = computed(() => {
-  const codes = new Set(Object.values(queues.value).flat().map((e) => e.vendorCode));
+  const codes = new Set([...props.vendorCodes, ...Object.values(queues.value).flat().map((e) => e.vendorCode)]);
+  codes.delete(null); codes.delete(undefined); codes.delete("");
   return [...codes].map((c) => ({ code: c, label: props.vendorLabel(c) })).sort((a, b) => a.label.localeCompare(b.label));
 });
 watch(vendorChoices, (list) => { if (vendor.value && !list.some((v) => v.code === vendor.value)) vendor.value = ""; });
