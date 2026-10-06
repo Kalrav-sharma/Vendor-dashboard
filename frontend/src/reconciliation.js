@@ -74,7 +74,7 @@ export function invoiceCheckBreakdown(row) {
       detail: `Your invoice is ${invNo}, but the warehouse recorded ${found ? `invoice ${found}` : "a different invoice number"} when receiving goods on this PO.` });
     actions.push("Check the invoice number. If you uploaded the wrong invoice, upload the correct one on this PO. If this invoice is right, raise a ticket so our team can correct the number on the GRN.");
   } else if (noGrnYet) {
-    checks.push({ label: "Invoice number on the warehouse GRN", state: "na", detail: "The warehouse hasn't recorded a GRN for this PO yet, so the invoice can't be matched. Nothing to do -- it's re-checked once goods are received." });
+    checks.push({ label: "Invoice number on the warehouse GRN", state: "na", detail: "The warehouse hasn't recorded a GRN for this invoice yet, so it can't be matched. Nothing to do -- it's re-checked once the goods on it are received." });
   } else if (grnFound) {
     checks.push({ label: "Invoice number on the warehouse GRN", state: "ok", detail: `${invNo} matches GRN ${d.grn_codes.join(", ")}.` });
   }

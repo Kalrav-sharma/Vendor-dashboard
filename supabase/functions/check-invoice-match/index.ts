@@ -188,9 +188,19 @@ Deno.serve(async (req) => {
       if (primaryIdx < 0) primaryIdx = 0;
       const multi = invoices.length > 1;
 
+      // Invoice numbers of every invoice on this PO -- other uploads plus every invoice in this
+      // file -- so a GRN that belongs to one of them isn't held against a different invoice.
+      const { data: poUploads } = await adminClient
+        .from("po_invoice_uploads").select("id, parent_upload_id, inv:match_details->extracted->>invoice_number")
+        .eq("po_code", upload.po_code);
+      const claimedKeys = new Set<string>([
+        ...(poUploads || []).filter((u: any) => u.id !== upload.id && u.parent_upload_id !== upload.id).map((u: any) => normalizeCode(u.inv)),
+        ...invoices.map(keyOf),
+      ].filter(Boolean));
+
       let primary: any = null;
       for (let i = 0; i < invoices.length; i++) {
-        const r = await checkOneInvoice(adminClient, invoices[i], po, grnsList, poItemsList);
+        const r = await checkOneInvoice(adminClient, invoices[i], po, grnsList, poItemsList, claimedKeys);
         const fields = {
           match_status: r.status, match_summary: r.summary, match_details: r.details,
           checked_at: new Date().toISOString(), invoice_index: multi ? i + 1 : null,
@@ -237,7 +247,7 @@ Deno.serve(async (req) => {
 
 // One extracted invoice against the PO and its GRNs -- the same logic that used to run inline
 // for the single invoice read per file.
-async function checkOneInvoice(adminClient: any, extracted: any, po: any, grnsList: any[], poItemsList: any[]) {
+async function checkOneInvoice(adminClient: any, extracted: any, po: any, grnsList: any[], poItemsList: any[], claimedKeys = new Set<string>()) {
   // A single vendor invoice can cover more than one GRN (e.g. goods
   // dispatched together but receipted as separate batches in
   // Uniware, all citing the same invoice number) -- match ALL GRNs
@@ -258,7 +268,7 @@ async function checkOneInvoice(adminClient: any, extracted: any, po: any, grnsLi
   }
 
   const { status, summary, discrepancies, referenceLabel } = compareInvoiceToReference(
-    extracted, po, matchingGrns, grnItems, grnsList, poItemsList
+    extracted, po, matchingGrns, grnItems, grnsList, poItemsList, claimedKeys
   );
 
   // Many vendor invoices don't print a due date or payment terms at
@@ -427,13 +437,23 @@ function normalizeCode(s: string | null | undefined) {
 // `grns` is every GRN sharing this invoice's number (can be more than
 // one -- see the caller), compared against their COMBINED value/qty,
 // since a single invoice can legitimately cover several GRN batches.
-function compareInvoiceToReference(extracted: any, po: any, grns: any[], grnItems: any[], allGrns: any[], poItems: any[]) {
+function compareInvoiceToReference(extracted: any, po: any, grns: any[], grnItems: any[], allGrns: any[], poItems: any[], claimedKeys = new Set<string>()) {
   const discrepancies: { type: string; detail: string }[] = [];
   // Flagged for a human to look at, but don't by themselves make this a
   // hard "mismatch" -- each reflects something the check couldn't fully
   // verify, not a confirmed discrepancy.
   const softTypes = new Set(["low_confidence", "missing_invoice_number", "missing_po_number"]);
   const hasGrn = grns.length > 0;
+  // GRNs on this PO that belong to none of its other invoices (another upload, or another
+  // invoice in the same file). Only these can mean "this invoice's number is wrong"; when every
+  // GRN is already some other invoice's, this one just hasn't been GRN'd yet -- needs_review,
+  // not a mismatch (2026-10-06: PBRU/PO2627/0345's IND/26-27/270418, whose PO's only GRN is
+  // the same file's IND/26-27/270394).
+  const ownKey = normalizeCode(extracted.invoice_number);
+  const unclaimedGrns = allGrns.filter((g) => {
+    const k = normalizeCode(g.vendor_invoice_number);
+    return !k || k === ownKey || !claimedKeys.has(k);
+  });
   const grnLabel = hasGrn ? `GRN${grns.length > 1 ? "s" : ""} ${grns.map((g) => g.grn_code).join(", ")}` : null;
 
   if (extracted.extraction_confidence === "low") {
@@ -447,8 +467,8 @@ function compareInvoiceToReference(extracted: any, po: any, grns: any[], grnItem
   // rather than silently falling back to "needs_review".
   if (!extracted.invoice_number) {
     discrepancies.push({ type: "missing_invoice_number", detail: "Couldn't read an invoice number off the PDF." });
-  } else if (!hasGrn && allGrns.length > 0) {
-    const knownNumbers = [...new Set(allGrns.map((g) => g.vendor_invoice_number).filter(Boolean))];
+  } else if (!hasGrn && unclaimedGrns.length > 0) {
+    const knownNumbers = [...new Set(unclaimedGrns.map((g) => g.vendor_invoice_number).filter(Boolean))];
     discrepancies.push({
       type: "invoice_number_no_grn_match",
       detail: `Invoice number "${extracted.invoice_number}" doesn't match any GRN recorded for this PO` +
@@ -553,6 +573,8 @@ function compareInvoiceToReference(extracted: any, po: any, grns: any[], grnItem
     ? `Matches ${referenceLabel} -- no discrepancies found.`
     : status === "mismatch"
     ? `${hardDiscrepancies.length} discrepanc${hardDiscrepancies.length === 1 ? "y" : "ies"} found.`
+    : allGrns.length
+    ? "No GRN raised for this invoice yet -- the PO's GRNs so far belong to its other invoices."
     : "No GRN raised against this PO yet in Uniware -- checked against the PO only.";
 
   return { status, summary, discrepancies, referenceLabel };
