@@ -153,7 +153,8 @@ const DASH_ICONS = {
 // A PO "has an invoice shared" once any upload exists for it, regardless of
 // reconciliation/payment outcome -- allUploads is the same flat per-login
 // list the Payment Dashboard already reads, so this needs no extra fetch.
-const poCodesWithInvoice = computed(() => new Set(allUploads.value.map((u) => u.po_code)));
+// An invoice uploaded on the wrong PO doesn't count as this PO's invoice -- the PO still needs one.
+const poCodesWithInvoice = computed(() => new Set(allUploads.value.filter((u) => u.match_status !== "wrong_po").map((u) => u.po_code)));
 
 // Full PO rows (not just a count) behind the same "Invoice not yet shared"
 // definition as dashOpenPos below -- the Payments tab's "Invoice Copy
@@ -265,6 +266,7 @@ const plural = (n, one, many) => (n === 1 ? one : many);
 const dashActions = computed(() => {
   const invoices = posNeedingInvoice.value.length;
   const requested = pendingRequests.value.length;
+  const wrongPo = allUploads.value.filter((u) => u.payment_status !== "paid" && u.match_status === "wrong_po").length;
   const requestedIds = new Set(pendingRequests.value.map((r) => r.upload.id));
   const creditNotes = allUploads.value.filter((u) => u.payment_status !== "paid" && u.match_status === "mismatch" && !u.credit_note_storage_path && !requestedIds.has(u.id)).length;
   const overduePlans = pendingDispatchRows.value.filter((r) => new Date(r.estimated_dispatch_date) < todayStart).length;
@@ -274,6 +276,11 @@ const dashActions = computed(() => {
       key: "requests", count: requested, tone: "critical", nav: "payment-dashboard", bucket: "requests",
       title: plural(requested, "Invoice with a request from our team", "Invoices with a request from our team"),
       sub: "A credit note or a corrected invoice has been asked for", cta: "Respond",
+    },
+    {
+      key: "wrong_po", count: wrongPo, tone: "critical", nav: "payment-dashboard", bucket: "wrong_po",
+      title: plural(wrongPo, "Invoice uploaded on the wrong PO", "Invoices uploaded on the wrong PO"),
+      sub: "The PO number on the invoice is a different PO -- not accepted", cta: "Upload correct invoices",
     },
     {
       key: "invoices", count: invoices, tone: "critical", nav: "payment-dashboard", bucket: "invoice_copy_needed",

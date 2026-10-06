@@ -95,6 +95,7 @@ export const RECON_BUCKETS = [
   { key: "grn", label: "GRN pending", cls: "open", test: (e) => e.recon === "needs_review" },
   { key: "cn_pending", label: "Mismatch · credit note pending", cls: "critical", test: (e) => e.recon === "mismatch" && !e.cnSubmitted },
   { key: "cn_done", label: "Mismatch · credit note submitted", cls: "open", test: (e) => e.recon === "mismatch" && e.cnSubmitted },
+  { key: "wrong_po", label: "Uploaded on the wrong PO", cls: "critical", test: (e) => e.recon === "wrong_po" },
   { key: "error", label: "Check failed", cls: "critical", test: (e) => e.recon === "error" },
   { key: "running", label: "Check running", cls: "muted", test: (e) => e.kind === "invoice" && (e.recon === "pending" || !e.recon) },
   { key: "no_invoice", label: "Booked without portal invoice", cls: "muted", test: (e) => e.kind === "po" },

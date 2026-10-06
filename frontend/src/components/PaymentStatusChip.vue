@@ -35,6 +35,11 @@ function answerRequest() {
     <div v-if="request.note" class="vr-note">“{{ request.note }}”</div>
   </div>
 
+  <div v-else-if="status.wrongPo" class="vr-cell">
+    <span class="chip chip-critical" :title="status.title">{{ status.text }}</span>
+    <button class="link-btn-inline vr-cta" @click.stop="invoiceModalOpen = true">Upload correct invoice</button>
+  </div>
+
   <span v-else-if="!status.needsCreditNote" class="chip" :class="`chip-${status.cls}`" :title="status.title">{{ status.text }}</span>
 
   <template v-else-if="row.credit_note_storage_path">
@@ -48,7 +53,7 @@ function answerRequest() {
 
   <CreditNoteUploadModal v-if="status.needsCreditNote" v-model="modalOpen" :row="row" :uploader-label="uploaderLabel" />
   <InvoiceUploadModal
-    v-if="request && request.kind !== 'credit_note'" v-model="invoiceModalOpen"
-    :po-code="answerPoCode(request, row)" :vendor-code="row.vendor_code" :uploader-label="uploaderLabel"
+    v-if="(request && request.kind !== 'credit_note') || status.wrongPo" v-model="invoiceModalOpen"
+    :po-code="request ? answerPoCode(request, row) : row.po_code" :vendor-code="row.vendor_code" :uploader-label="uploaderLabel"
   />
 </template>

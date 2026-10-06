@@ -10,7 +10,7 @@
 //            (needs_review), or the check failed (error). 'pending' = check still running.
 
 const DAY = 86400000;
-export const STUCK = new Set(["mismatch", "needs_review", "error"]);
+export const STUCK = new Set(["mismatch", "needs_review", "error", "wrong_po"]);
 export const RECON_LABEL = { matched: "Reconciled", mismatch: "Mismatch", needs_review: "GRN pending", pending: "Checking", error: "Check failed" };
 
 const num = v => (v == null || isNaN(Number(v)) ? null : Number(v));

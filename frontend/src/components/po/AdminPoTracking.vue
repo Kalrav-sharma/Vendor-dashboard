@@ -63,6 +63,9 @@ const pendingHandoffs = (p) => (uploadsByPo[p.po_code] || []).map(handoffOf).fil
 // A dummy-PO request is answered by an upload on the dummy PO, which may not be in view.
 watch(requests, (list) => fetchUploadCounts(list.map((r) => r.target_po_code).filter(Boolean)));
 const uploadsFor = (poCode) => uploadsByPo[poCode] || [];
+// This PO's own invoices -- one uploaded here but quoting another PO isn't this PO's invoice.
+const validUploads = (poCode) => (uploadsByPo[poCode] || []).filter((u) => u.match_status !== "wrong_po");
+const wrongPoUploads = (poCode) => (uploadsByPo[poCode] || []).filter((u) => u.match_status === "wrong_po" && u.payment_status !== "paid");
 // An unpaid upload's request, and whether the vendor has answered it yet.
 function requestOf(u) {
   const req = u.payment_status === "paid" ? null : latestByUpload.value[u.id];
@@ -70,7 +73,7 @@ function requestOf(u) {
 }
 // Requests still waiting on the vendor, for a PO's "With vendor" stage.
 function openRequests(p) {
-  const uploads = uploadsByPo[p.po_code] || [];
+  const uploads = validUploads(p.po_code);
   return uploads.map((u) => requestOf(u)).filter((r) => r && !r.answered).map((r) => r.req);
 }
 
@@ -115,7 +118,7 @@ function invoiceFields(u) {
 // uploaded) settles that invoice's shortfall.
 function grnGap(p) {
   const grns = props.grnsByPo[p.po_code] || [];
-  const readable = (uploadsByPo[p.po_code] || []).map((u) => {
+  const readable = validUploads(p.po_code).map((u) => {
     const { number, qtys } = invoiceFields(u);
     const invQty = (Array.isArray(qtys) ? qtys : []).reduce((s, q) => s + (Number(q) >= 0 ? Number(q) : 0), 0);
     return { u, number, invQty, key: normalizeCode(number) };
@@ -186,7 +189,7 @@ function stageOf(p) {
   if (openRequests(p).length) return "with_vendor";
   if (!hasGrn) return "awaiting_grn";
   if (!TERMINAL_STATUSES.has(p.status) && Number(p.qty_received) < Number(p.qty_ordered)) return "part_received";
-  const uploads = uploadsByPo[p.po_code] || [];
+  const uploads = validUploads(p.po_code);
   if (!uploads.length) {
     if (p.payment_status === "paid") return "closed";
     return p.payment_status ? "with_finance" : "invoice_pending";
@@ -230,7 +233,7 @@ const tableCols = computed(() => 8 + (showPayCol.value ? 1 : 0) + (showCloseCol.
 // Payment position of a PO's invoices: every uploaded invoice's payment_status, or -- with no
 // portal invoice at all -- Finance's own payout-file status on the PO itself.
 function paymentSummary(p) {
-  const uploads = uploadsByPo[p.po_code] || [];
+  const uploads = validUploads(p.po_code);
   const entries = uploads.length
     ? uploads.map((u) => ({ number: invoiceFields(u).number || "Invoice", status: u.payment_status || null }))
     : (p.payment_status ? [{ number: "No portal invoice (Finance ledger)", status: p.payment_status }] : []);
@@ -262,7 +265,7 @@ async function withdraw(req) {
 
 // The 3-step breakdown under a "With Finance" chip -- same checks as the vendor side.
 function financeSteps(p) {
-  const uploads = uploadsByPo[p.po_code] || [];
+  const uploads = validUploads(p.po_code);
   const grn = Number(p.qty_ordered) > 0 && Number(p.qty_received) >= Number(p.qty_ordered);
   const recon = uploads.length > 0 && uploads.every((u) => u.match_status === "matched");
   const booked = uploads.length > 0 ? uploads.every((u) => !!u.payment_status) : !!p.payment_status;
@@ -400,7 +403,7 @@ function clearFilters() {
 // Invoice upload count chip -- GRN invoice numbers vs PDFs actually uploaded.
 function uploadStatus(poCode) {
   const expected = grnInfo(poCode).invoices.length;
-  const uploaded = (uploadsByPo[poCode] || []).length;
+  const uploaded = validUploads(poCode).length;
   return { expected, uploaded, pending: expected > 0 && uploaded < expected };
 }
 
@@ -551,6 +554,10 @@ function openUploadModal(p) {
           </td>
           <td>
             <span class="chip" :class="`chip-${STAGE_BY_KEY[d.stage].cls}`">{{ stageLabel(d.p, d.stage) }}</span>
+            <div
+              v-for="w in wrongPoUploads(d.p.po_code)" :key="`wp-${w.id}`" class="po-fin-returned"
+              title="Not counted as this PO's invoice -- the vendor is asked to upload the correct one"
+            >Invoice {{ w.invoice_number || "" }} here is for {{ w.po_on_invoice || w.match_details?.extracted?.po_number_on_invoice || "another PO" }}</div>
             <template v-if="d.stage === 'with_finance'">
               <div class="substep-boxes po-substeps">
                 <span

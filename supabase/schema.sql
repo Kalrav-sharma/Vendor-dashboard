@@ -3025,3 +3025,21 @@ end $$;
 create unique index if not exists po_invoice_uploads_file_storage_path_idx
   on public.po_invoice_uploads(storage_path) where parent_upload_id is null;
 create index if not exists po_invoice_uploads_parent_idx on public.po_invoice_uploads(parent_upload_id);
+
+-- po_invoice_uploads.match_status gains 'wrong_po' -- added 2026-10-06. check-invoice-match sets it
+-- when none of the PO numbers printed on the invoice is the PO it was uploaded on (compared on
+-- the PO number, so a swapped city prefix still counts as the same PO). Not a credit-note case:
+-- the invoice isn't accepted on this PO and the vendor is asked to upload the correct one.
+do $$
+declare c text;
+begin
+  for c in
+    select con.conname from pg_constraint con
+    join pg_attribute a on a.attrelid = con.conrelid and a.attnum = any(con.conkey)
+    where con.conrelid = 'public.po_invoice_uploads'::regclass and con.contype = 'c' and a.attname = 'match_status'
+  loop
+    execute format('alter table public.po_invoice_uploads drop constraint %I', c);
+  end loop;
+end $$;
+alter table public.po_invoice_uploads add constraint po_invoice_uploads_match_status_check
+  check (match_status in ('pending', 'matched', 'mismatch', 'needs_review', 'error', 'wrong_po'));

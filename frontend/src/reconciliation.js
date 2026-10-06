@@ -19,6 +19,7 @@ export function reconciliationLabel(row) {
   // exactly that, rather than the vaguer "Needs review".
   if (status === "needs_review") return { text: "GRN Pending", cls: "open" };
   if (status === "matched") return { text: "Reconciliation passed", cls: "good" };
+  if (status === "wrong_po") return { text: "Wrong PO", cls: "critical" };
 
   // status === "mismatch" -- pick the single most relevant reason. Real
   // rows very rarely trigger more than one of these at once; when they
@@ -58,6 +59,18 @@ const units = (v) => `${Number(v).toLocaleString("en-IN")} unit${Number(v) === 1
 export function invoiceCheckBreakdown(row) {
   const d = row.match_details || {};
   const ex = d.extracted || {};
+  // Uploaded on the wrong PO: nothing else about it means anything against this PO's GRNs.
+  if (row.match_status === "wrong_po") {
+    const other = ex.po_number_on_invoice || "another PO";
+    return {
+      checks: [{ label: "PO number on the invoice", state: "fail",
+        detail: `This invoice is for PO ${other}, but it was uploaded on ${row.po_code}. It isn't accepted on this PO.` }],
+      actions: [
+        `Upload the correct invoice for ${row.po_code} on this PO.`,
+        `If invoice ${ex.invoice_number || ""} is for ${other}, make sure it's uploaded on that PO instead.`.replace("  ", " "),
+      ],
+    };
+  }
   const disc = d.discrepancies || [];
   const byType = (t) => disc.find((x) => x.type === t);
   const invNo = ex.invoice_number || "this invoice";

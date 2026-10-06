@@ -19,6 +19,13 @@
 // po_code (and by upload row id for deletes).
 import { reactive, ref } from "vue";
 import { supabase } from "../supabaseClient.js";
+import { isWrongPoUpload } from "../format.js";
+
+// Every loaded upload row goes through this: an invoice quoting a different PO number than
+// the one it was uploaded on reads as match_status "wrong_po" everywhere in the portal, even
+// if it was checked before check-invoice-match learned that status (see isWrongPoUpload).
+const markWrongPo = (r) => (r.match_status !== "pending" && r.match_status !== "error" && r.match_status !== "wrong_po" && isWrongPoUpload(r)
+  ? { ...r, match_status: "wrong_po" } : r);
 
 const BUCKET = "po-invoices";
 export const MAX_INVOICE_BYTES = 15 * 1024 * 1024;
@@ -79,8 +86,8 @@ export function useInvoiceUploads() {
       out.push(...data);
       if (data.length < PAGE) break;
     }
-    allUploads.value = out;
-    return { data: out, error: null };
+    allUploads.value = out.map(markWrongPo);
+    return { data: allUploads.value, error: null };
   }
 
   // Bulk, light-columns fetch for the PO Tracking table's pending-invoice
@@ -99,11 +106,11 @@ export function useInvoiceUploads() {
     // id/vendor_code/created_at/credit_note_uploaded_at let it raise a vendor request on an
     // upload and tell when the vendor has answered one (see useVendorRequests.js).
     const { data, error } = await supabase.from("po_invoice_uploads")
-      .select("id, po_code, vendor_code, created_at, credit_note_uploaded_at, payment_status, match_status, invoice_number:match_details->extracted->>invoice_number, line_quantities:match_details->extracted->line_quantities")
+      .select("id, po_code, vendor_code, created_at, credit_note_uploaded_at, payment_status, match_status, invoice_number:match_details->extracted->>invoice_number, line_quantities:match_details->extracted->line_quantities, po_on_invoice:match_details->extracted->>po_number_on_invoice")
       .in("po_code", needed);
     if (error) return;
     const rowsByCode = {};
-    for (const row of data) (rowsByCode[row.po_code] ??= []).push(row);
+    for (const row of data) (rowsByCode[row.po_code] ??= []).push(markWrongPo(row));
     for (const code of needed) {
       uploadsByPo[code] = rowsByCode[code] || [];
     }
@@ -112,12 +119,13 @@ export function useInvoiceUploads() {
   async function fetchInvoices(poCode) {
     loadingPo.add(poCode);
     try {
-      const { data, error } = await supabase
+      let { data, error } = await supabase
         .from("po_invoice_uploads")
         .select("*")
         .eq("po_code", poCode)
         .order("created_at", { ascending: false });
       if (!error) {
+        data = data.map(markWrongPo);
         uploadsByPo[poCode] = data;
         // Keep the Payment Dashboard's flat list in sync too -- every
         // upload/delete/check path already calls this function, so

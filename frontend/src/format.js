@@ -98,11 +98,32 @@ export function ticketStatusClass(status) {
 
 // Invoice-vs-PO/GRN reconciliation status (see check-invoice-match Edge
 // Function) -- same [label, chip color] pattern as STATUS_META above.
+// "Wrong PO": the PO number printed on an uploaded invoice is a different PO from the one it
+// was uploaded on -- the invoice belongs elsewhere and isn't accepted on this PO (no credit
+// note; the vendor uploads the right invoice here). Compared on the PO number itself
+// (PO2627/0596), so a swapped city prefix (PUKL vs PKLU/PO2627/0184) is still the same PO.
+// check-invoice-match writes match_status 'wrong_po' from 2026-10-06; older rows are
+// recognised from their extracted PO number -- see markWrongPo() in useInvoiceUploads.js.
+// An invoice can quote several POs ("PGNU/PO2627/0426, PGNU/PO2627/0418" -- one invoice
+// covering two orders): it's on the right PO if ANY of them is this PO.
+const poCores = (s) => ((s || "").toUpperCase().match(/PO\s*\d{4}\s*[/-]?\s*\d+/g) || [])
+  .map((m) => m.replace(/[^A-Z0-9]/g, ""));
+export function invoicePoNumber(row) {
+  return row.po_on_invoice ?? row.match_details?.extracted?.po_number_on_invoice ?? null;
+}
+export function isWrongPoUpload(row) {
+  if (row.match_status === "wrong_po") return true;
+  const quoted = poCores(invoicePoNumber(row));
+  const own = poCores(row.po_code)[0];
+  return !!(own && quoted.length && !quoted.includes(own));
+}
+
 export const MATCH_STATUS_META = {
   pending: ["Checking…", "muted"],
   matched: ["Matches PO/GRN", "good"],
   mismatch: ["Mismatch found", "critical"],
   needs_review: ["GRN Pending", "open"],
+  wrong_po: ["Wrong PO", "critical"],
   error: ["Check failed", "critical"],
 };
 
@@ -248,6 +269,12 @@ export function effectivePaymentStatus(row) {
     return {
       text: "Pending", cls: "muted", needsCreditNote: false,
       title: "Reconciliation passed -- this invoice hasn't come up in a payout run yet.",
+    };
+  }
+  if (row.match_status === "wrong_po") {
+    return {
+      text: "Not accepted -- wrong PO", cls: "critical", needsCreditNote: false, wrongPo: true,
+      title: `This invoice is for PO ${invoicePoNumber(row) || "another PO"}, not ${row.po_code} -- upload the correct invoice for this PO.`,
     };
   }
   if (row.match_status === "mismatch") {

@@ -148,6 +148,7 @@ const kpiTiles = computed(() => (props.showVendorKpis ? vendorKpiTiles.value : a
 const BUCKETS = [
   { key: "all", label: "All" },
   { key: "requests", label: "Requests" }, // shown only while there are any -- see visibleBuckets
+  { key: "wrong_po", label: "Wrong PO" },   // same -- invoices uploaded on a PO they don't belong to
   { key: "cn_required", label: "CN Required" },
   { key: "invoice_copy_needed", label: "Invoice Copy Needed" },
   { key: "no_action_needed", label: "No Action Needed" },
@@ -161,7 +162,8 @@ const requestRows = computed(() => props.rows.filter((r) => r.vendor_request));
 // 2026-10-03) needs nothing more from the vendor, so it sits in Paid only, never in CN Required too.
 const cnRequiredRows = computed(() => props.rows.filter((r) => !isPaid(r) && r.match_status === "mismatch" && !r.vendor_request));
 const paidRows = computed(() => props.rows.filter(isPaid));
-const noActionRows = computed(() => props.rows.filter((r) => !isPaid(r) && r.match_status !== "mismatch" && !r.vendor_request));
+const wrongPoRows = computed(() => props.rows.filter((r) => !isPaid(r) && r.match_status === "wrong_po" && !r.vendor_request));
+const noActionRows = computed(() => props.rows.filter((r) => !isPaid(r) && r.match_status !== "mismatch" && r.match_status !== "wrong_po" && !r.vendor_request));
 // posWithPayment split by its own payment_status -- "paid" joins the Paid
 // bucket outright, anything else (in practice just "pending") joins
 // No Action Needed alongside the uploaded-but-unpaid invoices above.
@@ -172,6 +174,7 @@ watch(() => props.focusBucket, (f) => { if (f?.bucket) activeBucket.value = f.bu
 const bucketCounts = computed(() => ({
   all: props.rows.length + props.posNeedingInvoice.length + props.posWithPayment.length,
   requests: requestRows.value.length,
+  wrong_po: wrongPoRows.value.length,
   cn_required: cnRequiredRows.value.length,
   invoice_copy_needed: props.posNeedingInvoice.length,
   no_action_needed: noActionRows.value.length + posPaymentPending.value.length,
@@ -197,11 +200,13 @@ const allEntries = computed(() => [
   ...props.posWithPayment.map(poPaymentEntry),
 ]);
 const visibleBuckets = computed(() =>
-  BUCKETS.filter((b) => b.key !== "requests" || requestRows.value.length || activeBucket.value === "requests"));
+  BUCKETS.filter((b) => (b.key !== "requests" || requestRows.value.length || activeBucket.value === "requests")
+    && (b.key !== "wrong_po" || wrongPoRows.value.length || activeBucket.value === "wrong_po")));
 const displayRows = computed(() => {
   if (!props.showBuckets) return allEntries.value;
   switch (activeBucket.value) {
     case "requests": return requestRows.value.map(invoiceEntry);
+    case "wrong_po": return wrongPoRows.value.map(invoiceEntry);
     case "cn_required": return cnRequiredRows.value.map(invoiceEntry);
     case "invoice_copy_needed": return props.posNeedingInvoice.map(needInvoiceEntry);
     case "no_action_needed":
@@ -220,7 +225,7 @@ const displayRows = computed(() => {
   <div v-if="showBuckets" class="bucket-tabs">
     <button
       v-for="b in visibleBuckets" :key="b.key" type="button"
-      class="bucket-tab" :class="{ active: activeBucket === b.key, 'vr-tab': b.key === 'requests' }"
+      class="bucket-tab" :class="{ active: activeBucket === b.key, 'vr-tab': b.key === 'requests' || b.key === 'wrong_po' }"
       @click="activeBucket = b.key"
     >
       {{ b.label }} <span class="bucket-count">{{ bucketCounts[b.key] }}</span>
@@ -304,7 +309,7 @@ const displayRows = computed(() => {
             <template v-if="entry.kind === 'invoice'">
               <ReconciliationChip :row="entry.row" />
               <button
-                v-if="entry.row.match_status === 'mismatch' || entry.row.match_status === 'needs_review'"
+                v-if="['mismatch', 'needs_review', 'wrong_po'].includes(entry.row.match_status)"
                 type="button" class="link-btn-inline recon-why" title="See what was checked and what to do" @click="explainRow = entry.row"
               >Why?</button>
             </template>

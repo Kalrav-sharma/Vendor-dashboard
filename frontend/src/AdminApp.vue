@@ -229,7 +229,8 @@ const { allUploads, fetchAllUploads } = useInvoiceUploads();
 // entire historical no-invoice backlog on Finance at once -- same fixed-window convention
 // VendorApp.vue's own dashCompleteWindowStart already uses for "PO complete · since Aug 1".
 const paymentWindowStart = new Date(new Date().getFullYear(), 7, 1);
-const poCodesWithInvoice = computed(() => new Set(allUploads.value.map((u) => u.po_code)));
+// An invoice uploaded on the wrong PO doesn't count as this PO's invoice -- the PO still needs one.
+const poCodesWithInvoice = computed(() => new Set(allUploads.value.filter((u) => u.match_status !== "wrong_po").map((u) => u.po_code)));
 const paymentWindowPos = computed(() =>
   currentPos.value.filter((p) => p.created_at && new Date(p.created_at) >= paymentWindowStart));
 const posNeedingInvoice = computed(() =>
