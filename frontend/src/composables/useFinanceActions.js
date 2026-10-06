@@ -55,7 +55,7 @@ export function financeQueues(ledger, handoffByKey = {}) {
     if (e.pay === "paid") continue;
     const issues = [];
     if (e.recon === "error") issues.push("Match check failed");
-    if (e.recon === "wrong_po") issues.push(`Uploaded on the wrong PO -- invoice is for ${e.row?.match_details?.extracted?.po_number_on_invoice || "another PO"}`);
+    if (e.recon === "wrong_po") issues.push(`PO number on invoice doesn't match -- it quotes ${e.row?.match_details?.extracted?.po_number_on_invoice || "another PO"}`);
     if (e.recon === "pending" && e.receivedAt && now - new Date(e.receivedAt).getTime() > STALE_CHECK_MS) issues.push("Match check stalled");
     if (e.recon !== "pending" && e.recon !== "error") {
       if (e.inv === "–") issues.push("No invoice number read");

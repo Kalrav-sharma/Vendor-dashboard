@@ -98,10 +98,11 @@ export function ticketStatusClass(status) {
 
 // Invoice-vs-PO/GRN reconciliation status (see check-invoice-match Edge
 // Function) -- same [label, chip color] pattern as STATUS_META above.
-// "Wrong PO": the PO number printed on an uploaded invoice is a different PO from the one it
-// was uploaded on -- the invoice belongs elsewhere and isn't accepted on this PO (no credit
-// note; the vendor uploads the right invoice here). Compared on the PO number itself
-// (PO2627/0596), so a swapped city prefix (PUKL vs PKLU/PO2627/0184) is still the same PO.
+// "Wrong PO": the PO code printed on an uploaded invoice isn't the PO it was uploaded on --
+// it isn't accepted on this PO (no credit note; the vendor uploads a correct invoice here).
+// The code must match exactly, city prefix included: PUKL/PO2627/0184 on PKLU/PO2627/0184 is
+// wrong too (the user's rule, 2026-10-06). An invoice quoting only the short form
+// (PO2627/0184) is judged on that number; one quoting several POs is fine if any is this PO.
 // check-invoice-match writes match_status 'wrong_po' from 2026-10-06; older rows are
 // recognised from their extracted PO number -- see markWrongPo() in useInvoiceUploads.js.
 // An invoice can quote several POs ("PGNU/PO2627/0426, PGNU/PO2627/0418" -- one invoice
@@ -111,11 +112,22 @@ const poCores = (s) => ((s || "").toUpperCase().match(/PO\s*\d{4}\s*[/-]?\s*\d+/
 export function invoicePoNumber(row) {
   return row.po_on_invoice ?? row.match_details?.extracted?.po_number_on_invoice ?? null;
 }
+// Full PO codes ("PKLUPO26270184") quoted in a string.
+const poFullCodes = (s) => ((s || "").toUpperCase().match(/[A-Z]{3,5}\s*[/-]?\s*PO\s*\d{4}\s*[/-]?\s*\d+/g) || [])
+  .map((m) => m.replace(/[^A-Z0-9]/g, ""));
 export function isWrongPoUpload(row) {
   if (row.match_status === "wrong_po") return true;
-  const quoted = poCores(invoicePoNumber(row));
+  const printed = invoicePoNumber(row);
+  const full = poFullCodes(printed);
+  if (full.length) return !full.includes((row.po_code || "").toUpperCase().replace(/[^A-Z0-9]/g, ""));
+  const quoted = poCores(printed);
   const own = poCores(row.po_code)[0];
   return !!(own && quoted.length && !quoted.includes(own));
+}
+// Same PO number, different code -- e.g. PUKL/PO2627/0184 quoted for PKLU/PO2627/0184.
+export function isPoCodeTypo(row) {
+  const own = poCores(row.po_code)[0];
+  return !!own && poCores(invoicePoNumber(row)).includes(own);
 }
 
 export const MATCH_STATUS_META = {
@@ -274,7 +286,7 @@ export function effectivePaymentStatus(row) {
   if (row.match_status === "wrong_po") {
     return {
       text: "Not accepted -- wrong PO", cls: "critical", needsCreditNote: false, wrongPo: true,
-      title: `This invoice is for PO ${invoicePoNumber(row) || "another PO"}, not ${row.po_code} -- upload the correct invoice for this PO.`,
+      title: `The invoice quotes PO ${invoicePoNumber(row) || "(none)"}, not ${row.po_code} -- upload a correct invoice for this PO.`,
     };
   }
   if (row.match_status === "mismatch") {

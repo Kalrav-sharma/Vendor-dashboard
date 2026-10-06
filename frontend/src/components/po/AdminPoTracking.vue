@@ -557,7 +557,7 @@ function openUploadModal(p) {
             <div
               v-for="w in wrongPoUploads(d.p.po_code)" :key="`wp-${w.id}`" class="po-fin-returned"
               title="Not counted as this PO's invoice -- the vendor is asked to upload the correct one"
-            >Invoice {{ w.invoice_number || "" }} here is for {{ w.po_on_invoice || w.match_details?.extracted?.po_number_on_invoice || "another PO" }}</div>
+            >Invoice {{ w.invoice_number || "" }} here quotes {{ w.po_on_invoice || w.match_details?.extracted?.po_number_on_invoice || "another PO" }}</div>
             <template v-if="d.stage === 'with_finance'">
               <div class="substep-boxes po-substeps">
                 <span

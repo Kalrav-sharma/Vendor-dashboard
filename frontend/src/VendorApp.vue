@@ -280,7 +280,7 @@ const dashActions = computed(() => {
     {
       key: "wrong_po", count: wrongPo, tone: "critical", nav: "payment-dashboard", bucket: "wrong_po",
       title: plural(wrongPo, "Invoice uploaded on the wrong PO", "Invoices uploaded on the wrong PO"),
-      sub: "The PO number on the invoice is a different PO -- not accepted", cta: "Upload correct invoices",
+      sub: "The PO number on the invoice doesn't match the PO -- not accepted", cta: "Upload correct invoices",
     },
     {
       key: "invoices", count: invoices, tone: "critical", nav: "payment-dashboard", bucket: "invoice_copy_needed",

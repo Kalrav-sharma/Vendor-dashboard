@@ -427,6 +427,11 @@ function poCores(s: string | null | undefined) {
   return ((s || "").toUpperCase().match(/PO\s*\d{4}\s*[/-]?\s*\d+/g) || []).map((m) => m.replace(/[^A-Z0-9]/g, ""));
 }
 
+// Full PO codes ("PKLUPO26270184") quoted in a string, city prefix included.
+function poFullCodes(s: string | null | undefined) {
+  return ((s || "").toUpperCase().match(/[A-Z]{3,5}\s*[/-]?\s*PO\s*\d{4}\s*[/-]?\s*\d+/g) || []).map((m) => m.replace(/[^A-Z0-9]/g, ""));
+}
+
 // Shared by invoice numbers AND PO codes -- both just need a
 // punctuation/case-insensitive comparison (Uniware's "PUHY/PO2627/0416"
 // vs a vendor's own "PO2627/0416" or "0416").
@@ -508,19 +513,28 @@ function compareInvoiceToReference(extracted: any, po: any, grns: any[], grnItem
     }
   }
 
-  // Check 5: the PO number printed on the invoice matches this PO -- compared on the PO number
-  // itself (PO2627/0184), so a swapped city prefix ("PUKL" for PKLU) is still this PO, and an
+  // Check 5: the PO code printed on the invoice is exactly this PO -- city prefix included, so
+  // "PUKL/PO2627/0184" on PKLU/PO2627/0184 is wrong too (the user's rule, 2026-10-06). An
   // invoice quoting several POs ("PGNU/PO2627/0426, PGNU/PO2627/0418") is fine if any is this
-  // one. A different PO number means the invoice was uploaded on the wrong PO: wrongPo below
-  // makes the whole result "wrong_po" -- not a credit-note case; the vendor uploads the right
-  // invoice instead (2026-10-06).
+  // one; one quoting only the short form ("PO2627/0184") is judged on that number. A mismatch
+  // makes the whole result "wrong_po" -- not a credit-note case; the vendor uploads a correct
+  // invoice instead.
   const normInvoicePo = normalizeCode(extracted.po_number_on_invoice);
   const normActualPo = normalizeCode(po?.po_code);
+  const quotedFull = poFullCodes(extracted.po_number_on_invoice);
   const quotedCores = poCores(extracted.po_number_on_invoice);
   const ownCore = poCores(po?.po_code)[0];
   let wrongPo = false;
   if (!normInvoicePo) {
     discrepancies.push({ type: "missing_po_number", detail: "Couldn't find a PO number referenced on the invoice." });
+  } else if (quotedFull.length) {
+    if (!quotedFull.includes(normActualPo)) {
+      wrongPo = true;
+      discrepancies.push({
+        type: "po_number_mismatch",
+        detail: `Invoice references PO "${extracted.po_number_on_invoice}", which doesn't match this PO (${po.po_code}).`,
+      });
+    }
   } else if (ownCore && quotedCores.length) {
     if (!quotedCores.includes(ownCore)) {
       wrongPo = true;
@@ -594,7 +608,7 @@ function compareInvoiceToReference(extracted: any, po: any, grns: any[], grnItem
   else status = "needs_review";
 
   const summary = status === "wrong_po"
-    ? `Invoice is for PO ${extracted.po_number_on_invoice}, not ${po.po_code} -- uploaded on the wrong PO.`
+    ? `Invoice quotes PO ${extracted.po_number_on_invoice}, not ${po.po_code} -- not accepted on this PO.`
     : status === "matched"
     ? `Matches ${referenceLabel} -- no discrepancies found.`
     : status === "mismatch"

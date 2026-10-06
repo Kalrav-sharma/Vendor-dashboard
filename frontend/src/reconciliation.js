@@ -10,6 +10,8 @@
 // label shown and the label matched against can never drift apart.
 // Same for every role -- vendors see exactly the same reconciliation
 // status/reason as internal staff (Kalrav's explicit call).
+import { isPoCodeTypo } from "./format.js";
+
 export function reconciliationLabel(row) {
   const status = row.match_status;
   if (status === "pending") return { text: "Checking…", cls: "muted" };
@@ -62,6 +64,13 @@ export function invoiceCheckBreakdown(row) {
   // Uploaded on the wrong PO: nothing else about it means anything against this PO's GRNs.
   if (row.match_status === "wrong_po") {
     const other = ex.po_number_on_invoice || "another PO";
+    if (isPoCodeTypo(row)) {
+      return {
+        checks: [{ label: "PO number on the invoice", state: "fail",
+          detail: `The invoice quotes PO ${other}, but this order is ${row.po_code}. The PO number on the invoice must match exactly, so it isn't accepted.` }],
+        actions: [`Upload the invoice again with the exact PO number ${row.po_code} on it.`],
+      };
+    }
     return {
       checks: [{ label: "PO number on the invoice", state: "fail",
         detail: `This invoice is for PO ${other}, but it was uploaded on ${row.po_code}. It isn't accepted on this PO.` }],
