@@ -2,6 +2,7 @@
 import { computed, ref, watch } from "vue";
 import { fmtMoney, fmtDateOnly, paymentStatusLabel, paymentStatusClass } from "../format.js";
 import ReconciliationChip from "./ReconciliationChip.vue";
+import InvoiceCheckExplainer from "./InvoiceCheckExplainer.vue";
 import PaymentStatusChip from "./PaymentStatusChip.vue";
 import ViewInvoiceButton from "./ViewInvoiceButton.vue";
 import InvoiceUploadButton from "./InvoiceUploadButton.vue";
@@ -51,6 +52,9 @@ function isOverdue(row) {
 // exactly as it did when it was a plain row count.
 function isPaid(row) { return row.payment_status === "paid"; }
 
+// "Why?" next to a flagged reconciliation chip -- one shared explanation box for the table.
+const explainRow = ref(null);
+
 // One shared upload popup for the "Invoice Copy Needed" bucket's rows --
 // same pattern as PoTrackingTable's per-row upload button.
 const uploadModalPoCode = ref(null);
@@ -96,7 +100,7 @@ const vendorKpiTiles = computed(() => {
   const toBePaid = toBePaidRows.reduce((s, r) => s + (invoiceValue(r) || 0), 0)
     + toBePaidPos.reduce((s, p) => s + (Number(p.total_amount) || 0), 0);
 
-  const creditNoteNeededCount = props.rows.filter(r => r.match_status === "mismatch").length;
+  const creditNoteNeededCount = props.rows.filter(r => !isPaid(r) && r.match_status === "mismatch").length;
   const actionRequired = props.posNeedingInvoice.length + creditNoteNeededCount;
 
   return [
@@ -119,7 +123,7 @@ const vendorKpiTiles = computed(() => {
 const adminKpiTiles = computed(() => {
   const pending = props.rows.filter(r => !isPaid(r)).length;
   const onTrack = props.rows.filter(r => r.match_status === "matched" && !isOverdue(r)).length;
-  const hasIssues = props.rows.filter(r => r.match_status === "mismatch" || r.match_status === "error").length;
+  const hasIssues = props.rows.filter(r => !isPaid(r) && (r.match_status === "mismatch" || r.match_status === "error")).length;
   const overdue = props.rows.filter(isOverdue).length;
   return [
     { label: "Total invoices pending", value: pending },
@@ -153,7 +157,9 @@ const BUCKETS = [
 // only -- rows carry vendor_request, see VendorApp.vue). Their own bucket, so they're out of
 // CN Required / No Action Needed and every row still lands in exactly one bucket.
 const requestRows = computed(() => props.rows.filter((r) => r.vendor_request));
-const cnRequiredRows = computed(() => props.rows.filter((r) => r.match_status === "mismatch" && !r.vendor_request));
+// Paid wins: an invoice paid despite a mismatch (e.g. PBRU/PO2627/0326's LMF-2627/5095, paid
+// 2026-10-03) needs nothing more from the vendor, so it sits in Paid only, never in CN Required too.
+const cnRequiredRows = computed(() => props.rows.filter((r) => !isPaid(r) && r.match_status === "mismatch" && !r.vendor_request));
 const paidRows = computed(() => props.rows.filter(isPaid));
 const noActionRows = computed(() => props.rows.filter((r) => !isPaid(r) && r.match_status !== "mismatch" && !r.vendor_request));
 // posWithPayment split by its own payment_status -- "paid" joins the Paid
@@ -295,7 +301,13 @@ const displayRows = computed(() => {
             <span v-else class="cell-empty">–</span>
           </td>
           <td>
-            <ReconciliationChip v-if="entry.kind === 'invoice'" :row="entry.row" />
+            <template v-if="entry.kind === 'invoice'">
+              <ReconciliationChip :row="entry.row" />
+              <button
+                v-if="entry.row.match_status === 'mismatch' || entry.row.match_status === 'needs_review'"
+                type="button" class="link-btn-inline recon-why" title="See what was checked and what to do" @click="explainRow = entry.row"
+              >Why?</button>
+            </template>
             <span v-else-if="entry.kind === 'need_invoice'" class="chip chip-critical">Invoice needed</span>
             <span v-else class="chip chip-muted" title="Finance already has a payment record for this PO -- an invoice copy was never uploaded through the portal.">No invoice uploaded</span>
           </td>
@@ -312,6 +324,8 @@ const displayRows = computed(() => {
     </table>
   </div></div>
   <p v-if="rows.some(dueDateEstimated)" class="field-hint">* not printed on the invoice -- estimated as 45 days from the invoice date.</p>
+
+  <InvoiceCheckExplainer :row="explainRow" @close="explainRow = null" />
 
   <InvoiceUploadModal
     :model-value="!!uploadModalPoCode"

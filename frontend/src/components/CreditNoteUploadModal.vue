@@ -1,6 +1,7 @@
 <script setup>
 import { onMounted, onUnmounted, ref } from "vue";
 import { useInvoiceUploads, validateCreditNoteFile } from "../composables/useInvoiceUploads.js";
+import InvoiceCheckList from "./InvoiceCheckList.vue";
 
 const props = defineProps({
   modelValue: { type: Boolean, required: true }, // v-model: open/closed
@@ -76,6 +77,11 @@ function handleBrowseChosen(e) {
           <span class="mono">{{ row.match_details?.extracted?.invoice_number || row.po_code }}</span> --
           a credit note is needed before this can be paid.
         </p>
+
+        <details v-if="row.match_status === 'mismatch'" class="icl-details">
+          <summary>What's wrong with this invoice?</summary>
+          <InvoiceCheckList :row="row" />
+        </details>
 
         <div
           class="upload-dropzone" :class="{ 'upload-dropzone-active': isDragging }"

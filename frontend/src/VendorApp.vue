@@ -266,7 +266,7 @@ const dashActions = computed(() => {
   const invoices = posNeedingInvoice.value.length;
   const requested = pendingRequests.value.length;
   const requestedIds = new Set(pendingRequests.value.map((r) => r.upload.id));
-  const creditNotes = allUploads.value.filter((u) => u.match_status === "mismatch" && !u.credit_note_storage_path && !requestedIds.has(u.id)).length;
+  const creditNotes = allUploads.value.filter((u) => u.payment_status !== "paid" && u.match_status === "mismatch" && !u.credit_note_storage_path && !requestedIds.has(u.id)).length;
   const overduePlans = pendingDispatchRows.value.filter((r) => new Date(r.estimated_dispatch_date) < todayStart).length;
   const exceptions = shippedDispatchRows.value.filter((r) => trackingBucket(r) === "exception").length;
   return [
