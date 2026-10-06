@@ -166,6 +166,8 @@ const withdrawError = ref("");
 // --- Close PO in Uniware (Awaiting supply) -----------------------------------------------
 const closeDialogPo = ref(null);
 const closeNotice = ref("");
+// Its own column right after Invoice -- only on the tabs that can hold an Awaiting supply PO.
+const showCloseCol = computed(() => props.canChangeStage && ["all", "awaiting_grn"].includes(activeStage.value));
 function onClosed({ poCode, status, warning }) {
   closeNotice.value = `${poCode} closed in Uniware (now ${status}).` + (warning ? ` ${warning}` : "");
   props.onPoClosed?.();
@@ -432,11 +434,12 @@ function openUploadModal(p) {
           <th class="num"><button type="button" class="po-sort" @click="toggleSort('value')">PO value{{ sortMark("value") }}</button></th>
           <th>GRN / invoice</th>
           <th class="col-tight">Invoice</th>
+          <th v-if="showCloseCol" class="col-tight">Close</th>
         </tr>
       </thead>
       <tbody>
         <tr v-if="!tableRows.length">
-          <td colspan="8" class="empty-state">
+          <td :colspan="showCloseCol ? 9 : 8" class="empty-state">
             No purchase orders {{ activeStage === "all" ? "match these filters" : `in ${STAGE_BY_KEY[activeStage].label}` }}.
             <button v-if="hasLocalFilters" type="button" class="link-btn-inline" @click="clearFilters">Clear filters</button>
           </td>
@@ -475,13 +478,7 @@ function openUploadModal(p) {
                 <button v-if="canChangeStage" type="button" class="link-btn-inline" @click.stop="withdraw(r)">Withdraw</button>
               </div>
             </div>
-            <template v-else>
-              <div class="po-uniware"><StatusChip :status="d.p.status" /></div>
-              <button
-                v-if="d.stage === 'awaiting_grn' && canChangeStage" type="button" class="link-btn-inline po-stage-btn po-close-btn"
-                @click.stop="closeDialogPo = d.p"
-              >Close PO</button>
-            </template>
+            <div v-else class="po-uniware"><StatusChip :status="d.p.status" /></div>
           </td>
           <td class="po-fill">
             <div class="po-fill-head mono">
@@ -510,6 +507,12 @@ function openUploadModal(p) {
                 :title="`${uploadStatus(d.p.po_code).uploaded} of ${uploadStatus(d.p.po_code).expected} invoice PDF(s) uploaded`"
               >{{ uploadStatus(d.p.po_code).uploaded }}/{{ uploadStatus(d.p.po_code).expected }}</span>
             </div>
+          </td>
+          <td v-if="showCloseCol" class="col-tight" @click.stop>
+            <button
+              v-if="d.stage === 'awaiting_grn'" type="button" class="po-close-btn"
+              title="Close this PO in Uniware" @click="closeDialogPo = d.p"
+            >Close PO</button>
           </td>
         </tr>
       </tbody>

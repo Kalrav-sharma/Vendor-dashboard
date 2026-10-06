@@ -61,7 +61,8 @@
 .grn-stage-actions .primary-btn { width: auto; margin-top: 0; padding: 8px 16px; }
 
 /* Close PO in Uniware (ClosePoDialog.vue) */
-.po-close-btn { color: var(--critical); }
+.po-close-btn { background: var(--surface); border: 1px solid var(--critical); color: var(--critical); border-radius: 6px; padding: 4px 10px; font: inherit; font-size: 0.74rem; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.po-close-btn:hover { background: var(--critical-soft); }
 .po-notice { color: var(--good); }
 .close-po-confirm { display: flex; gap: 8px; align-items: flex-start; font-size: 0.82rem; margin: 4px 0 6px; cursor: pointer; }
 .close-po-confirm input { margin-top: 3px; }
