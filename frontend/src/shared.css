@@ -116,10 +116,14 @@ a { color: var(--accent); }
 .icon-btn:disabled:hover { background: none; }
 
 /* --- App shell: left sidebar nav + main content --- */
-.app-shell { display: flex; min-height: 100vh; align-items: stretch; }
+/* The sidebar is fixed to the viewport (not sticky): sticky silently stops sticking as soon as
+   any ancestor -- html/body included -- gets an overflow value, so fixed + an offset on
+   .main-content keeps it in place whatever the page around it does. --sidebar-w is the one
+   width both share; the vendor/finance themes widen it. */
+.app-shell { --sidebar-w: 200px; display: flex; min-height: 100vh; align-items: stretch; }
 .sidebar {
-  width: 200px; flex-shrink: 0; background: var(--surface); border-right: 1px solid var(--line);
-  padding: 20px 0; position: sticky; top: 0; height: 100vh; overflow-y: auto;
+  width: var(--sidebar-w); flex-shrink: 0; background: var(--surface); border-right: 1px solid var(--line);
+  padding: 20px 0; position: fixed; top: 0; left: 0; height: 100vh; overflow-y: auto; z-index: 20;
   display: flex; flex-direction: column;
 }
 .sidebar .brand { padding: 0 20px 16px; border-bottom: 1px solid var(--line); margin-bottom: 10px; }
@@ -144,11 +148,12 @@ a { color: var(--accent); }
   padding: 3px 7px; border-radius: 999px; font-family: "IBM Plex Mono", monospace;
 }
 .sidebar-account { margin-top: auto; padding: 16px 0 4px; }
-.main-content { flex: 1; min-width: 0; }
+.main-content { flex: 1; min-width: 0; margin-left: var(--sidebar-w); }
 
 @media (max-width: 700px) {
   .app-shell { flex-direction: column; }
   .sidebar { width: 100%; height: auto; position: static; display: flex; overflow-x: auto; padding: 6px 0; border-right: none; border-bottom: 1px solid var(--line); }
+  .main-content { margin-left: 0; }
   .sidebar .brand { display: none; }
   .nav-item { border-left: none; border-bottom: 3px solid transparent; white-space: nowrap; }
   .nav-item.active { border-left-color: transparent; border-bottom-color: var(--accent); }

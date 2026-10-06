@@ -35,7 +35,8 @@
 }
 
 /* --- Sidebar --- */
-.vendor-shell .sidebar { width: 216px; background: var(--v-side-bg); border-right: none; padding: 22px 0 14px; }
+.vendor-shell { --sidebar-w: 216px; }
+.vendor-shell .sidebar { background: var(--v-side-bg); border-right: none; padding: 22px 0 14px; }
 .vendor-shell .sidebar .brand { padding: 0 22px 18px; border-bottom: 1px solid var(--v-side-line); margin-bottom: 12px; }
 /* Logo artwork is black on transparent -- always white on this sidebar. */
 .vendor-shell .sidebar .brand-logo { filter: invert(1); }
