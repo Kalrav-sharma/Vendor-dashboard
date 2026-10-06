@@ -2880,3 +2880,35 @@ create policy invoice_vendor_requests_update on public.invoice_vendor_requests
   for update
   using ((select public.is_internal_staff()))
   with check ((select public.is_internal_staff()));
+
+-- ---------------------------------------------------------------------
+-- po_close_log -- added 2026-10-06. Admin console › PO Tracking › Awaiting supply:
+-- "Close PO" closes a purchase order in Uniware itself (close-uniware-po Edge Function,
+-- Uniware's Close Purchase Order API). One row per attempt that reached Uniware, with the
+-- team's reason -- the reason/note live only here; Uniware's close API takes none.
+-- successful: true = closed, false = Uniware refused (uniware_message says why),
+-- null = no response (timeout/network -- outcome unknown until the next PO sync).
+-- Written only by that function (service_role); internal staff can read it.
+-- ---------------------------------------------------------------------
+create table if not exists public.po_close_log (
+  id bigint generated always as identity primary key,
+  po_code text not null references public.purchase_orders(po_code) on delete cascade,
+  vendor_code text not null,
+  facility text not null,
+  reason text not null check (reason in ('vendor_cannot_supply', 'duplicate_po', 'no_longer_needed', 'raised_in_error', 'other')),
+  note text,
+  previous_status text,
+  new_status text,
+  successful boolean,
+  uniware_message text,
+  closed_by uuid references auth.users(id) on delete set null,
+  closed_by_name text,
+  created_at timestamptz not null default now()
+);
+create index if not exists po_close_log_po_code_idx on public.po_close_log(po_code);
+
+alter table public.po_close_log enable row level security;
+
+drop policy if exists po_close_log_select on public.po_close_log;
+create policy po_close_log_select on public.po_close_log
+  for select using ((select public.is_internal_staff()));

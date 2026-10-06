@@ -11,6 +11,7 @@ import SummaryKpis from "../SummaryKpis.vue";
 import InvoiceUploadModal from "../InvoiceUploadModal.vue";
 import InvoiceUploadButton from "../InvoiceUploadButton.vue";
 import GrnStageDialog from "./GrnStageDialog.vue";
+import ClosePoDialog from "./ClosePoDialog.vue";
 import { useInvoiceUploads } from "../../composables/useInvoiceUploads.js";
 import { useVendorRequests, isRequestAnswered, REQUEST_KIND_META } from "../../composables/useVendorRequests.js";
 import { downloadCsv } from "../sla/slaUtil.js";
@@ -31,7 +32,8 @@ const props = defineProps({
   grnItemsByPoSku: { type: Object, required: true }, // "<po>|<sku>" -> grn_items rows
   onOpenPo: { type: Function, required: true },
   uploaderLabel: { type: String, default: "" }, // current user's display name -- recorded on uploads and vendor requests
-  canChangeStage: { type: Boolean, default: false }, // may raise/withdraw vendor requests from GRN pending
+  canChangeStage: { type: Boolean, default: false }, // may raise/withdraw vendor requests (GRN pending) and close POs in Uniware (Awaiting supply)
+  onPoClosed: { type: Function, default: null }, // () => re-fetch POs after one is closed in Uniware
 });
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
@@ -147,6 +149,7 @@ function stageOf(p) {
   return uploads.every((u) => u.payment_status === "paid") ? "closed" : "with_finance";
 }
 function stageLabel(p, stage) {
+  if (stage === "closed" && p.status === "CLOSED") return "Closed";
   if (stage === "with_vendor") return REQUEST_KIND_META[openRequests(p)[0]?.kind]?.short || STAGE_BY_KEY[stage].label;
   return stage === "closed" && p.status === "CANCELLED" ? "Cancelled" : STAGE_BY_KEY[stage].label;
 }
@@ -159,6 +162,14 @@ const ago = (t) => {
   return d <= 0 ? "today" : d === 1 ? "yesterday" : `${d}d ago`;
 };
 const withdrawError = ref("");
+
+// --- Close PO in Uniware (Awaiting supply) -----------------------------------------------
+const closeDialogPo = ref(null);
+const closeNotice = ref("");
+function onClosed({ poCode, status, warning }) {
+  closeNotice.value = `${poCode} closed in Uniware (now ${status}).` + (warning ? ` ${warning}` : "");
+  props.onPoClosed?.();
+}
 async function withdraw(req) {
   if (!window.confirm(`Withdraw this ${REQUEST_KIND_META[req.kind].short.toLowerCase()}? The vendor will stop seeing it and the PO goes back to GRN pending.`)) return;
   const res = await withdrawRequest(req, props.uploaderLabel);
@@ -464,7 +475,13 @@ function openUploadModal(p) {
                 <button v-if="canChangeStage" type="button" class="link-btn-inline" @click.stop="withdraw(r)">Withdraw</button>
               </div>
             </div>
-            <div v-else class="po-uniware"><StatusChip :status="d.p.status" /></div>
+            <template v-else>
+              <div class="po-uniware"><StatusChip :status="d.p.status" /></div>
+              <button
+                v-if="d.stage === 'awaiting_grn' && canChangeStage" type="button" class="link-btn-inline po-stage-btn po-close-btn"
+                @click.stop="closeDialogPo = d.p"
+              >Close PO</button>
+            </template>
           </td>
           <td class="po-fill">
             <div class="po-fill-head mono">
@@ -500,6 +517,13 @@ function openUploadModal(p) {
   </div></div>
 
   <p v-if="withdrawError" class="field-hint po-error">{{ withdrawError }}</p>
+  <p v-if="closeNotice" class="field-hint po-notice">{{ closeNotice }}</p>
+
+  <ClosePoDialog
+    :model-value="!!closeDialogPo" :po="closeDialogPo"
+    :vendor-name="closeDialogPo ? vendorLabel(closeDialogPo.vendor_code, closeDialogPo.vendor_name) : ''"
+    @update:model-value="(v) => { if (!v) closeDialogPo = null }" @closed="onClosed"
+  />
 
   <GrnStageDialog
     :model-value="!!stageDialogPo" :po="stageDialogPo" :short-uploads="stageDialogUploads"

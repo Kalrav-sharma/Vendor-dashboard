@@ -16,6 +16,7 @@ export const STATUS_META = {
   CREATED: ["Created · open", "open"],
   REJECTED: ["Rejected", "critical"],
   CANCELLED: ["Cancelled", "muted"],
+  CLOSED: ["Closed", "muted"], // e.g. closed from admin PO Tracking via Uniware's close API
 };
 
 export function fmtNum(n) {
