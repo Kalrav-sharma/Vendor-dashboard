@@ -16,7 +16,7 @@ import { useInvoiceUploads } from "../../composables/useInvoiceUploads.js";
 import { useVendorRequests, isRequestAnswered, REQUEST_KIND_META } from "../../composables/useVendorRequests.js";
 import { downloadCsv } from "../sla/slaUtil.js";
 import {
-  fmtNum, fmtMoney, fmtMoneyCompact, fmtDateOnly, statusLabel, TERMINAL_STATUSES, poSortComparator, dedupeInvoiceNumbers,
+  fmtNum, fmtMoney, fmtMoneyCompact, fmtDateOnly, statusLabel, uniwarePoUrl, TERMINAL_STATUSES, poSortComparator, dedupeInvoiceNumbers,
 } from "../../format.js";
 import "../payments/payments.css";
 import "./po-tracking.css";
@@ -447,7 +447,13 @@ function openUploadModal(p) {
         <tr v-for="d in tableRows" :key="d.p.po_code" class="clickable-row" @click="onOpenPo(d.p.po_code)">
           <td class="po-vendor">{{ vendorLabel(d.p.vendor_code, d.p.vendor_name) }}</td>
           <td>
-            <div class="mono">{{ d.p.po_code }}</div>
+            <div class="mono">
+              {{ d.p.po_code }}
+              <a
+                :href="uniwarePoUrl(d.p.po_code)" target="_blank" rel="noopener" class="po-uw-link"
+                title="Open this PO in Uniware" @click.stop
+              >↗ Uniware</a>
+            </div>
             <div class="fac-code">{{ d.p.facility }}</div>
           </td>
           <td>

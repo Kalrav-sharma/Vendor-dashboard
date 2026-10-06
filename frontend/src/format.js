@@ -19,6 +19,14 @@ export const STATUS_META = {
   CLOSED: ["Closed", "muted"], // e.g. closed from admin PO Tracking via Uniware's close API
 };
 
+// A PO's own page in Uniware -- same shape as the address bar on Uniware's PO screen
+// (orderCode in the query, plus the PO code filter in the hash).
+export function uniwarePoUrl(poCode) {
+  const code = encodeURIComponent(poCode);
+  return `https://urbanclap.unicommerce.com/purchaseOrder/activities?orderCode=${code.replace(/%2F/g, "/")}`
+    + `#viewName=All&filters%5B0%5D%5Bid%5D=purchaseOrderCodeFilter&filters%5B0%5D%5Btext%5D=${code}`;
+}
+
 export function fmtNum(n) {
   return (n === null || n === undefined) ? "–" : Number(n).toLocaleString("en-IN");
 }
