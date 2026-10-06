@@ -230,6 +230,11 @@ export function effectivePaymentStatus(row) {
   if (row.payment_status) {
     return { text: paymentStatusLabel(row.payment_status), cls: paymentStatusClass(row.payment_status), needsCreditNote: false };
   }
+  // Vendor side only -- VendorApp.vue attaches vendor_request to an upload the team has asked
+  // a credit note for (useVendorRequests.js); no other caller's rows ever carry it.
+  if (row.vendor_request?.kind === "credit_note") {
+    return { text: "Credit note requested", cls: "critical", needsCreditNote: true };
+  }
   if (row.match_status === "matched") {
     return {
       text: "Pending", cls: "muted", needsCreditNote: false,

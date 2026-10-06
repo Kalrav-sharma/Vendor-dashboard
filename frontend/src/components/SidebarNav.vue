@@ -26,7 +26,7 @@ defineEmits(["update:modelValue"]);
       <span class="nav-item-label">
         <span v-if="item.icon" class="nav-icon" aria-hidden="true" v-html="item.icon"></span>{{ item.label }}
       </span>
-      <span v-if="item.badge" class="nav-badge">{{ item.badge }}</span>
+      <span v-if="item.badge" class="nav-badge" :class="{ 'nav-badge-pulse': item.pulse }">{{ item.badge }}</span>
     </button>
     <div class="sidebar-account">
       <slot name="account" />

@@ -8,14 +8,16 @@ import { supabase } from "../supabaseClient.js";
 
 const PAGE_SIZE = 1000;
 
-export async function fetchAllRows(table, applyFilters) {
+// orderCol must be unique per row (a primary key) for paging to be stable -- "id" on most
+// tables, but purchase_orders/grns are keyed by po_code/grn_code instead.
+export async function fetchAllRows(table, applyFilters, orderCol = "id") {
   const all = [];
   let from = 0;
   for (;;) {
     // .order() is required, not cosmetic: without a deterministic sort the database is free to
     // return rows in any order per request, so page 2 can repeat or skip rows from page 1.
     // sop_dispatch_plan already exceeds one page (~1,900 rows), so this was silently dropping rows.
-    let query = supabase.from(table).select("*").order("id").range(from, from + PAGE_SIZE - 1);
+    let query = supabase.from(table).select("*").order(orderCol).range(from, from + PAGE_SIZE - 1);
     if (applyFilters) query = applyFilters(query);
     const { data, error } = await query;
     if (error) return { data: null, error };

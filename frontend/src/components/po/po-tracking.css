@@ -1,0 +1,61 @@
+/* Admin console › PO Tracking. Panels, toolbar and tabs reuse payments.css (.pay-grid,
+   .pay-bar*, .fin-toolbar, .fin-btn) and shared.css (.bucket-tab*, .meter-*, .substep-*);
+   only what's specific to the PO table lives here. */
+.po-stage-tabs .bucket-tab { display: inline-flex; align-items: center; gap: 6px; }
+.po-stage-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; background: var(--muted); }
+.po-dot-open { background: var(--open); }
+.po-dot-critical { background: var(--critical); }
+.po-dot-info { background: var(--info); }
+.po-dot-good { background: var(--good); }
+
+.fin-toolbar .po-narrow { width: 150px; }
+
+.po-sort { background: none; border: none; padding: 0; font: inherit; color: inherit; text-transform: inherit; letter-spacing: inherit; cursor: pointer; }
+.po-sort:hover { color: var(--accent); }
+
+.po-table td { vertical-align: top; }
+.po-vendor { font-weight: 500; max-width: 220px; }
+.po-age { font-family: "IBM Plex Mono", monospace; font-size: 0.74rem; color: var(--muted); margin-top: 3px; }
+.po-age-warn { color: var(--open); font-weight: 600; }
+.po-age-crit { color: var(--critical); font-weight: 600; }
+.po-uniware { margin-top: 5px; }
+.po-uniware .chip { font-size: 0.62rem; padding: 1px 6px; }
+.po-substeps { margin-top: 6px; }
+
+.po-fill { min-width: 150px; }
+.po-fill-head { display: flex; justify-content: space-between; gap: 8px; font-size: 0.78rem; margin-bottom: 5px; }
+.po-fill-pct { color: var(--muted); }
+.po-fill .meter-track { height: 6px; }
+.po-fill .meter-fill.po-fill-done { background: var(--good); }
+
+.chip-accent { background: var(--accent-soft); color: var(--accent); }
+.po-dot-accent { background: var(--accent); }
+.po-grn-gap { font-size: 0.72rem; color: var(--accent); margin-top: 5px; white-space: nowrap; }
+
+/* Seven stages + All -- tighter tabs so the row wraps less. */
+.po-stage-tabs { gap: 6px; }
+.po-stage-tabs .bucket-tab { padding: 7px 11px; }
+
+/* With vendor -- a CN / corrected invoice requested; its own hue so it doesn't read as any
+   other stage. */
+.chip-vendor { background: color-mix(in srgb, #B5487E 14%, transparent); color: #B5487E; }
+.po-dot-vendor { background: #B5487E; }
+.po-request { font-size: 0.72rem; color: var(--muted); margin-top: 5px; }
+.po-request > div + div { margin-top: 3px; }
+.po-request .link-btn-inline, .po-stage-btn { font-size: 0.74rem; margin-left: 6px; }
+.po-stage-btn { margin-left: 0; margin-top: 4px; display: inline-block; }
+.po-error { color: var(--critical); }
+
+/* Change stage dialog (GrnStageDialog.vue) */
+.grn-stage-box { max-width: 520px; }
+.grn-stage-section { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); font-weight: 600; margin: 16px 0 8px; }
+.grn-stage-invoice { display: flex; align-items: baseline; gap: 8px; font-size: 0.84rem; padding: 4px 0; }
+.grn-stage-qty { margin-left: auto; color: var(--muted); font-size: 0.76rem; }
+.grn-stage-option { display: flex; gap: 10px; align-items: flex-start; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; cursor: pointer; }
+.grn-stage-option.sel { border-color: var(--accent); background: var(--accent-soft); }
+.grn-stage-option input { margin-top: 3px; }
+.grn-stage-option b { display: block; font-size: 0.85rem; font-weight: 600; }
+.grn-stage-option small { display: block; color: var(--muted); font-size: 0.76rem; margin-top: 2px; }
+.grn-stage-note { margin-top: 14px; margin-bottom: 6px; }
+.grn-stage-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px; }
+.grn-stage-actions .primary-btn { width: auto; margin-top: 0; padding: 8px 16px; }

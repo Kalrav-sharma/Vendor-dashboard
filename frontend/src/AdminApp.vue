@@ -17,7 +17,7 @@ import { usePaymentFilters } from "./composables/usePaymentFilters.js";
 import { useSupportTickets } from "./composables/useSupportTickets.js";
 import { dedupeInvoiceNumbers, dedupeVendorOptions } from "./format.js";
 import SidebarNav from "./components/SidebarNav.vue";
-import PoTrackingTable from "./components/PoTrackingTable.vue";
+import AdminPoTracking from "./components/po/AdminPoTracking.vue";
 import SkuLevelTable from "./components/SkuLevelTable.vue";
 import DispatchPlanningTable from "./components/DispatchPlanningTable.vue";
 import PaymentDashboardTable from "./components/PaymentDashboardTable.vue";
@@ -68,6 +68,9 @@ const effectiveRole = computed(() => (myRole.value === "admin" && previewRole) ?
 // (is_internal_staff() grants all of them the same underlying data
 // visibility); this is purely a frontend concern.
 const canSeePoTracking = computed(() => ["admin", "management", "operations"].includes(effectiveRole.value));
+// Raising/withdrawing a credit-note or corrected-invoice request from PO Tracking's GRN pending
+// stage -- ops and admin act; management sees the same page read-only.
+const canChangePoStage = computed(() => ["admin", "operations"].includes(effectiveRole.value));
 const canSeeSkuData = computed(() => ["admin", "management", "operations"].includes(effectiveRole.value));
 const canSeeDispatchPlanning = computed(() => ["admin", "management", "operations"].includes(effectiveRole.value));
 const canSeePaymentDashboard = computed(() => ["admin", "management", "finance"].includes(effectiveRole.value));
@@ -427,12 +430,12 @@ async function signOut() {
         </div>
 
         <div v-if="canSeePoTracking" v-show="activeNav === 'po-tracking'">
-          <PoTrackingTable
+          <AdminPoTracking
             :rows="filteredSorted" :filters="filters"
             :facility-options="facilityOptions" :status-options="statusOptions"
             :vendor-options="vendorOptions" :vendor-label="vendorLabel"
-            :grns-by-po="grnsByPo" :show-kpis="true"
-            :on-open-po="openPoDetailModal" :allow-invoice-upload="true" :uploader-label="whoLine"
+            :grns-by-po="grnsByPo" :grn-items-by-po-sku="grnItemsByPoSku" :on-open-po="openPoDetailModal" :uploader-label="whoLine"
+            :can-change-stage="canChangePoStage"
           />
         </div>
 

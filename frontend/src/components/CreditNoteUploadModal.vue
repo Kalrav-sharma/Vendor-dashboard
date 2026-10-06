@@ -66,7 +66,12 @@ function handleBrowseChosen(e) {
       <div class="modal-box upload-modal-box">
         <button class="modal-close-btn" aria-label="Close" @click="close">&times;</button>
         <div class="modal-title">Upload credit note <span class="mono">(PDF)</span></div>
-        <p class="field-hint">
+        <p v-if="row.vendor_request" class="field-hint">
+          A credit note has been requested on invoice
+          <span class="mono">{{ row.match_details?.extracted?.invoice_number || row.po_code }}</span>
+          <template v-if="row.vendor_request.note"> -- “{{ row.vendor_request.note }}”</template>
+        </p>
+        <p v-else class="field-hint">
           Reconciliation found a mismatch on invoice
           <span class="mono">{{ row.match_details?.extracted?.invoice_number || row.po_code }}</span> --
           a credit note is needed before this can be paid.

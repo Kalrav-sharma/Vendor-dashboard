@@ -11,6 +11,7 @@ import { useDispatchPlanningFilters } from "./composables/useDispatchPlanningFil
 import { useShipmentTracking } from "./composables/useShipmentTracking.js";
 import { useModal } from "./composables/useModal.js";
 import { useInvoiceUploads } from "./composables/useInvoiceUploads.js";
+import { useVendorRequests, isRequestAnswered } from "./composables/useVendorRequests.js";
 import { usePaymentFilters } from "./composables/usePaymentFilters.js";
 import { useSupportTickets } from "./composables/useSupportTickets.js";
 import { dedupeInvoiceNumbers, dedupeVendorOptions, fmtDateOnly, fmtNum, trackingBucket, TERMINAL_STATUSES } from "./format.js";
@@ -22,6 +23,7 @@ import DispatchPlanningTable from "./components/DispatchPlanningTable.vue";
 import PaymentDashboardTable from "./components/PaymentDashboardTable.vue";
 import RaiseTicketTab from "./components/RaiseTicketTab.vue";
 import AppModal from "./components/AppModal.vue";
+import VendorRequestsPopup from "./components/VendorRequestsPopup.vue";
 import PoDetailModal from "./components/PoDetailModal.vue";
 import SkuDetailModal from "./components/SkuDetailModal.vue";
 import SetNewPasswordForm from "./components/SetNewPasswordForm.vue";
@@ -101,7 +103,42 @@ const dispatchPlanningRows = computed(() => [...pendingDispatchRows.value, ...sh
 const { filters: dispatchFilters, filteredSorted: dispatchFilteredSorted } = useDispatchPlanningFilters(dispatchPlanningRows);
 
 const { allUploads, fetchAllUploads } = useInvoiceUploads();
-const { filters: paymentFilters, filteredSorted: paymentFilteredSorted, reconciliationOptions, paymentStatusOptions } = usePaymentFilters(allUploads);
+
+// Credit-note / corrected-invoice requests the team has raised on this vendor's invoices
+// (admin PO Tracking › GRN pending). Still pending = not yet answered by an upload -- see
+// isRequestAnswered(). Attached to the upload as vendor_request so the Payments table can
+// bucket, highlight and offer the right upload on that row.
+const { latestByUpload, fetchRequests } = useVendorRequests();
+const pendingRequests = computed(() => {
+  const out = [];
+  for (const u of allUploads.value) {
+    const req = u.payment_status === "paid" ? null : latestByUpload.value[u.id];
+    if (!req) continue;
+    if (!isRequestAnswered(req, allUploads.value.filter((x) => x.po_code === u.po_code))) out.push({ req, upload: u });
+  }
+  return out;
+});
+const uploadsWithRequests = computed(() => {
+  const byUpload = Object.fromEntries(pendingRequests.value.map((r) => [r.upload.id, r.req]));
+  return allUploads.value.map((u) => (byUpload[u.id] ? { ...u, vendor_request: byUpload[u.id] } : u));
+});
+const { filters: paymentFilters, filteredSorted: paymentFilteredSorted, reconciliationOptions, paymentStatusOptions } = usePaymentFilters(uploadsWithRequests);
+
+// Shown once per browser session (sessionStorage) while any request is pending -- so every
+// fresh login sees it again until they're answered, without it re-popping on each reload.
+const requestsPopupOpen = ref(false);
+const popupSeenKey = () => `vendor-requests-popup-seen:${myVendorCode.value}`;
+function maybeShowRequestsPopup() {
+  if (pendingRequests.value.length && !sessionStorage.getItem(popupSeenKey())) requestsPopupOpen.value = true;
+}
+function closeRequestsPopup() {
+  requestsPopupOpen.value = false;
+  sessionStorage.setItem(popupSeenKey(), "1");
+}
+function openRequestsBucket() {
+  closeRequestsPopup();
+  navigateTo("payment-dashboard", "requests");
+}
 
 const { tickets, fetchTickets, raiseTicket } = useSupportTickets();
 const poCodeOptions = computed(() => currentPos.value.map((p) => p.po_code));
@@ -227,10 +264,17 @@ const todayStart = new Date(new Date().toDateString());
 const plural = (n, one, many) => (n === 1 ? one : many);
 const dashActions = computed(() => {
   const invoices = posNeedingInvoice.value.length;
-  const creditNotes = allUploads.value.filter((u) => u.match_status === "mismatch" && !u.credit_note_storage_path).length;
+  const requested = pendingRequests.value.length;
+  const requestedIds = new Set(pendingRequests.value.map((r) => r.upload.id));
+  const creditNotes = allUploads.value.filter((u) => u.match_status === "mismatch" && !u.credit_note_storage_path && !requestedIds.has(u.id)).length;
   const overduePlans = pendingDispatchRows.value.filter((r) => new Date(r.estimated_dispatch_date) < todayStart).length;
   const exceptions = shippedDispatchRows.value.filter((r) => trackingBucket(r) === "exception").length;
   return [
+    {
+      key: "requests", count: requested, tone: "critical", nav: "payment-dashboard", bucket: "requests",
+      title: plural(requested, "Invoice with a request from our team", "Invoices with a request from our team"),
+      sub: "A credit note or a corrected invoice has been asked for", cta: "Respond",
+    },
     {
       key: "invoices", count: invoices, tone: "critical", nav: "payment-dashboard", bucket: "invoice_copy_needed",
       title: plural(invoices, "PO waiting for an invoice copy", "POs waiting for an invoice copy"),
@@ -348,7 +392,7 @@ const navItems = computed(() => [
   { id: "dashboard", label: "Dashboard", icon: NAV_ICONS.dashboard },
   { id: "po-tracking", label: "Purchase Orders", icon: DASH_ICONS.document },
   { id: "dispatch-planning", label: "Dispatch Planning", icon: DASH_ICONS.truck },
-  { id: "payment-dashboard", label: "Payments", icon: NAV_ICONS.payments },
+  { id: "payment-dashboard", label: "Payments", icon: NAV_ICONS.payments, badge: pendingRequests.value.length || null, pulse: true },
   { id: "my-performance", label: "My Performance", icon: NAV_ICONS.performance },
   { id: "raise-ticket", label: "Raise a Ticket", icon: NAV_ICONS.ticket },
 ]);
@@ -425,8 +469,9 @@ onMounted(async () => {
     : (ctx.profile.vendor_name || ctx.profile.email || "Vendor");
   myEmail.value = ctx.profile.email || "";
   myVendorCode.value = previewingAsAdmin ? (previewVendorCode || "") : (ctx.profile.vendor_code || "");
-  await Promise.all([fetchAllUploads(previewVendorCode), fetchTickets(previewVendorCode)]);
+  await Promise.all([fetchAllUploads(previewVendorCode), fetchTickets(previewVendorCode), fetchRequests(previewVendorCode)]);
   ready.value = true;
+  maybeShowRequestsPopup();
 });
 
 async function handlePasswordChanged() {
@@ -455,8 +500,9 @@ async function handleEmailChanged() {
   myDisplayName.value = ctx.profile.vendor_name || ctx.profile.email || "Vendor";
   myEmail.value = ctx.profile.email || "";
   myVendorCode.value = ctx.profile.vendor_code || "";
-  await Promise.all([fetchAllUploads(previewVendorCode), fetchTickets(previewVendorCode)]);
+  await Promise.all([fetchAllUploads(previewVendorCode), fetchTickets(previewVendorCode), fetchRequests(previewVendorCode)]);
   ready.value = true;
+  maybeShowRequestsPopup();
 }
 
 async function signOut() {
@@ -564,5 +610,9 @@ async function signOut() {
     </div>
 
     <AppModal />
+    <VendorRequestsPopup
+      v-if="requestsPopupOpen" :items="pendingRequests" :uploader-label="myDisplayName"
+      @close="closeRequestsPopup" @view-all="openRequestsBucket"
+    />
   </div>
 </template>

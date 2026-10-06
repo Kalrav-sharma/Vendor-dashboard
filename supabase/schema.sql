@@ -2814,3 +2814,69 @@ drop policy if exists health_sla_kit_weekly_select on public.health_sla_kit_week
 create policy health_sla_kit_weekly_select on public.health_sla_kit_weekly
   for select using (public.is_internal_staff());
 -- ---------------------------------------------------------------------
+
+-- ---------------------------------------------------------------------
+-- invoice_vendor_requests -- added 2026-10-06. Admin console › PO Tracking ›
+-- GRN pending: when an uploaded invoice's qty is more than the warehouse has
+-- GRN'd, the team asks the vendor either for a credit note or for a corrected
+-- invoice. The vendor sees it (login pop-up, Payments badge, highlighted row)
+-- and answers through the existing uploads -- so this table is staff-write,
+-- vendor-read, and is never written by the vendor. "Answered" is derived, not
+-- stored: a credit_note request is answered once that upload's
+-- credit_note_uploaded_at is after requested_at; a reupload_invoice request
+-- once any newer po_invoice_uploads row exists on the same PO (see
+-- vendorRequests.js). status only records the team withdrawing a request.
+-- Its own table rather than columns on po_invoice_uploads, because that
+-- table's vendor-matching credit-note UPDATE policy would otherwise let a
+-- vendor write staff-only columns on their own rows.
+-- ---------------------------------------------------------------------
+create table if not exists public.invoice_vendor_requests (
+  id bigint generated always as identity primary key,
+  upload_id bigint not null references public.po_invoice_uploads(id) on delete cascade,
+  po_code text not null references public.purchase_orders(po_code) on delete cascade,
+  vendor_code text not null,  -- denormalized from the upload, for a join-free RLS check
+  kind text not null check (kind in ('credit_note', 'reupload_invoice')),
+  note text,                  -- the team's message to the vendor
+  status text not null default 'active' check (status in ('active', 'withdrawn')),
+  requested_by uuid references auth.users(id) on delete set null,
+  requested_by_name text,
+  requested_at timestamptz not null default now(),
+  withdrawn_at timestamptz,
+  withdrawn_by_name text
+);
+create index if not exists invoice_vendor_requests_vendor_code_idx on public.invoice_vendor_requests(vendor_code);
+create index if not exists invoice_vendor_requests_upload_id_idx on public.invoice_vendor_requests(upload_id);
+
+alter table public.invoice_vendor_requests enable row level security;
+
+drop policy if exists invoice_vendor_requests_select on public.invoice_vendor_requests;
+create policy invoice_vendor_requests_select on public.invoice_vendor_requests
+  for select
+  using (
+    (select public.is_internal_staff())
+    or vendor_code = (select p.vendor_code from public.profiles p where p.id = (select auth.uid()))
+  );
+
+-- Staff only, recorded as themselves, and the request must point at a real
+-- upload with the same PO and vendor it claims -- so a request can never be
+-- made to show up on the wrong vendor's side.
+drop policy if exists invoice_vendor_requests_insert on public.invoice_vendor_requests;
+create policy invoice_vendor_requests_insert on public.invoice_vendor_requests
+  for insert
+  with check (
+    (select public.is_internal_staff())
+    and requested_by = (select auth.uid())
+    and exists (
+      select 1 from public.po_invoice_uploads u
+      where u.id = invoice_vendor_requests.upload_id
+        and u.po_code = invoice_vendor_requests.po_code
+        and u.vendor_code = invoice_vendor_requests.vendor_code
+    )
+  );
+
+-- Withdrawing a request is the only edit, and only staff make it.
+drop policy if exists invoice_vendor_requests_update on public.invoice_vendor_requests;
+create policy invoice_vendor_requests_update on public.invoice_vendor_requests
+  for update
+  using ((select public.is_internal_staff()))
+  with check ((select public.is_internal_staff()));

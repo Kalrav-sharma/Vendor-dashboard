@@ -143,14 +143,19 @@ const kpiTiles = computed(() => (props.showVendorKpis ? vendorKpiTiles.value : a
 // to do but wait" logic, just with no invoice ever uploaded for it).
 const BUCKETS = [
   { key: "all", label: "All" },
+  { key: "requests", label: "Requests" }, // shown only while there are any -- see visibleBuckets
   { key: "cn_required", label: "CN Required" },
   { key: "invoice_copy_needed", label: "Invoice Copy Needed" },
   { key: "no_action_needed", label: "No Action Needed" },
   { key: "paid", label: "Paid" },
 ];
-const cnRequiredRows = computed(() => props.rows.filter((r) => r.match_status === "mismatch"));
+// Requests: invoices the team has asked a credit note / corrected invoice on (vendor side
+// only -- rows carry vendor_request, see VendorApp.vue). Their own bucket, so they're out of
+// CN Required / No Action Needed and every row still lands in exactly one bucket.
+const requestRows = computed(() => props.rows.filter((r) => r.vendor_request));
+const cnRequiredRows = computed(() => props.rows.filter((r) => r.match_status === "mismatch" && !r.vendor_request));
 const paidRows = computed(() => props.rows.filter(isPaid));
-const noActionRows = computed(() => props.rows.filter((r) => !isPaid(r) && r.match_status !== "mismatch"));
+const noActionRows = computed(() => props.rows.filter((r) => !isPaid(r) && r.match_status !== "mismatch" && !r.vendor_request));
 // posWithPayment split by its own payment_status -- "paid" joins the Paid
 // bucket outright, anything else (in practice just "pending") joins
 // No Action Needed alongside the uploaded-but-unpaid invoices above.
@@ -160,6 +165,7 @@ const activeBucket = ref("all");
 watch(() => props.focusBucket, (f) => { if (f?.bucket) activeBucket.value = f.bucket; });
 const bucketCounts = computed(() => ({
   all: props.rows.length + props.posNeedingInvoice.length + props.posWithPayment.length,
+  requests: requestRows.value.length,
   cn_required: cnRequiredRows.value.length,
   invoice_copy_needed: props.posNeedingInvoice.length,
   no_action_needed: noActionRows.value.length + posPaymentPending.value.length,
@@ -184,9 +190,12 @@ const allEntries = computed(() => [
   ...props.posNeedingInvoice.map(needInvoiceEntry),
   ...props.posWithPayment.map(poPaymentEntry),
 ]);
+const visibleBuckets = computed(() =>
+  BUCKETS.filter((b) => b.key !== "requests" || requestRows.value.length || activeBucket.value === "requests"));
 const displayRows = computed(() => {
   if (!props.showBuckets) return allEntries.value;
   switch (activeBucket.value) {
+    case "requests": return requestRows.value.map(invoiceEntry);
     case "cn_required": return cnRequiredRows.value.map(invoiceEntry);
     case "invoice_copy_needed": return props.posNeedingInvoice.map(needInvoiceEntry);
     case "no_action_needed":
@@ -204,8 +213,8 @@ const displayRows = computed(() => {
 
   <div v-if="showBuckets" class="bucket-tabs">
     <button
-      v-for="b in BUCKETS" :key="b.key" type="button"
-      class="bucket-tab" :class="{ active: activeBucket === b.key }"
+      v-for="b in visibleBuckets" :key="b.key" type="button"
+      class="bucket-tab" :class="{ active: activeBucket === b.key, 'vr-tab': b.key === 'requests' }"
       @click="activeBucket = b.key"
     >
       {{ b.label }} <span class="bucket-count">{{ bucketCounts[b.key] }}</span>
@@ -257,7 +266,10 @@ const displayRows = computed(() => {
         <tr v-if="!displayRows.length">
           <td :colspan="vendorOptions ? 9 : 8" class="empty-state">No invoices match these filters.</td>
         </tr>
-        <tr v-for="entry in displayRows" :key="entry.kind === 'invoice' ? entry.row.id : `${entry.kind}:${entry.po.po_code}`">
+        <tr
+          v-for="entry in displayRows" :key="entry.kind === 'invoice' ? entry.row.id : `${entry.kind}:${entry.po.po_code}`"
+          :class="{ 'vr-row': entry.kind === 'invoice' && entry.row.vendor_request }"
+        >
           <td v-if="vendorOptions">{{ vendorLabel(entry.kind === 'invoice' ? entry.row.vendor_code : entry.po.vendor_code) }}</td>
           <td class="mono">
             <button

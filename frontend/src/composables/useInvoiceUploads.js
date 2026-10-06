@@ -94,7 +94,13 @@ export function useInvoiceUploads() {
   async function fetchUploadCounts(poCodes) {
     const needed = [...new Set(poCodes)].filter(code => code && !uploadsByPo[code]);
     if (!needed.length) return;
-    const { data, error } = await supabase.from("po_invoice_uploads").select("po_code, payment_status, match_status").in("po_code", needed);
+    // invoice_number/line_quantities: just the two OCR'd fields (not the whole match_details
+    // blob) admin PO Tracking needs to compare an invoice's qty against its live GRN qty;
+    // id/vendor_code/created_at/credit_note_uploaded_at let it raise a vendor request on an
+    // upload and tell when the vendor has answered one (see useVendorRequests.js).
+    const { data, error } = await supabase.from("po_invoice_uploads")
+      .select("id, po_code, vendor_code, created_at, credit_note_uploaded_at, payment_status, match_status, invoice_number:match_details->extracted->>invoice_number, line_quantities:match_details->extracted->line_quantities")
+      .in("po_code", needed);
     if (error) return;
     const rowsByCode = {};
     for (const row of data) (rowsByCode[row.po_code] ??= []).push(row);

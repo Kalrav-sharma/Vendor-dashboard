@@ -647,3 +647,34 @@ footer.page-foot { margin-top: 16px; color: var(--muted); font-size: 0.74rem; te
 .upload-browse-btn { display: inline-block; cursor: pointer; font-size: 0.85rem; }
 .upload-modal-status { margin-top: 14px; color: var(--muted); font-size: 0.83rem; text-align: center; }
 .upload-modal-box .form-error { margin: 14px 0 0; }
+
+/* --- Vendor requests (credit note / corrected invoice asked for by the team) ----------------
+   Raised from admin PO Tracking › GRN pending; shown on the vendor side as a login pop-up
+   (VendorRequestsPopup.vue), a pulsing Payments badge, a Requests bucket and highlighted rows. */
+@keyframes vr-pulse {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--critical) 55%, transparent); }
+  70% { box-shadow: 0 0 0 7px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+.nav-badge-pulse { animation: vr-pulse 1.6s ease-out infinite; }
+.vr-tab { border-color: var(--critical); color: var(--critical); }
+tr.vr-row > td { background: color-mix(in srgb, var(--critical) 6%, transparent); }
+tr.vr-row > td:first-child { box-shadow: inset 3px 0 0 var(--critical); }
+.vr-cell { display: flex; flex-direction: column; gap: 3px; align-items: flex-start; }
+.vr-cta { color: var(--critical); font-weight: 600; }
+.vr-note { font-size: 0.72rem; color: var(--muted); max-width: 240px; white-space: normal; }
+
+.vr-btn { background: var(--surface); border: 1px solid var(--line-strong); border-radius: 7px; padding: 7px 12px; font: inherit; font-size: 0.8rem; font-weight: 500; color: var(--ink); cursor: pointer; white-space: nowrap; }
+.vr-btn:hover { border-color: var(--accent); color: var(--accent); }
+.vr-popup { max-width: 560px; }
+.vr-popup .modal-title { display: flex; align-items: center; gap: 10px; }
+.vr-popup-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--critical); animation: vr-pulse 1.6s ease-out infinite; flex: none; }
+.vr-popup-list { list-style: none; margin: 14px 0 0; padding: 0; max-height: 52vh; overflow-y: auto; }
+.vr-popup-item { border: 1px solid var(--line); border-left: 3px solid var(--critical); border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; }
+.vr-popup-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.vr-popup-date { font-size: 0.74rem; color: var(--muted); font-family: "IBM Plex Mono", monospace; }
+.vr-popup-ref { font-size: 0.82rem; margin-top: 6px; }
+.vr-popup-note { font-size: 0.8rem; color: var(--ink); background: var(--paper); border-radius: 6px; padding: 6px 9px; margin-top: 6px; }
+.vr-popup-cta { margin-top: 8px; border-color: var(--critical); color: var(--critical); font-weight: 600; }
+.vr-popup-actions { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 6px; }
+@media (prefers-reduced-motion: reduce) { .nav-badge-pulse, .vr-popup-dot { animation: none; } }

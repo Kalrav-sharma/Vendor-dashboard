@@ -3,7 +3,7 @@
 // every 60s -- ported from loadAndRender()/loadData() in the legacy
 // vendor.html/admin.html.
 import { ref, onMounted, onUnmounted } from "vue";
-import { supabase } from "../supabaseClient.js";
+import { fetchAllRows } from "./sopPagedFetch.js";
 import { visiblePos, dedupeInvoiceNumbers } from "../format.js";
 
 // Matches refresh.yml's own 5-min Uniware sync cadence -- polling faster
@@ -26,19 +26,19 @@ export function usePurchaseOrders(vendorCode = null) {
   const loadError = ref(null);
 
   async function refresh() {
-    let posQuery = supabase.from("purchase_orders").select("*").order("created_at", { ascending: false });
-    let grnsQuery = supabase.from("grns").select("*");
-    let poItemsQuery = supabase.from("po_items").select("*");
-    let grnItemsQuery = supabase.from("grn_items").select("*");
-    if (vendorCode) {
-      posQuery = posQuery.eq("vendor_code", vendorCode);
-      grnsQuery = grnsQuery.eq("vendor_code", vendorCode);
-      poItemsQuery = poItemsQuery.eq("vendor_code", vendorCode);
-      grnItemsQuery = grnItemsQuery.eq("vendor_code", vendorCode);
-    }
-    const [{ data: pos, error: poErr }, { data: grns }, { data: poItems }, { data: grnItems }] = await Promise.all([
-      posQuery, grnsQuery, poItemsQuery, grnItemsQuery,
+    // Paged: every one of these tables can outgrow PostgREST's 1,000-row-per-request cap,
+    // which truncates silently -- po_items passed it first (1,048 rows on 2026-10-06), leaving
+    // ~24 POs with no line items in the admin PO detail popup, and grn_items is close behind.
+    const byVendor = vendorCode ? (q) => q.eq("vendor_code", vendorCode) : null;
+    const [{ data: posUnsorted, error: poErr }, { data: grns }, { data: poItems }, { data: grnItems }] = await Promise.all([
+      fetchAllRows("purchase_orders", byVendor, "po_code"),
+      fetchAllRows("grns", byVendor, "grn_code"),
+      fetchAllRows("po_items", byVendor),
+      fetchAllRows("grn_items", byVendor),
     ]);
+    // Newest first, as the single unpaged query used to return them (Postgres DESC puts nulls first).
+    const pos = posUnsorted && [...posUnsorted].sort((a, b) =>
+      (b.created_at == null) - (a.created_at == null) || String(b.created_at).localeCompare(String(a.created_at)));
 
     if (poErr) {
       loadError.value = poErr.message;
