@@ -15,9 +15,12 @@ name: Sync Last Mile tracking
 # The daily leg must land before the hourly one has anything to poll, so a
 # fresh setup should run the daily job manually first.
 on:
+  # Off the top of the hour on purpose (2026-10-07): GitHub drops far more scheduled ticks at
+  # :00, when every repo's crons fire at once -- the hourly leg ran 3 times instead of 14 on
+  # 2026-10-06. The `if:` checks below compare these exact strings, so keep them in sync.
   schedule:
-    - cron: '10 4 * * *'        # daily intake, 09:40 IST
-    - cron: '0 5-18 * * *'      # hourly tracking, 10:30 IST - 23:30 IST
+    - cron: '13 4 * * *'        # daily intake, 09:43 IST
+    - cron: '17 5-18 * * *'     # hourly tracking, 10:47 IST - 23:47 IST
   workflow_dispatch:
     inputs:
       leg:
@@ -36,7 +39,7 @@ permissions:
 
 jobs:
   daily:
-    if: github.event.schedule == '10 4 * * *' || contains(fromJSON('["daily","both"]'), github.event.inputs.leg)
+    if: github.event.schedule == '13 4 * * *' || contains(fromJSON('["daily","both"]'), github.event.inputs.leg)
     runs-on: ubuntu-latest
     timeout-minutes: 45
     concurrency:
@@ -64,7 +67,7 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 
   hourly:
-    if: github.event.schedule == '0 5-18 * * *' || contains(fromJSON('["hourly","both"]'), github.event.inputs.leg)
+    if: github.event.schedule == '17 5-18 * * *' || contains(fromJSON('["hourly","both"]'), github.event.inputs.leg)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     concurrency:

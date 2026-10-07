@@ -17,7 +17,9 @@ name: Last Mile sync watchdog
 # staleness signals visually, as a second, independent line of sight.
 on:
   schedule:
-    - cron: '*/20 5-18 * * *'   # every 20 min, 10:30am-11:30pm IST -- same window sync-last-mile.yml's hourly leg runs in
+    # every 20 min, 10:37am-11:57pm IST -- same window sync-last-mile.yml's hourly leg runs in. Off
+    # :00/:20/:40 on purpose: GitHub drops far more scheduled ticks on round minutes (2026-10-07).
+    - cron: '7,27,47 5-18 * * *'
   workflow_dispatch: {}
 
 permissions:
