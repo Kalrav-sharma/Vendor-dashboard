@@ -1,17 +1,17 @@
-// Column filters + top search for the PO Fulfillment table -- same shape
-// as usePoFilters.js.
+// Column filters + top search for the PO Fulfillment table. date/warehouse/
+// channel/sku/status are checkbox multi-selects: null = All, else a Set.
 import { reactive, computed } from "vue";
 
 export function useSopPoFulfillmentFilters(rows) {
-  const filters = reactive({ search: "", date: "", warehouse: "", channel: "", sku: "", status: "" });
+  const filters = reactive({ search: "", date: null, warehouse: null, channel: null, sku: null, status: null });
 
   function matches(r) {
     const f = filters;
-    if (f.date && r.sim_date !== f.date) return false;
-    if (f.warehouse && r.warehouse !== f.warehouse) return false;
-    if (f.channel && r.channel !== f.channel) return false;
-    if (f.sku && r.sku !== f.sku) return false;
-    if (f.status && r.status !== f.status) return false;
+    if (f.date && !f.date.has(r.sim_date)) return false;
+    if (f.warehouse && !f.warehouse.has(r.warehouse)) return false;
+    if (f.channel && !f.channel.has(r.channel)) return false;
+    if (f.sku && !f.sku.has(r.sku)) return false;
+    if (f.status && !f.status.has(r.status)) return false;
     if (f.search) {
       const q = f.search.toLowerCase();
       const haystack = [r.po_number, r.warehouse, r.channel, r.sku, r.status, r.detail].join(" ").toLowerCase();

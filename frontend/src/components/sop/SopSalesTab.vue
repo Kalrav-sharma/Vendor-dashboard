@@ -8,7 +8,7 @@
 // 30-day plan against 16 days of sales is otherwise easy to misread.
 // Actual comes from the same daily series as the Day-on-Day Sales tab (see
 // build_actuals_for_month in sync_sop_sales.py), so the two tabs always tie.
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import { useSopSalesData } from "../../composables/useSopSalesData.js";
 import SummaryKpis from "../SummaryKpis.vue";
 
@@ -19,6 +19,16 @@ const { rows, loadError } = useSopSalesData();
 
 function fmt(n) {
   return Math.round(n || 0).toLocaleString("en-IN");
+}
+
+// # / % toggle on Projection + Actual. % = share of the channel's row total (its SKU mix);
+// the Total row is each SKU's share of the grand total.
+const mode = ref("num");
+function pct(n, d) {
+  return d ? `${((n / d) * 100).toFixed(1)}%` : "–";
+}
+function cell(c, denom, section) {
+  return mode.value === "pct" && section.pctable ? pct(c, denom) : fmt(c);
 }
 
 function buildMatrix(valueKey) {
@@ -90,18 +100,24 @@ const kpiTiles = computed(() => [
   <SummaryKpis :tiles="kpiTiles" />
 
   <div v-if="loadError" class="form-error">{{ loadError }}</div>
-  <p v-if="monthLabel" class="scope" style="margin: -8px 0 16px;">
-    <b>{{ monthLabel }}</b> &middot; projection is the <b>full month</b>, actual is <b>{{ mtdLabel }}</b> so far
-  </p>
+  <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: -8px 0 16px;">
+    <p v-if="monthLabel" class="scope" style="margin: 0;">
+      <b>{{ monthLabel }}</b> &middot; projection is the <b>full month</b>, actual is <b>{{ mtdLabel }}</b> so far
+    </p>
+    <div style="display: flex; gap: 8px;">
+      <button class="toggle-btn" :class="{ active: mode === 'num' }" @click="mode = 'num'"><b>#</b></button>
+      <button class="toggle-btn" :class="{ active: mode === 'pct' }" @click="mode = 'pct'"><b>%</b></button>
+    </div>
+  </div>
 
   <div v-if="othersActual" class="chip chip-muted" style="display: inline-block; margin-bottom: 16px;">
     Note: "Others" channel has {{ fmt(othersActual) }} actual units (channel total only, no SKU split) with no plan counterpart.
   </div>
 
   <template v-for="section in [
-    { title: `Projection — full ${monthLabel}`, matrix: projectionMatrix, signed: false },
-    { title: `Actual — month to date (${mtdLabel})`, matrix: actualMatrix, signed: false },
-    { title: 'Still to sell (Projection − Actual)', matrix: remainingMatrix, signed: true },
+    { title: `Projection — full ${monthLabel}`, matrix: projectionMatrix, signed: false, pctable: true },
+    { title: `Actual — month to date (${mtdLabel})`, matrix: actualMatrix, signed: false, pctable: true },
+    { title: 'Still to sell (Projection − Actual)', matrix: remainingMatrix, signed: true, pctable: false },
   ]" :key="section.title">
     <h3 class="section-title">{{ section.title }}</h3>
     <div class="table-card" style="margin-bottom: 24px;"><div class="table-scroll">
@@ -111,13 +127,13 @@ const kpiTiles = computed(() => [
           <tr v-for="r in section.matrix.body" :key="r.label">
             <td>{{ r.label }}</td>
             <td v-for="(c, i) in r.cells" :key="i" class="num mono"
-                :class="section.signed && c <= 0 ? 'cell-good' : ''">{{ fmt(c) }}</td>
-            <td class="num mono"><b>{{ fmt(r.total) }}</b></td>
+                :class="section.signed && c <= 0 ? 'cell-good' : ''">{{ cell(c, r.total, section) }}</td>
+            <td class="num mono"><b>{{ cell(r.total, r.total, section) }}</b></td>
           </tr>
           <tr class="row-total">
             <td>{{ section.matrix.totalRow.label }}</td>
-            <td v-for="(c, i) in section.matrix.totalRow.cells" :key="i" class="num mono">{{ fmt(c) }}</td>
-            <td class="num mono">{{ fmt(section.matrix.totalRow.total) }}</td>
+            <td v-for="(c, i) in section.matrix.totalRow.cells" :key="i" class="num mono">{{ cell(c, section.matrix.totalRow.total, section) }}</td>
+            <td class="num mono">{{ cell(section.matrix.totalRow.total, section.matrix.totalRow.total, section) }}</td>
           </tr>
         </tbody>
       </table>

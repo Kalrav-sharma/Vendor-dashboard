@@ -8,6 +8,7 @@ import { computed } from "vue";
 import { useSopPoFulfillmentData } from "../../composables/useSopPoFulfillmentData.js";
 import { useSopPoFulfillmentFilters } from "../../composables/useSopPoFulfillmentFilters.js";
 import SummaryKpis from "../SummaryKpis.vue";
+import SopMultiFilter from "./SopMultiFilter.vue";
 
 const STATUS_CHIP_CLASS = {
   "CONFIRMED": "chip-open",
@@ -76,33 +77,13 @@ const RCA_OUTCOME_CLS = {
               <th class="num">PO Qty</th><th>Status & Detail</th>
             </tr>
             <tr class="filter-row">
-              <td>
-                <select v-model="filters.date"><option value="">All</option>
-                  <option v-for="d in dateOptions" :key="d" :value="d">{{ dateLabel(d) }}</option>
-                </select>
-              </td>
+              <td><SopMultiFilter v-model="filters.date" :options="dateOptions" :label-fn="dateLabel" /></td>
               <td><input v-model="filters.search" type="text" placeholder="Search..."></td>
-              <td>
-                <select v-model="filters.warehouse"><option value="">All</option>
-                  <option v-for="w in warehouseOptions" :key="w" :value="w">{{ w }}</option>
-                </select>
-              </td>
-              <td>
-                <select v-model="filters.channel"><option value="">All</option>
-                  <option v-for="c in channelOptions" :key="c" :value="c">{{ c }}</option>
-                </select>
-              </td>
-              <td>
-                <select v-model="filters.sku"><option value="">All</option>
-                  <option v-for="s in skuOptions" :key="s" :value="s">{{ s }}</option>
-                </select>
-              </td>
+              <td><SopMultiFilter v-model="filters.warehouse" :options="warehouseOptions" /></td>
+              <td><SopMultiFilter v-model="filters.channel" :options="channelOptions" /></td>
+              <td><SopMultiFilter v-model="filters.sku" :options="skuOptions" /></td>
               <td></td>
-              <td>
-                <select v-model="filters.status"><option value="">All</option>
-                  <option v-for="s in statusOptions" :key="s" :value="s">{{ s }}</option>
-                </select>
-              </td>
+              <td><SopMultiFilter v-model="filters.status" :options="statusOptions" /></td>
             </tr>
           </thead>
           <tbody>

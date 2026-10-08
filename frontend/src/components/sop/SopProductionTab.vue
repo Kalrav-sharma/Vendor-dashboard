@@ -110,6 +110,32 @@ const facilitySummaryTable = computed(() => dateWindow.value.map(ymd => {
   return { ymd, ronch: facilityBreakdown(ymd, "RONCH"), amber: facilityBreakdown(ymd, "AMBER"), combined };
 }));
 
+// Total rows under each table -- full month, same basis as the KPI tiles.
+const columnTotals = computed(() => {
+  const t = combinedTable.value;
+  const planned = SKUS.map((_, i) => t.reduce((s, r) => s + (r.perSku[i].planned || 0), 0));
+  const actual = SKUS.map((_, i) => t.reduce((s, r) => s + (r.perSku[i].actual || 0), 0));
+  const plannedTotal = planned.reduce((a, b) => a + b, 0);
+  const actualTotal = actual.reduce((a, b) => a + b, 0);
+  return {
+    planned, actual, plannedTotal, actualTotal,
+    delta: SKUS.map((_, i) => actual[i] - planned[i]),
+    deltaTotal: actualTotal - plannedTotal,
+  };
+});
+
+function facilityTotalBreakdown(facility) {
+  const parts = SKUS
+    .map(sku => ({ sku, qty: dateWindow.value.reduce((s, ymd) => s + ((byDateSkuFacility.value[ymd] || {})[sku]?.[facility]?.actual_qty ?? 0), 0) }))
+    .filter(p => p.qty > 0);
+  return parts.length ? parts.map(p => `${p.sku}: ${fmt(p.qty)}`).join(", ") : "–";
+}
+const facilityTotals = computed(() => ({
+  ronch: facilityTotalBreakdown("RONCH"),
+  amber: facilityTotalBreakdown("AMBER"),
+  combined: facilitySummaryTable.value.reduce((s, r) => s + r.combined, 0),
+}));
+
 const showPreAugCaveat = computed(() => dateWindow.value.some(d => d < FACILITY_SPLIT_RELIABLE_FROM));
 
 const kpiTiles = computed(() => {
@@ -147,6 +173,11 @@ const kpiTiles = computed(() => {
             <td v-for="p in r.perSku" :key="p.sku" class="num mono">{{ fmt(p.planned) }}</td>
             <td class="num mono"><b>{{ fmt(r.plannedTotal) }}</b></td>
           </tr>
+          <tr class="row-total">
+            <td>Total</td>
+            <td v-for="(c, i) in columnTotals.planned" :key="i" class="num mono">{{ fmt(c) }}</td>
+            <td class="num mono">{{ fmt(columnTotals.plannedTotal) }}</td>
+          </tr>
         </tbody>
       </table>
     </div></div>
@@ -160,6 +191,11 @@ const kpiTiles = computed(() => {
             <td>{{ dateLabel(r.ymd) }}</td>
             <td v-for="p in r.perSku" :key="p.sku" class="num mono">{{ fmt(p.actual) }}</td>
             <td class="num mono"><b>{{ fmt(r.actualTotal) }}</b></td>
+          </tr>
+          <tr class="row-total">
+            <td>Total</td>
+            <td v-for="(c, i) in columnTotals.actual" :key="i" class="num mono">{{ fmt(c) }}</td>
+            <td class="num mono">{{ fmt(columnTotals.actualTotal) }}</td>
           </tr>
         </tbody>
       </table>
@@ -176,6 +212,11 @@ const kpiTiles = computed(() => {
               {{ fmt(p.actual - (p.planned || 0)) }}
             </td>
             <td class="num mono"><b>{{ fmt(r.actualTotal - r.plannedTotal) }}</b></td>
+          </tr>
+          <tr class="row-total">
+            <td>Total</td>
+            <td v-for="(c, i) in columnTotals.delta" :key="i" class="num mono">{{ fmt(c) }}</td>
+            <td class="num mono">{{ fmt(columnTotals.deltaTotal) }}</td>
           </tr>
         </tbody>
       </table>
@@ -196,6 +237,12 @@ const kpiTiles = computed(() => {
             <td class="mono">{{ r.ronch }}</td>
             <td class="mono">{{ r.amber }}</td>
             <td class="num mono"><b>{{ fmt(r.combined) }}</b></td>
+          </tr>
+          <tr class="row-total">
+            <td>Total</td>
+            <td class="mono">{{ facilityTotals.ronch }}</td>
+            <td class="mono">{{ facilityTotals.amber }}</td>
+            <td class="num mono">{{ fmt(facilityTotals.combined) }}</td>
           </tr>
         </tbody>
       </table>

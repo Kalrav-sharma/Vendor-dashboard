@@ -28,6 +28,14 @@ function fmt(n) {
   return Math.round(n || 0).toLocaleString("en-IN");
 }
 
+// # / % toggle, all views. % = share of that day's total (the day's mix); the Total row is
+// each column's share of the whole window.
+const mode = ref("num");
+function cell(c, denom) {
+  if (mode.value !== "pct") return fmt(c);
+  return denom ? `${((c / denom) * 100).toFixed(1)}%` : "–";
+}
+
 function addDaysYMD(ymd, days) {
   const [y, m, d] = ymd.split("-").map(Number);
   const dt = new Date(Date.UTC(y, m - 1, d));
@@ -84,12 +92,18 @@ const tables = computed(() => SECTIONS.map(section => {
 <template>
   <div v-if="loadError" class="form-error">{{ loadError }}</div>
 
-  <div class="subtabs" style="margin-bottom: 14px;">
-    <button
-      v-for="s in SECTIONS" :key="s.series"
-      class="subtab-item" :class="{ active: activeSeries === s.series }"
-      @click="activeSeries = s.series"
-    >{{ s.title }}</button>
+  <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-bottom: 14px;">
+    <div class="subtabs" style="margin: 0;">
+      <button
+        v-for="s in SECTIONS" :key="s.series"
+        class="subtab-item" :class="{ active: activeSeries === s.series }"
+        @click="activeSeries = s.series"
+      >{{ s.title }}</button>
+    </div>
+    <div style="display: flex; gap: 8px;">
+      <button class="toggle-btn" :class="{ active: mode === 'num' }" @click="mode = 'num'"><b>#</b></button>
+      <button class="toggle-btn" :class="{ active: mode === 'pct' }" @click="mode = 'pct'"><b>%</b></button>
+    </div>
   </div>
 
   <template v-for="t in tables" :key="t.series">
@@ -101,13 +115,13 @@ const tables = computed(() => SECTIONS.map(section => {
         <tbody>
           <tr v-for="r in t.body" :key="r.ymd">
             <td>{{ dateLabel(r.ymd) }}</td>
-            <td v-for="(c, i) in r.cells" :key="i" class="num mono">{{ fmt(c) }}</td>
-            <td class="num mono"><b>{{ fmt(r.total) }}</b></td>
+            <td v-for="(c, i) in r.cells" :key="i" class="num mono">{{ cell(c, r.total) }}</td>
+            <td class="num mono"><b>{{ cell(r.total, r.total) }}</b></td>
           </tr>
           <tr class="row-total">
             <td>Total</td>
-            <td v-for="(c, i) in t.totalRow.cells" :key="i" class="num mono">{{ fmt(c) }}</td>
-            <td class="num mono">{{ fmt(t.totalRow.total) }}</td>
+            <td v-for="(c, i) in t.totalRow.cells" :key="i" class="num mono">{{ cell(c, t.totalRow.total) }}</td>
+            <td class="num mono">{{ cell(t.totalRow.total, t.totalRow.total) }}</td>
           </tr>
         </tbody>
       </table>
