@@ -7,8 +7,9 @@ PO fulfillment simulation. Reads on-hand from sop_uniware_inventory (the
 live Uniware snapshot -- since 2026-09-16, no longer parsed out of the
 "Current Inventory" sheet, so the figure seeding this simulation is the
 same one S&OP Planning and the UC App + PLS tab show), in-transit from
-WH-Channel-SKU's "Current Inventory" tab, and Copy Daily Input Anish's "Raw Data Sheet"
-(dispatch records + channel POs), simulates day-by-day fulfillment status
+WH-Channel-SKU's "Current Inventory" tab, and WH-Channel-SKU's "Raw data helper"
+(dispatch records + channel POs; moved off Copy Daily Input Anish's "Raw Data Sheet"
+on 2026-10-08 -- same column layout), simulates day-by-day fulfillment status
 for every individual PO row, groups RESCHEDULE/PARTIAL rows by SKU, and
 computes a production-shortfall RCA against Phase B's
 production_plan_snapshots table. Writes a wholesale-replace-per-run_date
@@ -17,17 +18,13 @@ sop_po_shortfall_rca) -- no LLM narrative generation anywhere; every
 "RCA"/detail string here is template-formatted from already-computed
 structured data, exactly like the source script.
 
-Column indices for Raw Data Sheet are HARDCODED, not header-label-driven
--- deliberately, matching the source script exactly -- EXCEPT the SO Number
-and PO/ Gate Pass Number columns, which since 2026-10-03 are resolved by
-header label (see resolve_so_po_cols()). This tab's own
-header labels are known to be STALE/WRONG relative to the actual data
-(e.g. the header says col 36 is "SO Number", but the real SO number
-lives in col 37, itself mislabeled "PO/ Gate Pass Number" -- verified
-live and matching the source script's own dated comments below). Scanning
-for header text here would silently read the wrong column; the hardcoded
-indices are the ground truth, manually verified against live data by
-the source script's authors across two dated column-shift incidents.
+Column indices for Raw data helper are HARDCODED, matching the source
+script, EXCEPT the SO Number and PO/ Gate Pass Number columns, which are
+resolved by header label and sanity-checked against the data (see
+resolve_so_po_cols()) -- hardcoded SO/PO indices broke twice on column
+shifts. A PO counts as SO-confirmed only when its SO Number cell looks like
+a real SO ("SO\\d+"), not merely non-blank, so placeholders like "-" or
+"NA" don't mark it CONFIRMED.
 
 Credentials: GOOGLE_SERVICE_ACCOUNT_JSON, SUPABASE_URL,
 SUPABASE_SERVICE_ROLE_KEY (all already provisioned, no new secrets).
@@ -40,7 +37,7 @@ import zoneinfo
 
 sys.path.insert(0, __file__.rsplit("/", 1)[0])
 from sop_common import (  # noqa: E402
-    COPY_DAILY_INPUT_ANISH_ID, SKUS, WH_CHANNEL_SKU_ID, fetch_uniware_on_hand, get_access_token,
+    SKUS, WH_CHANNEL_SKU_ID, fetch_uniware_on_hand, get_access_token,
     get_values, normalize_sku, pad_row, replace_by_filter, supabase_config, to_num,
     uniware_warehouse_on_hand,
 )
@@ -70,7 +67,7 @@ DISPATCH_DEST_MAP = {
 }
 PRODUCTION_ORIGINS = {"AMBER", "RONCH", "RONCH DAMAN"}
 
-# Raw Data Sheet column indices (0-based), Copy Daily Input Anish -- hardcoded, see module docstring.
+# Raw data helper column indices (0-based), WH-Channel-SKU -- hardcoded, see module docstring.
 RDH_DATE_COL = 1
 RDH_ORIGIN_COL = 4
 RDH_DEST_COL = 5
@@ -93,7 +90,7 @@ def channel_label(channel):
 
 
 def parse_rdh_date(raw):
-    """Raw Data Sheet's date column is 'D-MMM' (no year, e.g. '29-Jul') -- same ambiguous-year
+    """Raw data helper's date column is 'D-MMM' (no year, e.g. '29-Jul') -- same ambiguous-year
     situation as Day wise trackr, same fix (this run's own year as the fallback)."""
     from sop_common import normalize_date
     return normalize_date(raw, default_year=CURRENT_YEAR)
@@ -149,7 +146,7 @@ def parse_in_transit(rows):
 
 
 def parse_dispatch_records(rows):
-    """Port of parseDispatchRecords(): production->warehouse dispatch history from Raw Data Sheet,
+    """Port of parseDispatchRecords(): production->warehouse dispatch history from Raw data helper,
     sorted most-recent-first per (warehouse, sku)."""
     dispatches = {wh: {s: [] for s in SKUS} for wh in WH_ORDER}
     for row in rows[1:]:
@@ -217,7 +214,7 @@ def resolve_so_po_cols(rows):
     them. Aborts rather than silently scoring every PO with the wrong CONFIRMED flag."""
     header = [" ".join(str(h or "").split()).upper() for h in rows[0]]
     if SO_NUM_HEADER not in header or PO_NUM_HEADER not in header:
-        sys.exit(f"Raw Data Sheet header is missing '{SO_NUM_HEADER}' or '{PO_NUM_HEADER}' -- aborting.")
+        sys.exit(f"Raw data helper header is missing '{SO_NUM_HEADER}' or '{PO_NUM_HEADER}' -- aborting.")
     so_col, po_col = header.index(SO_NUM_HEADER), header.index(PO_NUM_HEADER)
     so_counts = {}
     for row in rows[1:]:
@@ -257,7 +254,7 @@ def parse_pos(rows, today, end_date):
         if day_offset < 0 or day_offset >= WINDOW_DAYS:
             continue
 
-        confirmed = str(row[so_col] or "").strip() != ""
+        confirmed = bool(SO_VALUE_RE.match(str(row[so_col] or "").strip()))
         po_number = str(row[po_col] or "").strip()
         pos_by_day[day_offset].setdefault(wh, {}).setdefault(channel, {})
         for sku in SKUS:
@@ -445,14 +442,14 @@ def main():
 
     inv_rows = get_values(token, WH_CHANNEL_SKU_ID, "'Current Inventory'")
     day_wise_rows = get_values(token, WH_CHANNEL_SKU_ID, "'Day wise trackr'")
-    raw_data_rows = get_values(token, COPY_DAILY_INPUT_ANISH_ID, "'Raw Data Sheet'")
+    raw_data_rows = get_values(token, WH_CHANNEL_SKU_ID, "'Raw data helper'")
 
     # Guard the SHEET FETCH, not the business outcome -- a genuinely-empty 10-day PO window is a real,
     # legitimate state (the source command handles it gracefully too), but an empty raw_data_rows/
     # inv_rows almost certainly means a transient fetch failure, and writing zero fulfillment rows in
     # that case would silently wipe out a good prior run.
     if not raw_data_rows or not inv_rows:
-        sys.exit("Fetched zero rows from Current Inventory or Raw Data Sheet -- aborting without "
+        sys.exit("Fetched zero rows from Current Inventory or Raw data helper -- aborting without "
                  "writing (a transient fetch failure looks the same as an empty sheet).")
 
     today = datetime.datetime.now(zoneinfo.ZoneInfo("Asia/Kolkata")).date()
