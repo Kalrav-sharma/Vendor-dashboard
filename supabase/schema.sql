@@ -2682,6 +2682,28 @@ create policy spares_category_override_delete on public.spares_category_override
   for delete using (public.is_internal_staff());
 grant select, insert, update, delete on public.spares_category_override to authenticated;
 
+-- Summary's "Stock out & 0-7 DOI spares" list: free-text remark, one per SKU.
+create table if not exists public.spares_remark (
+  sku text primary key,
+  remark text not null,
+  updated_by text,
+  updated_at timestamptz not null default now()
+);
+alter table public.spares_remark enable row level security;
+drop policy if exists spares_remark_select on public.spares_remark;
+create policy spares_remark_select on public.spares_remark
+  for select using (public.is_internal_staff());
+drop policy if exists spares_remark_insert on public.spares_remark;
+create policy spares_remark_insert on public.spares_remark
+  for insert with check (public.is_internal_staff());
+drop policy if exists spares_remark_update on public.spares_remark;
+create policy spares_remark_update on public.spares_remark
+  for update using (public.is_internal_staff()) with check (public.is_internal_staff());
+drop policy if exists spares_remark_delete on public.spares_remark;
+create policy spares_remark_delete on public.spares_remark
+  for delete using (public.is_internal_staff());
+grant select, insert, update, delete on public.spares_remark to authenticated;
+
 -- Rate-limit counter for the vendor-code-auth Edge Function (public,
 -- pre-login sign-in via vendor_code+password instead of email). Service-
 -- role only -- RLS is enabled with deliberately NO policies at all, so

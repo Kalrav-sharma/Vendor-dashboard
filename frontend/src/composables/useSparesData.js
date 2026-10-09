@@ -7,6 +7,7 @@
 //   spares_status_override <- Appendix edits (browser-written, per SKU x facility)
 //   spares_vendor_override <- Appendix edits (browser-written, per SKU)
 //   spares_category_override <- Appendix edits (browser-written, per SKU)
+//   spares_remark          <- Summary's critical-list remarks (browser-written, per SKU)
 //
 // Effective category: override if present, else the sheet's. It drives everything below.
 // Effective status: override if present; else category Discontinued -> Obsolete;
@@ -107,18 +108,20 @@ export function useSparesData(editorLabel) {
   const statusOv = ref({}); // "sku|facility" -> row
   const vendorOv = ref({}); // sku -> row
   const categoryOv = ref({}); // sku -> row
+  const remarkMap = ref({}); // sku -> row
   const loaded = ref(false);
   const loadError = ref("");
   const saveError = ref("");
 
   async function refresh() {
-    const [m, inv, dr, so, vo, co] = await Promise.all([
+    const [m, inv, dr, so, vo, co, rm] = await Promise.all([
       fetchAll("spares_sku_master", "sku"),
       fetchAll("spares_wh_inventory", "id"),
       fetchAll("spares_drr", "sku", "wh"),
       fetchAll("spares_status_override", "sku"),
       fetchAll("spares_vendor_override", "sku"),
       fetchAll("spares_category_override", "sku"),
+      fetchAll("spares_remark", "sku"),
     ]);
     if (!m.error) master.value = m.data;
     if (!inv.error) inventory.value = inv.data;
@@ -126,7 +129,8 @@ export function useSparesData(editorLabel) {
     if (!so.error) statusOv.value = Object.fromEntries(so.data.map((r) => [`${r.sku}|${r.facility}`, r]));
     if (!vo.error) vendorOv.value = Object.fromEntries(vo.data.map((r) => [r.sku, r]));
     if (!co.error) categoryOv.value = Object.fromEntries(co.data.map((r) => [r.sku, r]));
-    loadError.value = m.error?.message || inv.error?.message || dr.error?.message || so.error?.message || vo.error?.message || co.error?.message || "";
+    if (!rm.error) remarkMap.value = Object.fromEntries(rm.data.map((r) => [r.sku, r]));
+    loadError.value = m.error?.message || inv.error?.message || dr.error?.message || so.error?.message || vo.error?.message || co.error?.message || rm.error?.message || "";
     loaded.value = true;
   }
 
@@ -306,6 +310,36 @@ export function useSparesData(editorLabel) {
     } else saveError.value = "";
   }
 
+  const remarkOf = (sku) => remarkMap.value[sku] || null;
+
+  async function setRemark(sku, text) {
+    const t = (text || "").trim();
+    if (!t) return resetRemark(sku);
+    const prev = remarkMap.value[sku];
+    const row = { sku, remark: t, updated_by: who(), updated_at: new Date().toISOString() };
+    remarkMap.value = { ...remarkMap.value, [sku]: row };
+    const { error } = await supabase.from("spares_remark").upsert(row, { onConflict: "sku" });
+    if (error) {
+      const next = { ...remarkMap.value };
+      if (prev) next[sku] = prev; else delete next[sku];
+      remarkMap.value = next;
+      saveError.value = `Couldn't save remark for ${sku}: ${error.message}`;
+    } else saveError.value = "";
+  }
+
+  async function resetRemark(sku) {
+    const prev = remarkMap.value[sku];
+    if (!prev) return;
+    const next = { ...remarkMap.value };
+    delete next[sku];
+    remarkMap.value = next;
+    const { error } = await supabase.from("spares_remark").delete().eq("sku", sku);
+    if (error) {
+      remarkMap.value = { ...remarkMap.value, [sku]: prev };
+      saveError.value = `Couldn't clear remark for ${sku}: ${error.message}`;
+    } else saveError.value = "";
+  }
+
   const sheetSyncedAt = computed(() => master.value.reduce((t, r) => (r.synced_at > t ? r.synced_at : t), "") || null);
   const drrSyncedAt = computed(() => drrRows.value.reduce((t, r) => (r.synced_at > t ? r.synced_at : t), "") || null);
   const stockSyncedAt = computed(() => inventory.value.reduce((t, r) => (r.synced_at > t ? r.synced_at : t), "") || null);
@@ -322,6 +356,7 @@ export function useSparesData(editorLabel) {
     statusOf, isEdited, setStatus, resetStatus,
     vendorOf, sheetVendor, vendorEdited, vendorOptions, setVendor, resetVendor,
     categoryOf, sheetCategory, categoryEdited, categoryOptions, setCategory, resetCategory,
+    remarkOf, setRemark, resetRemark,
     whOngoing, whFigures, supplyStatus, inSummaryScope, sheetSyncedAt, stockSyncedAt, drrSyncedAt,
   };
 }

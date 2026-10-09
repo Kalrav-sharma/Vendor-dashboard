@@ -5,7 +5,8 @@
 // good stock (GGN+Pataudi, KOL+Panchla) -- the sheet's own figures ignore Pataudi/Panchla.
 // The Inventory group shows that same clubbed Uniware good stock, so DOI = Inventory / DRR.
 // Summary reuses this view with `buckets` (only SKUs with an Ongoing warehouse in those DOI
-// buckets) and `summaryScope` (the Summary table's category scope).
+// buckets) and `summaryScope` (the Summary table's category scope). `remarks` swaps the Next
+// dispatch and Required qty groups for a free-text Remarks column (spares_remark, per SKU).
 import { ref, computed, watch, onMounted, onUnmounted } from "vue";
 import { WAREHOUSES, DOI_TARGET, BUCKETS } from "../../composables/useSparesData.js";
 
@@ -14,6 +15,7 @@ const props = defineProps({
   buckets: { type: Array, default: null },
   summaryScope: { type: Boolean, default: false },
   title: { type: String, default: "Spares Inventory" },
+  remarks: { type: Boolean, default: false },
 });
 const s = props.store;
 const bucketChoices = computed(() => (props.buckets ? BUCKETS.filter((b) => props.buckets.includes(b.key)) : BUCKETS));
@@ -121,6 +123,25 @@ const invClass = (c) =>
 const fmt = (n) => (n == null ? "–" : Math.round(n).toLocaleString("en-IN"));
 const fmtDrr = (n) => (n > 0 ? (+n).toFixed(1) : "0");
 const fmtDoi = (c) => (c.good <= 0 ? "0" : c.doi == null ? "∞" : Math.floor(c.doi));
+// Remarks: typed text stays a local draft until blur / Enter, then saves (empty clears).
+const drafts = ref({});
+const remarkText = (sku) => drafts.value[sku] ?? s.remarkOf(sku)?.remark ?? "";
+const setDraft = (sku, v) => { drafts.value = { ...drafts.value, [sku]: v }; };
+function commitRemark(sku) {
+  if (!(sku in drafts.value)) return;
+  const t = drafts.value[sku].trim();
+  const next = { ...drafts.value };
+  delete next[sku];
+  drafts.value = next;
+  if (t !== (s.remarkOf(sku)?.remark ?? "")) s.setRemark(sku, t);
+}
+const remarkMeta = (sku) => {
+  const r = s.remarkOf(sku);
+  if (!r) return "";
+  const when = r.updated_at ? new Date(r.updated_at).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "";
+  return [r.updated_by, when].filter(Boolean).join(" · ");
+};
+const colCount = computed(() => 3 + WAREHOUSES.length * 5 + 2 + (props.remarks ? 1 : 2 + WAREHOUSES.length + 1));
 const deliveryText = (c) => {
   if (!c.delivery) return "–";
   if (/grn\s*pending/i.test(c.delivery)) return "GRN Pending";
@@ -164,8 +185,11 @@ const deliveryText = (c) => {
             <th :colspan="WAREHOUSES.length" class="grp">DOI</th>
             <th :colspan="WAREHOUSES.length" class="grp">In transit</th>
             <th :colspan="WAREHOUSES.length" class="grp">Delivery Date</th>
-            <th colspan="2" class="grp">Next dispatch</th>
-            <th :colspan="WAREHOUSES.length + 1" class="grp">Required qty basis {{ DOI_TARGET }} DOI</th>
+            <template v-if="!remarks">
+              <th colspan="2" class="grp">Next dispatch</th>
+              <th :colspan="WAREHOUSES.length + 1" class="grp">Required qty basis {{ DOI_TARGET }} DOI</th>
+            </template>
+            <th v-else rowspan="2" class="grp sp-remark-col">Remarks</th>
           </tr>
           <tr>
             <th v-for="(w, i) in WAREHOUSES" :key="'g' + w.key" class="num" :class="{ gl: i === 0 }">{{ w.label }}</th>
@@ -175,10 +199,12 @@ const deliveryText = (c) => {
             <th v-for="(w, i) in WAREHOUSES" :key="'o' + w.key" class="c" :class="{ gl: i === 0 }">{{ w.label }}</th>
             <th v-for="(w, i) in WAREHOUSES" :key="'t' + w.key" class="num" :class="{ gl: i === 0 }">{{ w.label }}</th>
             <th v-for="(w, i) in WAREHOUSES" :key="'e' + w.key" class="c" :class="{ gl: i === 0 }">{{ w.label }}</th>
-            <th class="c gl">Date</th>
-            <th class="num">Qty</th>
-            <th v-for="(w, i) in WAREHOUSES" :key="'r' + w.key" class="num" :class="{ gl: i === 0 }">{{ w.label }}</th>
-            <th class="num">Total</th>
+            <template v-if="!remarks">
+              <th class="c gl">Date</th>
+              <th class="num">Qty</th>
+              <th v-for="(w, i) in WAREHOUSES" :key="'r' + w.key" class="num" :class="{ gl: i === 0 }">{{ w.label }}</th>
+              <th class="num">Total</th>
+            </template>
           </tr>
         </thead>
         <tbody>
@@ -213,15 +239,23 @@ const deliveryText = (c) => {
               <span v-else class="dash">–</span>
             </td>
 
-            <td class="c gl">{{ r.nextDate || "–" }}</td>
-            <td class="num hc-num">{{ r.nextQty ? fmt(r.nextQty) : "–" }}</td>
+            <template v-if="!remarks">
+              <td class="c gl">{{ r.nextDate || "–" }}</td>
+              <td class="num hc-num">{{ r.nextQty ? fmt(r.nextQty) : "–" }}</td>
 
-            <td v-for="(c, i) in r.cells" :key="'r' + i" class="num hc-num" :class="{ gl: i === 0 }">
-              <span v-if="c">{{ c.required ? fmt(c.required) : "0" }}</span><span v-else class="dash">–</span>
+              <td v-for="(c, i) in r.cells" :key="'r' + i" class="num hc-num" :class="{ gl: i === 0 }">
+                <span v-if="c">{{ c.required ? fmt(c.required) : "0" }}</span><span v-else class="dash">–</span>
+              </td>
+              <td class="num hc-num"><b>{{ fmt(r.totalRequired) }}</b></td>
+            </template>
+            <td v-else class="gl sp-remark-col">
+              <textarea class="sp-remark" rows="1" placeholder="Add remark…" :value="remarkText(r.sku)"
+                        @input="setDraft(r.sku, $event.target.value)" @blur="commitRemark(r.sku)"
+                        @keydown.enter.exact.prevent="$event.target.blur()"></textarea>
+              <div v-if="remarkMeta(r.sku)" class="sp-remark-meta">{{ remarkMeta(r.sku) }}</div>
             </td>
-            <td class="num hc-num"><b>{{ fmt(r.totalRequired) }}</b></td>
           </tr>
-          <tr v-if="!rows.length"><td :colspan="37" class="dim">No {{ buckets ? "Stock out / 0-7 DOI" : "Ongoing" }} spares{{ q || vendorFilter !== "All" || doiFilter !== "All" || catSel ? " match these filters" : "" }}.</td></tr>
+          <tr v-if="!rows.length"><td :colspan="colCount" class="dim">No {{ buckets ? "Stock out / 0-7 DOI" : "Ongoing" }} spares{{ q || vendorFilter !== "All" || doiFilter !== "All" || catSel ? " match these filters" : "" }}.</td></tr>
         </tbody>
       </table>
     </div>
