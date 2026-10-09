@@ -1,7 +1,7 @@
-// SLA › Trends › On-Time Delivery for Spares, by city tier (Pan India, Top 5, Next 4, Other).
-// Reads health_sla_kit_weekly, one row per (product, order week, tier), written from a VPN
-// machine by ~/.claude/scripts/sla_portal/sync_sla_portal.js from Jarvis 578703 -- the same
-// table behind the Health Card's Spares & Refresh SLA. Delivered orders only. Counts are summed
+// SLA › Trends › On-Time Delivery for Spares and Refresh, by city tier (Pan India, Top 5, Next 4,
+// Other). Reads health_sla_kit_weekly, one row per (product, order week, tier), written from a VPN
+// machine by ~/.claude/scripts/sla_portal/sync_sla_portal.js from Jarvis 578703 (Spares) and
+// 579905 (Refresh) -- the same table behind the Health Card's Spares & Refresh SLA. Delivered orders only. Counts are summed
 // into a period first and the ratio taken after, never averaged.
 import { ref, computed, onMounted, onUnmounted } from "vue";
 import { fetchAllRows } from "./sopPagedFetch.js";
@@ -21,19 +21,19 @@ export function useKitTierOtdData() {
   const loadError = ref("");
 
   async function refresh() {
-    const { data, error } = await fetchAllRows("health_sla_kit_weekly", q => q.eq("product", "spares"));
+    const { data, error } = await fetchAllRows("health_sla_kit_weekly", q => q.in("product", ["spares", "refresh"]));
     if (error) { loadError.value = error.message; return; }
     loadError.value = "";
     rows.value = data;
   }
 
   // -> [{ key, label, partial, byTier: { pan: {orders, on_time}, top5: ..., ... } }]
-  function periods(grain) {
+  function periods(product, grain) {
     const thisMonday = mondayOf(new Date());
     const thisMonth = thisMonday.slice(0, 7) + "-01";
     const byKey = new Map();
     for (const r of rows.value) {
-      if (r.week_start > thisMonday) continue;
+      if (r.product !== product || r.week_start > thisMonday) continue;
       const key = grain === "week" ? r.week_start : r.week_start.slice(0, 7) + "-01";
       if (!byKey.has(key)) byKey.set(key, { key, weekNo: r.week_no, byTier: Object.fromEntries(KIT_OTD_TIERS.map(t => [t.key, { orders: 0, on_time: 0 }])) });
       const acc = byKey.get(key).byTier[r.tier];
@@ -48,11 +48,12 @@ export function useKitTierOtdData() {
     }));
   }
 
-  const spares = { week: computed(() => periods("week")), month: computed(() => periods("month")) };
+  const spares = { week: computed(() => periods("spares", "week")), month: computed(() => periods("spares", "month")) };
+  const refreshKit = { week: computed(() => periods("refresh", "week")), month: computed(() => periods("refresh", "month")) };
 
   let timer = null;
   onMounted(() => { refresh(); timer = setInterval(refresh, POLL_INTERVAL_MS); });
   onUnmounted(() => clearInterval(timer));
 
-  return { spares, loadError };
+  return { spares, refreshKit, loadError };
 }

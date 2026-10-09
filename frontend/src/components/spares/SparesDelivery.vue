@@ -4,7 +4,7 @@
 // live Uniware (dispatched, not RTO/undelivered/lost/delivered/cancelled) since 2026-10-09; orders
 // not dispatched yet are excluded too. Spares | Refresh toggle and # | % toggle
 // (% = band count ÷ that week's orders). Order weeks × mutually exclusive bands of days past
-// promise: >3 (4–5), >5 (6–10), >10 (11–15), >15 (16+). CSV = the orders behind every cell, both products, sorted by LSP for forwarding (LSP / AWB / status from Uniware).
+// promise: >3 (4–5), >5 (6–10), >10 (11–15), >15 (16+). CSV = the orders behind every cell of the selected product, sorted by LSP for forwarding (LSP / AWB / status from Uniware).
 import { ref, computed } from "vue";
 import { downloadCsv } from "../sla/slaUtil.js";
 
@@ -42,15 +42,16 @@ async function download() {
   busy.value = true;
   csvError.value = "";
   try {
-    const rows = await props.fetchOrders();
-    if (!rows.length) { csvError.value = "No in-transit delayed orders."; return; }
+    const p = product.value, name = p === "refresh" ? "Refresh" : "Spares";
+    const rows = (await props.fetchOrders()).filter(r => r.product === p);
+    if (!rows.length) { csvError.value = `No in-transit delayed ${name} orders.`; return; }
     const headers = ["LSP", "AWB", "Order ID", "Product", "Week", "Order date", "Promised delivery", "Days past promise", "Band",
       "Current status (Uniware)", "Dispatched on", "City", "WH", "Partner type", "SKU"];
     const sorted = [...rows].sort((a, b) => (a.dsp || "").localeCompare(b.dsp || "") || b.delay_days - a.delay_days);
     const out = sorted.map(r => [r.dsp, r.docket_no, r.order_code, r.product === "refresh" ? "Refresh" : "Spares",
       r.week_no != null ? `W${r.week_no}` : "", r.order_date, r.promised_date, r.delay_days, r.band, r.shipment_status,
       r.shipped_date, r.city, r.wh, r.partner, r.sku]);
-    downloadCsv(`in_transit_delayed_orders_${new Date().toISOString().slice(0, 10)}.csv`, headers, out);
+    downloadCsv(`in_transit_delayed_${p}_${new Date().toISOString().slice(0, 10)}.csv`, headers, out);
   } catch (e) {
     csvError.value = `Couldn't fetch delayed orders: ${e.message}`;
   } finally {
@@ -74,7 +75,7 @@ async function download() {
           <button :class="{ active: product === 'refresh' }" @click="product = 'refresh'">Refresh</button>
         </span>
         <span class="hc-toggle">
-          <button :disabled="busy" title="In-transit delayed orders with LSP + AWB, Spares + Refresh, all weeks shown" @click="download">{{ busy ? "…" : "CSV ↓" }}</button>
+          <button :disabled="busy" :title="`In-transit delayed ${product === 'refresh' ? 'Refresh' : 'Spares'} orders with LSP + AWB, all weeks shown`" @click="download">{{ busy ? "…" : "CSV ↓" }}</button>
         </span>
       </span>
     </div>
