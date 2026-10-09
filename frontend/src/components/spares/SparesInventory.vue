@@ -4,11 +4,19 @@
 // next dispatch come from the sheet; DOI and Required qty are recomputed on clubbed Uniware
 // good stock (GGN+Pataudi, KOL+Panchla) -- the sheet's own figures ignore Pataudi/Panchla.
 // The Inventory group shows that same clubbed Uniware good stock, so DOI = Inventory / DRR.
+// Summary reuses this view with `buckets` (only SKUs with an Ongoing warehouse in those DOI
+// buckets) and `summaryScope` (the Summary table's category scope).
 import { ref, computed, watch, onMounted, onUnmounted } from "vue";
 import { WAREHOUSES, DOI_TARGET, BUCKETS } from "../../composables/useSparesData.js";
 
-const props = defineProps({ store: { type: Object, required: true } });
+const props = defineProps({
+  store: { type: Object, required: true },
+  buckets: { type: Array, default: null },
+  summaryScope: { type: Boolean, default: false },
+  title: { type: String, default: "Spares Inventory" },
+});
 const s = props.store;
+const bucketChoices = computed(() => (props.buckets ? BUCKETS.filter((b) => props.buckets.includes(b.key)) : BUCKETS));
 
 const q = ref("");
 const vendorFilter = ref("All");
@@ -22,10 +30,12 @@ const ongoingRows = computed(() => {
   const out = [];
   for (const sku of s.allSkus.value) {
     if (needle && !sku.toLowerCase().includes(needle)) continue;
+    if (props.summaryScope && !s.inSummaryScope(sku)) continue;
     const on = WAREHOUSES.map((w) => s.whOngoing(sku, w));
     if (!on.some(Boolean)) continue;
     const m = s.masterBySku.value.get(sku);
     const cells = WAREHOUSES.map((w, i) => (on[i] ? s.whFigures(sku, w) : null));
+    if (props.buckets && !cells.some((c) => c && props.buckets.includes(c.bucket))) continue;
     const live = cells.filter(Boolean);
     out.push({
       sku,
@@ -94,7 +104,7 @@ const rows = computed(() => ongoingRows.value.filter((r) =>
   (vendorFilter.value === "All" || r.vendor === vendorFilter.value) &&
   (!catSel.value || catSel.value.has(r.category)) &&
   (doiFilter.value === "All" || r.cells.some((c) => c && c.bucket === doiFilter.value))));
-const doiDim = (c) => doiFilter.value !== "All" && c.bucket !== doiFilter.value;
+const doiDim = (c) => (doiFilter.value !== "All" ? c.bucket !== doiFilter.value : !!props.buckets && !props.buckets.includes(c.bucket));
 
 const doiClass = (c) => {
   if (!c || c.doi == null) return "";
@@ -121,9 +131,9 @@ const deliveryText = (c) => {
 <template>
   <section class="table-card hc-view">
     <div class="sp-toolbar">
-      <h3 class="card-caption" style="padding:0;border:none">Spares Inventory</h3>
+      <h3 class="card-caption" style="padding:0;border:none">{{ title }}</h3>
       <span class="grow"></span>
-      <span class="sp-count"><b>{{ rows.length }}</b> ongoing SKUs</span>
+      <span class="sp-count"><b>{{ rows.length }}</b> {{ buckets ? "SKUs" : "ongoing SKUs" }}</span>
       <select v-model="vendorFilter" class="sp-select">
         <option value="All">All vendors</option>
         <option v-for="v in vendorChoices" :key="v" :value="v">{{ v }}</option>
@@ -138,7 +148,7 @@ const deliveryText = (c) => {
       </div>
       <select v-model="doiFilter" class="sp-select">
         <option value="All">All DOI</option>
-        <option v-for="b in BUCKETS" :key="b.key" :value="b.key">{{ b.key === "stockout" ? b.label : `${b.label} DOI` }}</option>
+        <option v-for="b in bucketChoices" :key="b.key" :value="b.key">{{ b.key === "stockout" ? b.label : `${b.label} DOI` }}</option>
       </select>
       <input v-model="q" class="sp-search" type="search" placeholder="Search SKU ID" />
     </div>
@@ -211,7 +221,7 @@ const deliveryText = (c) => {
             </td>
             <td class="num hc-num"><b>{{ fmt(r.totalRequired) }}</b></td>
           </tr>
-          <tr v-if="!rows.length"><td :colspan="37" class="dim">No Ongoing spares{{ q || vendorFilter !== "All" || doiFilter !== "All" || catSel ? " match these filters" : "" }}.</td></tr>
+          <tr v-if="!rows.length"><td :colspan="37" class="dim">No {{ buckets ? "Stock out / 0-7 DOI" : "Ongoing" }} spares{{ q || vendorFilter !== "All" || doiFilter !== "All" || catSel ? " match these filters" : "" }}.</td></tr>
         </tbody>
       </table>
     </div>

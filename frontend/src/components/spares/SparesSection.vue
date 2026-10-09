@@ -50,7 +50,10 @@ const staleDrr = (iso) => !iso || Date.now() - new Date(iso).getTime() > 30 * 60
   <div v-if="saveError" class="sp-alert">{{ saveError }}</div>
   <div v-if="activeSubTab === 'delivery' && delay.loadError.value" class="sp-alert">{{ delay.loadError.value }}</div>
 
-  <div v-show="activeSubTab === 'summary'"><SparesSummary :store="store" /></div>
+  <div v-show="activeSubTab === 'summary'">
+    <SparesSummary :store="store" />
+    <SparesInventory :store="store" :buckets="['stockout', '0-7']" summary-scope title="Stock out & 0-7 DOI spares" />
+  </div>
   <div v-show="activeSubTab === 'inventory'"><SparesInventory :store="store" /></div>
   <div v-show="activeSubTab === 'stock'"><SparesWarehouseStock :store="store" /></div>
   <div v-show="activeSubTab === 'delivery'"><SparesDelivery :spares="delay.spares.value" :refresh-kit="delay.refreshKit.value" :fetch-orders="delay.fetchDelayedOrders" /></div>
