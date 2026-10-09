@@ -2,8 +2,9 @@
 // per (product, order week) with MUTUALLY EXCLUSIVE delay bands: d3 = 4–5 days past promise,
 // d5 = 6–10, d10 = 11–15, d15 = 16+. Written from a VPN machine by
 // ~/.claude/scripts/sla_portal/sync_sla_portal.js, which aggregates Jarvis 578703 (Spares) and
-// 579905 (Refresh). Only OPEN orders (placed/packed/in transit/OFD) are banded; delivered,
-// cancelled and RTO orders are excluded. `orders` stays every live order of the week (% base).
+// 579905 (Refresh). Only orders in transit with the LSP (verified dispatched + still moving in
+// live Uniware) are banded; not-yet-dispatched, delivered, cancelled, RTO and lost orders are
+// excluded. `orders` stays every live order of the week (% base).
 // The same sync writes the delayed orders themselves to health_delay_orders (CSV download).
 import { ref, computed, onMounted, onUnmounted } from "vue";
 import { supabase } from "../supabaseClient.js";
