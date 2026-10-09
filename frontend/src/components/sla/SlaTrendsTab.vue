@@ -15,10 +15,12 @@ import { ref, computed } from "vue";
 import SlaChart from "./SlaChart.vue";
 import { useSlaTrendsData, WH_CITIES, MFC_CITIES, ratio } from "../../composables/useSlaTrendsData.js";
 import { usePartnerOtdData, PARTNERS } from "../../composables/usePartnerOtdData.js";
+import { useKitTierOtdData, KIT_OTD_TIERS } from "../../composables/useKitTierOtdData.js";
 
 const props = defineProps({ rcaRun: { type: Object, default: null } });
 const { weekly, monthly, weeklyLocks, monthlyLocks, loadError, lastSynced, rows } = useSlaTrendsData();
 const partnerOtd = usePartnerOtdData();
+const kitTierOtd = useKitTierOtdData();
 
 const grain = ref("week");
 const view = ref("sla");
@@ -48,8 +50,8 @@ const tierOf = (p, k) => p.totals[k];
 const cityOf = (p, k) => p.city[k] || { orders: 0, tat_sum: 0, tat_n: 0, on_time: 0, ds_facility_orders: 0, sdd_lsp_orders: 0, sfx_mfc_orders: 0, sfx_orders: 0 };
 
 const slaSeries = computed(() => TIERS.map(t => ({ ...t, data: P.value.map(p => ratio(tierOf(p, t.key).tat_sum, tierOf(p, t.key).tat_n)) })));
-// On-Time Delivery has its own product toggle. RO and Locks split by city tier; Spares and
-// Refresh split by partner type (usePartnerOtdData.js). Each product has its own period list,
+// On-Time Delivery has its own product toggle. RO and Locks split by city tier, Spares by the
+// Health Card's kit city tiers (useKitTierOtdData.js), Refresh by partner type (usePartnerOtdData.js). Each product has its own period list,
 // so labels, the dashed in-progress point and the deltas are all computed per product.
 const otdProduct = ref("ro");
 const OTD_PRODUCTS = [{ id: "ro", label: "RO" }, { id: "locks", label: "Locks" }, { id: "spares", label: "Spares" }, { id: "refresh", label: "Refresh" }];
@@ -58,11 +60,13 @@ const otdP = computed(() => {
   const g = grain.value;
   if (otdProduct.value === "ro") return P.value;
   if (otdProduct.value === "locks") return g === "week" ? weeklyLocks.value : monthlyLocks.value;
-  const src = otdProduct.value === "spares" ? partnerOtd.spares : partnerOtd.refreshKit;
-  return src[g].value;
+  if (otdProduct.value === "spares") return kitTierOtd.spares[g].value;
+  return partnerOtd.refreshKit[g].value;
 });
 const otdSeries = computed(() => (otdProduct.value === "ro" || otdProduct.value === "locks"
   ? TIERS.map(t => ({ ...t, data: otdP.value.map(p => ratio(tierOf(p, t.key).on_time, tierOf(p, t.key).orders)) }))
+  : otdProduct.value === "spares"
+  ? KIT_OTD_TIERS.map(t => ({ ...t, data: otdP.value.map(p => ratio(p.byTier[t.key].on_time, p.byTier[t.key].orders)) }))
   : PARTNERS.map((pt, i) => ({ label: pt.label, color: PARTNER_COLORS[i], data: otdP.value.map(p => ratio(p.byPartner[pt.key].on_time, p.byPartner[pt.key].delivered)) }))));
 const otdLabels = computed(() => otdP.value.map(p => p.label.short));
 const otdTitles = computed(() => otdP.value.map(p => p.label.long));
@@ -274,6 +278,7 @@ const tileStyle = v => {
           <div class="sla-card-step">03 · On-time delivery</div>
           <h3>On-time delivery rate · {{ OTD_PRODUCTS.find(x => x.id === otdProduct).label }}</h3>
           <p class="desc" v-if="otdProduct === 'ro' || otdProduct === 'locks'">Delivered on or before the promised date, as a share of delivered orders, by city tier.</p>
+          <p class="desc" v-else-if="otdProduct === 'spares'">Delivered on or before the promised date, as a share of delivered orders, by city tier (Top 5: Mumbai, Delhi, Bangalore, Hyderabad, Kolkata · Next 4: Chennai, Pune, Ahmedabad, Lucknow). Weeks are order weeks.</p>
           <p class="desc" v-else>Delivered on or before the promised date, as a share of delivered orders, by partner type. Weeks are order weeks.</p>
         </div>
         <div class="seg sm">
