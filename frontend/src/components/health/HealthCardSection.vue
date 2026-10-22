@@ -14,6 +14,9 @@
 //   3. Payment Pendency    (admin/management/finance only -- canSeePaymentDashboard)
 //     3.1 Overdue Payments  po_invoice_uploads via useInvoiceUploads (loaded by AdminApp)
 //     3.2 Payment Outlook   due now / due in 7d / stuck in 3-way recon (usePaymentPendency.js)
+//   4. Sales & Production
+//     4.1 Net sales by SKU  month-over-month, health_sales_monthly (Jarvis, = Freight & Dispatch console)
+//     (4.2 Production: to follow)
 import "./health.css";
 import "../spares/spares.css";
 import HealthSection from "./HealthSection.vue";
@@ -23,6 +26,7 @@ import HealthSlaDemand from "./HealthSlaDemand.vue";
 import HealthSlaAdherence from "./HealthSlaAdherence.vue";
 import HealthPaymentPendency from "./HealthPaymentPendency.vue";
 import HealthPaymentOutlook from "./HealthPaymentOutlook.vue";
+import HealthSalesMoM from "./HealthSalesMoM.vue";
 import SparesSummary from "../spares/SparesSummary.vue";
 import { useHealthInventoryRisk } from "../../composables/useHealthInventoryRisk.js";
 import { useHealthSlaData } from "../../composables/useHealthSlaData.js";
@@ -78,5 +82,9 @@ const stale = (t, h) => !t || (Date.now() - new Date(t).getTime()) / 3600000 > h
   <HealthSection v-if="props.showPayments" id="payments" title="3. Payment Pendency">
     <HealthPaymentPendency title="3.1 Overdue Payments" :rows="allUploads" :vendor-label="props.vendorLabel" />
     <HealthPaymentOutlook title="3.2 Payment Outlook" :rows="allUploads" :vendor-label="props.vendorLabel" />
+  </HealthSection>
+
+  <HealthSection id="sales" title="4. Sales & Production">
+    <HealthSalesMoM title="4.1 Net sales by SKU · month-over-month" />
   </HealthSection>
 </template>

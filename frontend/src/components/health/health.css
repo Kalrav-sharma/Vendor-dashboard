@@ -97,3 +97,12 @@
 .hc-chip { font-size: 0.76rem; padding: 4px 8px; border-radius: 6px; background: var(--paper); border: 1px solid var(--line); white-space: nowrap; }
 .hc-chip b { font-weight: 600; }
 .hc-chip .hc-num { color: var(--muted); margin-left: 4px; }
+
+/* 4.1 Net sales by SKU · MoM (HealthSalesMoM.vue) */
+.hc-sales-key { font-size: 0.7rem; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+.hc-sales { table-layout: auto; }
+.hc-sales td.hc-sales-sh { font-size: 0.78rem; margin-left: 0; }
+.hc-sales .hc-sales-sep { border-left: 1px solid var(--line); }
+.hc-spark { display: inline-flex; align-items: flex-end; gap: 3px; height: 22px; }
+.hc-spark i { display: block; width: 7px; background: var(--line-strong); border-radius: 1px; }
+.hc-spark i.last { background: var(--ink); }

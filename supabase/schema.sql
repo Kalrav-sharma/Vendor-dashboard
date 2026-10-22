@@ -3065,3 +3065,24 @@ begin
 end $$;
 alter table public.po_invoice_uploads add constraint po_invoice_uploads_match_status_check
   check (match_status in ('pending', 'matched', 'mismatch', 'needs_review', 'error', 'wrong_po'));
+
+-- ---------------------------------------------------------------------
+-- health_sales_monthly — Health Card › 4.1 Net sales by SKU, month-over-month.
+-- Native RO net sales (India, net of returns) per SKU x calendar month, from
+-- the same Jarvis SQL as the Native Freight & Dispatch console's Sales tab
+-- (product_order__d2c_sales_creation_date__view, 9 RO sku_ids). Written by
+-- scripts/sync_health_sales.py on a VPN laptop (Jarvis is VPN-gated, so not
+-- GitHub Actions); each run replaces the last 6 months. Added 2026-10-22.
+-- ---------------------------------------------------------------------
+create table if not exists public.health_sales_monthly (
+  month_start date not null,
+  sku_id text not null,
+  sku text not null,          -- display name: M0, M1 AS, M2 Pro ...
+  net_sales numeric not null default 0,
+  synced_at timestamptz not null default now(),
+  primary key (month_start, sku_id)
+);
+alter table public.health_sales_monthly enable row level security;
+drop policy if exists health_sales_monthly_select on public.health_sales_monthly;
+create policy health_sales_monthly_select on public.health_sales_monthly
+  for select using (public.is_internal_staff());
