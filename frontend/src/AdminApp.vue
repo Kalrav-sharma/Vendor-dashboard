@@ -143,6 +143,14 @@ function restoreNavFromHash() {
   activeNav.value = (hashId && navItems.value.some((i) => i.id === hashId)) ? hashId : (navItems.value[0]?.id || "po-tracking");
 }
 watch(activeNav, (id) => writeNavHash(id));
+// A section mounts the first time its tab is opened (so it only then fetches its data and starts
+// polling), and stays mounted afterwards so its filters/drill-downs survive tab switches. Gated on
+// `ready` so the placeholder default tab isn't "visited" before restoreNavFromHash() has run.
+const visitedNav = ref(new Set());
+const seen = (id) => visitedNav.value.has(id);
+watch([activeNav, ready], ([id, r]) => {
+  if (r && !visitedNav.value.has(id)) visitedNav.value = new Set(visitedNav.value).add(id);
+}, { immediate: true });
 const pageTitle = computed(() => ({
   "health": "Logistics Health Card",
   "po-tracking": "PO Tracking",
@@ -333,6 +341,17 @@ function openManualDispatchModal() {
   });
 }
 
+// The four startup loads don't depend on each other, so they run together instead of one
+// after another (each used to wait on the previous round trip before the page was ready).
+function loadStartupData() {
+  return Promise.all([
+    refreshVendors(),
+    canSeeManageAccess.value ? refreshTeam() : null,
+    fetchAllUploads(),
+    canSeeTickets.value ? fetchTickets() : null,
+  ]);
+}
+
 onMounted(async () => {
   const ctx = await requireSession();
   if (!ctx) return;
@@ -353,10 +372,7 @@ onMounted(async () => {
   // multi-vendor view (PO Tracking, SKU Data, Payment Dashboard), not just
   // Manage Access -- so this loads for every role, unlike the team roster
   // below, which only Manage Access (admin-only) ever shows.
-  await refreshVendors();
-  if (canSeeManageAccess.value) await refreshTeam();
-  await fetchAllUploads();
-  if (canSeeTickets.value) await fetchTickets();
+  await loadStartupData();
   ready.value = true;
 });
 
@@ -371,10 +387,7 @@ async function handlePasswordChanged() {
   restoreNavFromHash();
   whoLine.value = ctx.profile.vendor_name || ROLE_FALLBACK_NAME[myRole.value] || "Admin";
   myEmail.value = ctx.profile.email || "";
-  await refreshVendors();
-  if (canSeeManageAccess.value) await refreshTeam();
-  await fetchAllUploads();
-  if (canSeeTickets.value) await fetchTickets();
+  await loadStartupData();
   ready.value = true;
 }
 
@@ -428,11 +441,11 @@ async function signOut() {
           </div>
         </header>
 
-        <div v-if="canSeeHealth" v-show="activeNav === 'health'">
+        <div v-if="canSeeHealth && seen('health')" v-show="activeNav === 'health'">
           <HealthCardSection :show-payments="canSeePaymentDashboard" :vendor-label="vendorLabel" />
         </div>
 
-        <div v-if="canSeePoTracking" v-show="activeNav === 'po-tracking'">
+        <div v-if="canSeePoTracking && seen('po-tracking')" v-show="activeNav === 'po-tracking'">
           <AdminPoTracking
             :rows="filteredSorted" :filters="filters"
             :facility-options="facilityOptions" :status-options="statusOptions"
@@ -442,7 +455,7 @@ async function signOut() {
           />
         </div>
 
-        <div v-if="canSeeSkuData" v-show="activeNav === 'sku-data'">
+        <div v-if="canSeeSkuData && seen('sku-data')" v-show="activeNav === 'sku-data'">
           <SkuLevelTable
             :rows="skuFilteredSorted" :filters="skuFilters"
             :vendor-options="vendorOptions" :vendor-label="vendorLabel"
@@ -450,7 +463,7 @@ async function signOut() {
           />
         </div>
 
-        <div v-if="canSeeDispatchPlanning" v-show="activeNav === 'dispatch-planning'">
+        <div v-if="canSeeDispatchPlanning && seen('dispatch-planning')" v-show="activeNav === 'dispatch-planning'">
           <DispatchPlanningTable
             :rows="dispatchFilteredSorted" :filters="dispatchFilters"
             :vendor-options="vendorOptions" :vendor-label="vendorLabel"
@@ -460,7 +473,7 @@ async function signOut() {
           />
         </div>
 
-        <div v-if="canSeeFinanceWorklist" v-show="activeNav === 'action-required'" class="tab-panel">
+        <div v-if="canSeeFinanceWorklist && seen('action-required')" v-show="activeNav === 'action-required'" class="tab-panel">
           <FinanceActionRequired
             :uploads="allUploads" :pos-with-payment="posWithPaymentNoInvoice" :pos="currentPos"
             :vendor-label="vendorLabel" :on-open-po="openPoDetailModal" :on-open-vendor="openVendorPayments"
@@ -469,7 +482,7 @@ async function signOut() {
           />
         </div>
 
-        <div v-if="canSeePaymentDashboard" v-show="activeNav === 'payment-dashboard'" class="tab-panel">
+        <div v-if="canSeePaymentDashboard && seen('payment-dashboard')" v-show="activeNav === 'payment-dashboard'" class="tab-panel">
           <PaymentExecutiveSummary
             :uploads="allUploads" :pos-with-payment="posWithPaymentNoInvoice" :pos-needing-invoice="posNeedingInvoice"
             :vendor-label="vendorLabel" :on-open-po="openPoDetailModal"
@@ -477,7 +490,7 @@ async function signOut() {
           />
         </div>
 
-        <div v-if="canSeeFinanceWorklist" v-show="activeNav === 'vendor-payments'" class="tab-panel">
+        <div v-if="canSeeFinanceWorklist && seen('vendor-payments')" v-show="activeNav === 'vendor-payments'" class="tab-panel">
           <PaymentVendorView
             v-model="paymentVendor" :vendor-options="paymentVendorOptions"
             :uploads="allUploads" :pos-with-payment="posWithPaymentNoInvoice" :pos-needing-invoice="posNeedingInvoice"
@@ -494,7 +507,7 @@ async function signOut() {
           </PaymentVendorView>
         </div>
 
-        <div v-if="canSeeManageAccess" v-show="activeNav === 'manage-access'">
+        <div v-if="canSeeManageAccess && seen('manage-access')" v-show="activeNav === 'manage-access'">
           <ManageAccess
             :vendors="vendors" :team="team" :current-user-id="myUserId"
             :on-vendors-changed="refreshVendors" :on-team-changed="refreshTeam"
@@ -503,27 +516,27 @@ async function signOut() {
           />
         </div>
 
-        <div v-if="canSeeRateFinder" v-show="activeNav === 'rate-finder'">
+        <div v-if="canSeeRateFinder && seen('rate-finder')" v-show="activeNav === 'rate-finder'">
           <RateFinder />
         </div>
 
-        <div v-if="canSeeSop" v-show="activeNav === 'sop'">
+        <div v-if="canSeeSop && seen('sop')" v-show="activeNav === 'sop'">
           <SopSection />
         </div>
 
-        <div v-if="canSeeLastMile" v-show="activeNav === 'last-mile'">
+        <div v-if="canSeeLastMile && seen('last-mile')" v-show="activeNav === 'last-mile'">
           <LastMileSection :editor-label="whoLine" />
         </div>
 
-        <div v-if="canSeeSla" v-show="activeNav === 'sla'">
+        <div v-if="canSeeSla && seen('sla')" v-show="activeNav === 'sla'">
           <SlaSection :editor-label="whoLine" />
         </div>
 
-        <div v-if="canSeeSpares" v-show="activeNav === 'spares'">
+        <div v-if="canSeeSpares && seen('spares')" v-show="activeNav === 'spares'">
           <SparesSection :editor-label="whoLine" />
         </div>
 
-        <div v-if="canSeeTickets" v-show="activeNav === 'tickets'">
+        <div v-if="canSeeTickets && seen('tickets')" v-show="activeNav === 'tickets'">
           <TicketsTable :rows="tickets" :vendor-label="vendorLabel" :on-open-ticket="openTicketDetailModal" />
         </div>
 
