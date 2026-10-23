@@ -45,6 +45,15 @@ export const WAREHOUSES = [
 // The sheet's "Spares excluding IK & Discontinued" table leaves these categories out.
 const SUMMARY_EXCLUDED_CATEGORIES = new Set(["ik", "refresh", "dummy", "discontinued", ""]);
 
+// The 9 RO machine SKU IDs (same set as scripts/sync_health_sales.py's SKU_DISPLAY). They sit in the
+// sheet under categories like M0 / M1 Pro, but they're machines, not spare parts, and Health Card
+// 1.1 RO Inventory already covers them, so the spares summary leaves them out. Matched by SKU ID,
+// not category: the same category names also hold real spare parts.
+const RO_MACHINE_SKUS = new Set([
+  "UC/NATIVE/12501/M0", "UC/12304/M1", "UC/Native/M1/12401", "UC/Native/M1Pro/12601", "UC/12305/M2",
+  "UC/Native/M2/12302", "UC/Native/M2/12502", "UC/Native/M3/12602", "UC/Native/M3Pro/12603",
+].map((k) => k.toLowerCase()));
+
 export const DOI_TARGET = 60;
 
 // The sheet hand-set DRR 100 for these Refresh SKUs at GGN/BOM/HYD (their real DRR is
@@ -221,7 +230,8 @@ export function useSparesData(editorLabel) {
   }
 
   const inSummaryScope = (sku) =>
-    masterBySku.value.has(sku) && !SUMMARY_EXCLUDED_CATEGORIES.has(categoryOf(sku).toLowerCase());
+    masterBySku.value.has(sku) && !RO_MACHINE_SKUS.has(sku.toLowerCase()) &&
+    !SUMMARY_EXCLUDED_CATEGORIES.has(categoryOf(sku).toLowerCase());
 
   // ---- writes -----------------------------------------------------------------------------
   const who = () => (typeof editorLabel === "function" ? editorLabel() : editorLabel?.value ?? editorLabel) || null;
