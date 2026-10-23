@@ -6,10 +6,12 @@
 //   Spares | Refresh: Orders (Pan India delivered) then Top 5 / Next 4 / Other city tiers, by
 //     order week (current + 4 previous). See useHealthKitSlaData.js for the sources.
 import { ref, computed } from "vue";
+import HealthAsOf from "./HealthAsOf.vue";
 import { ADH_LSPS } from "../../composables/useHealthSlaData.js";
 import { KIT_TIERS } from "../../composables/useHealthKitSlaData.js";
 
 const props = defineProps({
+  asof: { type: Array, default: () => [] }, // [{ label, at, staleH }] for HealthAsOf
   title: { type: String, default: "SLA Adherence" },
   ro: { type: Array, required: true },
   locks: { type: Array, required: true },
@@ -77,6 +79,7 @@ const kitOrders = w => {
         </span>
       </span>
     </div>
+    <HealthAsOf :items="props.asof" />
     <table class="hc-table">
       <colgroup v-if="isKit"><col style="width:16%"><col style="width:14%"><col><col><col></colgroup>
       <colgroup v-else><col style="width:16%"><col><col><col><col></colgroup>

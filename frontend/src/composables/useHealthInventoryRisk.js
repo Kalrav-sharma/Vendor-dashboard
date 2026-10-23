@@ -41,7 +41,7 @@ const prettyStore = code => code.replace(/^PB-UC-/, "").replace(/^SFX-/, "SFX ")
   .toLowerCase().replace(/\b\w/g, c => c.toUpperCase()).replace(/^(Blr|Del|Kol|Bom|Hyd|Ggn|Sfx) /, (m, p) => `${p.toUpperCase()} · `);
 
 export function useHealthInventoryRisk() {
-  const { darkStoreRows, facilityDrrDoiRows, stockSyncedAt, loadError: e1, refresh: r1 } = useSopUcAppData();
+  const { darkStoreRows, facilityDrrDoiRows, stockSyncedAt, drrDoiSyncedAt, loadError: e1, refresh: r1 } = useSopUcAppData();
   const { channelRows, channelDrrDoiRows, loadError: e2, refresh: r2 } = useSopInventoryData();
 
   const groups = computed(() => {
@@ -101,5 +101,5 @@ export function useHealthInventoryRisk() {
   // Sync now (HealthSyncButton) reloads straight away instead of waiting for the 5-min poll.
   const refresh = () => Promise.all([r1(), r2()]);
 
-  return { groups, totals, stockSyncedAt, loadError, refresh };
+  return { groups, totals, stockSyncedAt, drrDoiSyncedAt, loadError, refresh };
 }

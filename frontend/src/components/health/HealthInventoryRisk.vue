@@ -2,9 +2,11 @@
 // Health Card › Inventory Risk Monitor. Tiers × mutually exclusive bands (Stockout,
 // <7 DOI, 7–<15 DOI), counting facility × SKU pairs. Click a count to list its pairs.
 import { ref, computed } from "vue";
+import HealthAsOf from "./HealthAsOf.vue";
 import { BANDS } from "../../composables/useHealthInventoryRisk.js";
 
 const props = defineProps({
+  asof: { type: Array, default: () => [] }, // [{ label, at, staleH }] for HealthAsOf
   groups: { type: Array, required: true },
   totals: { type: Object, required: true },
   title: { type: String, default: "Inventory Risk Monitor" },
@@ -36,6 +38,7 @@ const fmtDoi = v => (v == null ? "" : `${v < 10 ? v.toFixed(1) : Math.round(v)}d
 <template>
   <section class="table-card hc-view">
     <h3 class="card-caption">{{ title }}</h3>
+    <HealthAsOf :items="props.asof" />
     <div class="table-scroll">
       <table class="hc-table">
         <colgroup><col style="width:26%"><col><col><col><col style="width:16%"></colgroup>

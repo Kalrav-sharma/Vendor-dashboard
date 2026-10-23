@@ -17,6 +17,7 @@
 //   4. Sales & Production
 //     4.1 Net sales by SKU  month-over-month, health_sales_monthly (Jarvis, = Freight & Dispatch console)
 //     (4.2 Production: to follow)
+import { computed } from "vue";
 import "./health.css";
 import "../spares/spares.css";
 import HealthSection from "./HealthSection.vue";
@@ -46,6 +47,15 @@ const { allUploads } = useInvoiceUploads(); // singleton, fetched by AdminApp on
 const spares = useSparesData(null); // read-only here: Appendix edits stay in the Spares section
 
 const stamp = t => (t ? new Date(t).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "–");
+// Payments aren't a sync of their own to the card: the status columns are written by the Jarvis payment sync.
+const paymentSyncedAt = computed(() => allUploads.value.reduce((t, r) => (r.payment_synced_at && r.payment_synced_at > t ? r.payment_synced_at : t), "") || null);
+const asof = computed(() => ({
+  ro: [{ label: "Stock", at: inv.stockSyncedAt.value, staleH: 14 }, { label: "DRR/DOI", at: inv.drrDoiSyncedAt.value, staleH: 30 }],
+  spares: [{ label: "Stock", at: spares.stockSyncedAt.value, staleH: 3 }, { label: "DRR", at: spares.drrSyncedAt.value, staleH: 30 }, { label: "Sheet", at: spares.sheetSyncedAt.value, staleH: 3 }],
+  sla: [{ label: "SLA sync", at: sla.lastSynced.value, staleH: 30 }],
+  kitSla: [{ label: "SLA sync", at: kitSla.lastSynced.value, staleH: 30 }],
+  payments: [{ label: "Payment status sync", at: paymentSyncedAt.value, staleH: 48 }],
+}));
 const refreshAll = () => Promise.all([inv.refresh(), spares.refresh()]);
 const stale = (t, h) => !t || (Date.now() - new Date(t).getTime()) / 3600000 > h;
 </script>
@@ -65,23 +75,23 @@ const stale = (t, h) => !t || (Date.now() - new Date(t).getTime()) / 3600000 > h
 
   <HealthSection id="inventory" title="1. Inventory View">
     <div class="hc-pair hc-view hc-pair-views">
-      <HealthInventoryRisk :groups="inv.groups.value" :totals="inv.totals.value" title="1.1 RO Inventory" />
-      <SparesSummary :store="spares" title="1.2 Spares Inventory" />
+      <HealthInventoryRisk :groups="inv.groups.value" :totals="inv.totals.value" title="1.1 RO Inventory" :asof="asof.ro" />
+      <SparesSummary :store="spares" title="1.2 Spares Inventory" :asof="asof.spares" />
     </div>
   </HealthSection>
 
   <HealthSection id="delivery" title="2. Delivery Experience">
-    <HealthSlaDemand :ro="sla.ro.value" :locks="sla.locks.value" title="2.1 SLA & Demand Share" />
+    <HealthSlaDemand :ro="sla.ro.value" :locks="sla.locks.value" title="2.1 SLA & Demand Share" :asof="asof.sla" />
     <!-- 2.2 RO | Locks on the left (the width of 2.1's SLA table), 2.3 Spares | Refresh beside it -->
     <div class="hc-pair hc-view hc-pair-views">
-      <HealthSlaAdherence :ro="sla.ro.value" :locks="sla.locks.value" :products="['ro', 'locks']" title="2.2 SLA Adherence" />
-      <HealthSlaAdherence :ro="[]" :locks="[]" :spares="kitSla.spares.value" :refresh-kit="kitSla.refreshKit.value" :products="['spares', 'refresh']" title="2.3 Spares & Refresh SLA" />
+      <HealthSlaAdherence :ro="sla.ro.value" :locks="sla.locks.value" :products="['ro', 'locks']" title="2.2 SLA Adherence" :asof="asof.sla" />
+      <HealthSlaAdherence :ro="[]" :locks="[]" :spares="kitSla.spares.value" :refresh-kit="kitSla.refreshKit.value" :products="['spares', 'refresh']" title="2.3 Spares & Refresh SLA" :asof="asof.kitSla" />
     </div>
   </HealthSection>
 
   <HealthSection v-if="props.showPayments" id="payments" title="3. Payment Pendency">
-    <HealthPaymentPendency title="3.1 Overdue Payments" :rows="allUploads" :vendor-label="props.vendorLabel" />
-    <HealthPaymentOutlook title="3.2 Payment Outlook" :rows="allUploads" :vendor-label="props.vendorLabel" />
+    <HealthPaymentPendency title="3.1 Overdue Payments" :asof="asof.payments" :rows="allUploads" :vendor-label="props.vendorLabel" />
+    <HealthPaymentOutlook title="3.2 Payment Outlook" :asof="asof.payments" :rows="allUploads" :vendor-label="props.vendorLabel" />
   </HealthSection>
 
   <HealthSection id="sales" title="4. Sales & Production">

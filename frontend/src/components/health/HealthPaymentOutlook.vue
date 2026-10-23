@@ -9,10 +9,12 @@
 //                  purpose: it's the slice of what's owed that can't be paid until fixed.
 // Click a value to list the invoices behind it.
 import { ref, computed } from "vue";
+import HealthAsOf from "./HealthAsOf.vue";
 import { fmtMoney, fmtDateOnly } from "../../format.js";
 import { unpaidInvoices, byVendor, sumAmount, STUCK, RECON_LABEL } from "../../composables/usePaymentPendency.js";
 
 const props = defineProps({
+  asof: { type: Array, default: () => [] }, // [{ label, at, staleH }] for HealthAsOf
   title: { type: String, default: "Payment Outlook" },
   rows: { type: Array, required: true },
   vendorLabel: { type: Function, required: true },
@@ -56,6 +58,7 @@ const dueTxt = d => (d == null ? "–" : d > 0 ? `${d}d overdue` : d === 0 ? "to
 <template>
   <section class="table-card hc-view">
     <h3 class="card-caption">{{ title }}</h3>
+    <HealthAsOf :items="props.asof" />
     <div class="table-scroll">
       <table class="hc-table">
         <colgroup><col style="width:28%"><col><col><col><col></colgroup>

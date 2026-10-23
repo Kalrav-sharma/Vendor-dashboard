@@ -106,3 +106,7 @@
 .hc-spark { display: inline-flex; align-items: flex-end; gap: 3px; height: 22px; }
 .hc-spark i { display: block; width: 7px; background: var(--line-strong); border-radius: 1px; }
 .hc-spark i.last { background: var(--ink); }
+/* HealthAsOf.vue: per-table "last refreshed" line under a table title */
+.hc-asof { display: flex; gap: 12px; flex-wrap: wrap; margin: -4px 0 8px; font-size: 0.7rem; color: var(--muted); }
+.hc-asof span::before { content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--good); margin-right: 5px; vertical-align: 1px; }
+.hc-asof span.stale::before { background: var(--open); }

@@ -6,10 +6,12 @@
 // invoice past its due date is the core of payment pendency. Click a vendor to list its
 // invoices.
 import { ref, computed } from "vue";
+import HealthAsOf from "./HealthAsOf.vue";
 import { fmtMoney, fmtDateOnly } from "../../format.js";
 import { unpaidInvoices, byVendor, sumAmount, RECON_LABEL } from "../../composables/usePaymentPendency.js";
 
 const props = defineProps({
+  asof: { type: Array, default: () => [] }, // [{ label, at, staleH }] for HealthAsOf
   title: { type: String, default: "Overdue Payments" },
   rows: { type: Array, required: true },
   vendorLabel: { type: Function, required: true },
@@ -45,6 +47,7 @@ const detail = computed(() => {
 <template>
   <section class="table-card hc-view">
     <h3 class="card-caption">{{ title }}</h3>
+    <HealthAsOf :items="props.asof" />
     <div class="table-scroll">
       <table class="hc-table">
         <colgroup><col style="width:34%"><col><col><col><col></colgroup>

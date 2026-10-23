@@ -21,16 +21,19 @@ export function useSopUcAppData() {
   const darkStoreRows = ref([]);
   const facilityDrrDoiRows = ref([]);
   const stockSyncedAt = ref(null);
+  const drrDoiSyncedAt = ref(null);
   const loadError = ref("");
 
   async function refresh() {
-    const [{ data: w, error: e1 }, { data: d, error: e2 }, { data: f, error: e3 }, { data: s }] =
+    const [{ data: w, error: e1 }, { data: d, error: e2 }, { data: f, error: e3 }, { data: s }, { data: dd }] =
       await Promise.all([
         supabase.from("sop_inventory_uc_warehouse").select("*"),
         supabase.from("sop_dark_store_inventory").select("*"),
         supabase.from("sop_facility_drr_doi").select("*"),
         // Every row of a run carries the same synced_at, so the newest one dates the whole snapshot.
         supabase.from("sop_uniware_inventory").select("synced_at")
+          .order("synced_at", { ascending: false }).limit(1),
+        supabase.from("sop_facility_drr_doi").select("synced_at")
           .order("synced_at", { ascending: false }).limit(1),
       ]);
     if (!e1) warehouseRows.value = w;
@@ -39,6 +42,7 @@ export function useSopUcAppData() {
     // Deliberately not folded into loadError: a missing freshness stamp shouldn't
     // blank out tables that loaded fine.
     stockSyncedAt.value = s?.[0]?.synced_at ?? null;
+    drrDoiSyncedAt.value = dd?.[0]?.synced_at ?? null;
     loadError.value = e1?.message || e2?.message || e3?.message || "";
   }
 
@@ -51,5 +55,5 @@ export function useSopUcAppData() {
     if (intervalId) clearInterval(intervalId);
   });
 
-  return { warehouseRows, darkStoreRows, facilityDrrDoiRows, stockSyncedAt, loadError, refresh };
+  return { warehouseRows, darkStoreRows, facilityDrrDoiRows, stockSyncedAt, drrDoiSyncedAt, loadError, refresh };
 }

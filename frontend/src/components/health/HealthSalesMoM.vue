@@ -5,6 +5,7 @@
 // Last MONTHS calendar months, the current one month-to-date. Each month's units are followed
 // by that SKU's share of the month; ▲/▼ = share gained/lost vs the previous month.
 import { computed } from "vue";
+import HealthAsOf from "./HealthAsOf.vue";
 import { useHealthSalesData } from "../../composables/useHealthSalesData.js";
 
 const props = defineProps({ title: { type: String, default: "Net sales by SKU · month-over-month" } });
@@ -73,6 +74,7 @@ const pct = n => `${n.toFixed(1)}%`;
       <h3 class="card-caption">{{ props.title }}</h3>
       <span class="hc-sales-key">Units + share of month · <span class="hc-dd good">▲</span> share gained / <span class="hc-dd bad">▼</span> lost vs prev month</span>
     </div>
+    <HealthAsOf :items="[{ label: 'Jarvis sync', at: lastSynced, staleH: 30 }]" />
     <!-- Until health_sales_monthly exists / first sync runs, say so instead of a raw PostgREST error. -->
     <div v-if="!rows.length" class="card-legend">No sales data yet -- waiting for the first Jarvis sync (scripts/sync_health_sales.py).<span v-if="loadError" class="hc-muted"> ({{ loadError }})</span></div>
     <div v-if="rows.length" class="table-scroll">
@@ -115,6 +117,6 @@ const pct = n => `${n.toFixed(1)}%`;
         </tbody>
       </table>
     </div>
-    <div v-if="rows.length" class="card-legend">Jarvis · Native RO net sales (India, net of returns), same query as the Freight &amp; Dispatch console. {{ months[months.length - 1].label }} is month-to-date.<span v-if="lastSynced"> Synced {{ new Date(lastSynced).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) }}.</span></div>
+    <div v-if="rows.length" class="card-legend">Jarvis · Native RO net sales (India, net of returns), same query as the Freight &amp; Dispatch console. {{ months[months.length - 1].label }} is month-to-date.</div>
   </section>
 </template>

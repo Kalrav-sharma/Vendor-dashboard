@@ -2,9 +2,11 @@
 // Health Card › SLA & Demand Share: two tables side by side, driven by one RO | Locks toggle.
 // Rows: next week (once it starts), the current week, then the 4 previous weeks.
 import { ref, computed } from "vue";
+import HealthAsOf from "./HealthAsOf.vue";
 import { TIERS } from "../../composables/useHealthSlaData.js";
 
 const props = defineProps({
+  asof: { type: Array, default: () => [] }, // [{ label, at, staleH }] for HealthAsOf
   title: { type: String, default: "SLA & Demand Share" },
   ro: { type: Array, required: true },
   locks: { type: Array, required: true },
@@ -39,6 +41,7 @@ const shortTier = t => ({ pan: "Pan India", top5: "Top 5", next4: "Next 4", othe
         <button :class="{ active: product === 'locks' }" @click="product = 'locks'">Locks</button>
       </span>
     </h3>
+    <HealthAsOf :items="props.asof" />
     <div class="hc-pair">
       <section class="table-card">
         <h3 class="card-caption">SLA</h3>
