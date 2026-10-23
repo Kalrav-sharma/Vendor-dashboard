@@ -3086,3 +3086,71 @@ alter table public.health_sales_monthly enable row level security;
 drop policy if exists health_sales_monthly_select on public.health_sales_monthly;
 create policy health_sales_monthly_select on public.health_sales_monthly
   for select using (public.is_internal_staff());
+
+-- =======================================================================
+-- Spares Projections (BETA) -- added 2026-10-23. Per-vendor, per-SKU order
+-- projections for the next 3 months (the numbers the spares-vendor-order-mailer
+-- emails vendors), shown in Spares > Projections.
+--
+-- INTERNAL ONLY while the logic is being tuned: readable by admin / management /
+-- operations (the same roles that see the Spares tab). Vendors, finance and anon
+-- get zero rows even through the API. Written only by the sync jobs via
+-- service_role -- deliberately no INSERT/UPDATE/DELETE policy for authenticated.
+--
+-- spares_forecast_demand  <- scripts/sync_spares_forecast_demand.py, from the monthly
+--                            VPN-laptop forecast_spares run (Jarvis is VPN-gated).
+--                            5 forecast months of SKU-total demand per SKU.
+-- spares_projection       <- scripts/sync_spares_projection.py (GitHub Actions): applies
+--                            the coverage rules to that demand + live stock, in-transit
+--                            and vendor mapping. Wholesale-replaced each run.
+-- =======================================================================
+create or replace function public.can_view_spares_projection()
+returns boolean
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select exists (
+    select 1 from public.profiles
+    where id = auth.uid() and role in ('admin', 'management', 'operations')
+  );
+$$;
+
+create table if not exists public.spares_forecast_demand (
+  sku text not null,
+  month_start date not null,
+  demand numeric not null default 0,
+  mover_class text,                    -- HIGH / SLOW
+  demand_driver text not null default 'order'
+    check (demand_driver in ('order', 'refresh', 'ik')),
+  bom_vendor text,                     -- vendor from refresh_bom.csv / ik_bom.csv (fallback only)
+  forecast_asof date not null,         -- the forecast run's as-of date
+  synced_at timestamptz not null default now(),
+  primary key (sku, month_start)
+);
+alter table public.spares_forecast_demand enable row level security;
+drop policy if exists spares_forecast_demand_select on public.spares_forecast_demand;
+create policy spares_forecast_demand_select on public.spares_forecast_demand
+  for select using (public.can_view_spares_projection());
+
+create table if not exists public.spares_projection (
+  sku text not null,
+  month_start date not null,           -- the 3 projection months
+  vendor text,                         -- null = unassigned (shown as "Unassigned")
+  order_qty integer not null default 0,
+  demand numeric not null default 0,   -- this month's forecast demand (internal; UI may hide)
+  on_hand numeric not null default 0,  -- starting cover inputs, same for all 3 months of a SKU
+  in_transit numeric not null default 0,
+  rule text not null default 'rolling_coverage'
+    check (rule in ('rolling_coverage', 'net_against_cover')),
+  demand_driver text not null default 'order',
+  forecast_asof date,
+  computed_at timestamptz not null default now(),
+  primary key (sku, month_start)
+);
+alter table public.spares_projection enable row level security;
+drop policy if exists spares_projection_select on public.spares_projection;
+create policy spares_projection_select on public.spares_projection
+  for select using (public.can_view_spares_projection());
+create index if not exists spares_projection_vendor_idx on public.spares_projection (vendor);

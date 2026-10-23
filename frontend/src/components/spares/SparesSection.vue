@@ -11,6 +11,7 @@ import SparesInventory from "./SparesInventory.vue";
 import SparesWarehouseStock from "./SparesWarehouseStock.vue";
 import SparesAppendix from "./SparesAppendix.vue";
 import SparesDelivery from "./SparesDelivery.vue";
+import SparesProjections from "./SparesProjections.vue";
 import { useHealthDelayData } from "../../composables/useHealthDelayData.js";
 
 const props = defineProps({ editorLabel: { type: String, default: "" } });
@@ -23,6 +24,7 @@ const SUBTABS = [
   { id: "inventory", label: "Spares Inventory" },
   { id: "stock", label: "Warehouse stock" },
   { id: "delivery", label: "Spares Delivery" },
+  { id: "projections", label: "Projections (Beta)" },
   { id: "appendix", label: "Appendix" },
 ];
 const activeSubTab = ref("summary");
@@ -57,5 +59,7 @@ const staleDrr = (iso) => !iso || Date.now() - new Date(iso).getTime() > 30 * 60
   <div v-show="activeSubTab === 'inventory'"><SparesInventory :store="store" /></div>
   <div v-show="activeSubTab === 'stock'"><SparesWarehouseStock :store="store" /></div>
   <div v-show="activeSubTab === 'delivery'"><SparesDelivery :spares="delay.spares.value" :refresh-kit="delay.refreshKit.value" :fetch-orders="delay.fetchDelayedOrders" /></div>
+  <!-- Beta, internal: mounted (and fetching) only while open. RLS also hides the rows from non-staff. -->
+  <div v-if="activeSubTab === 'projections'"><SparesProjections /></div>
   <div v-show="activeSubTab === 'appendix'"><SparesAppendix :store="store" /></div>
 </template>

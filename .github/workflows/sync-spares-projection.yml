@@ -1,0 +1,37 @@
+name: Sync Spares Projections to Supabase
+
+# Spares > Projections (beta, internal only): per-vendor 3-month order projections. Applies the coverage rules
+# to the monthly demand forecast (spares_forecast_demand, uploaded from the VPN laptop by
+# scripts/sync_spares_forecast_demand.py -- Jarvis is VPN-gated) plus current stock / in-transit / vendor
+# mapping, and wholesale-replaces spares_projection. Needs no VPN. Hourly: the Sheets read of the vendor
+# tabs is slow (minutes), and the demand side only changes monthly.
+on:
+  schedule:
+    - cron: '50 3-18 * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-spares-projection
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - run: pip install -r requirements.txt
+
+      - run: python scripts/sync_spares_projection.py
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
