@@ -11,6 +11,7 @@
 // empty state rather than an error, same convention as every other
 // not-yet-synced tab in this app.
 import { ref, computed, onMounted, onUnmounted } from "vue";
+import { visibleInterval } from "./visibleInterval.js";
 import { supabase } from "../supabaseClient.js";
 
 // sync-last-mile.yml's tracking leg runs hourly (10:30am-11:30pm) -- 10
@@ -155,7 +156,7 @@ export function useLastMileData() {
   let intervalId = null;
   onMounted(async () => {
     await refresh();
-    intervalId = setInterval(refresh, POLL_INTERVAL_MS);
+    intervalId = visibleInterval(refresh, POLL_INTERVAL_MS);
   });
   onUnmounted(() => {
     if (intervalId) clearInterval(intervalId);

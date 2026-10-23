@@ -14,9 +14,10 @@
 // else in the sheet -> Ongoing; else (stocked, not in the sheet) -> NA. A row nobody
 // has edited therefore keeps following the sheet; deleting an override resets it.
 import { ref, computed, onMounted, onUnmounted } from "vue";
+import { visibleInterval } from "./visibleInterval.js";
 import { supabase } from "../supabaseClient.js";
 
-const POLL_INTERVAL_MS = 5 * 60 * 1000;
+const POLL_INTERVAL_MS = 10 * 60 * 1000;
 const PAGE = 1000; // PostgREST's default max-rows
 
 export const STATUSES = ["Ongoing", "Obsolete", "NA"];
@@ -357,7 +358,7 @@ export function useSparesData(editorLabel) {
   let intervalId = null;
   onMounted(async () => {
     await refresh();
-    intervalId = setInterval(refresh, POLL_INTERVAL_MS);
+    intervalId = visibleInterval(refresh, POLL_INTERVAL_MS);
   });
   onUnmounted(() => intervalId && clearInterval(intervalId));
 

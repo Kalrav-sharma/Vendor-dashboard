@@ -10,11 +10,12 @@
 //
 // Same shape as useSopInventoryData.js: fetch on mount, poll every 60s.
 import { ref, onMounted, onUnmounted } from "vue";
+import { visibleInterval } from "./visibleInterval.js";
 import { supabase } from "../supabaseClient.js";
 
 // sync_sop_inventory.py runs every 30 min (4am-6pm) -- 5 min keeps this
 // feeling live without polling unchanged data (2026-09-25, Kalrav).
-const POLL_INTERVAL_MS = 5 * 60 * 1000;
+const POLL_INTERVAL_MS = 10 * 60 * 1000;
 
 export function useSopUcAppData() {
   const warehouseRows = ref([]);
@@ -49,7 +50,7 @@ export function useSopUcAppData() {
   let intervalId = null;
   onMounted(async () => {
     await refresh();
-    intervalId = setInterval(refresh, POLL_INTERVAL_MS);
+    intervalId = visibleInterval(refresh, POLL_INTERVAL_MS);
   });
   onUnmounted(() => {
     if (intervalId) clearInterval(intervalId);

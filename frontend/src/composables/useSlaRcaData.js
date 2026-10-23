@@ -4,9 +4,10 @@
 // previous one. Written from a VPN machine by sync_sla_portal.js, which keeps only the
 // newest 8 runs.
 import { ref, onMounted, onUnmounted } from "vue";
+import { visibleInterval } from "./visibleInterval.js";
 import { supabase } from "../supabaseClient.js";
 
-const POLL_INTERVAL_MS = 60 * 1000;
+const POLL_INTERVAL_MS = 5 * 60 * 1000;
 
 export function useSlaRcaData() {
   const run = ref(null);
@@ -29,7 +30,7 @@ export function useSlaRcaData() {
   }
 
   let timer = null;
-  onMounted(() => { refresh(); timer = setInterval(refresh, POLL_INTERVAL_MS); });
+  onMounted(() => { refresh(); timer = visibleInterval(refresh, POLL_INTERVAL_MS); });
   onUnmounted(() => clearInterval(timer));
 
   return { run, loaded, loadError, refresh };

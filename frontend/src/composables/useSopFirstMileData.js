@@ -11,6 +11,7 @@
 //
 // Same shape as the other S&OP composables: fetch on mount, poll every 60s.
 import { ref, onMounted, onUnmounted } from "vue";
+import { visibleInterval } from "./visibleInterval.js";
 import { supabase } from "../supabaseClient.js";
 
 // sync_sop_first_mile.py runs 3x/day (0 3,9,15) -- 20 min is still far
@@ -60,7 +61,7 @@ export function useSopFirstMileData() {
   let intervalId = null;
   onMounted(async () => {
     await refresh();
-    intervalId = setInterval(refresh, POLL_INTERVAL_MS);
+    intervalId = visibleInterval(refresh, POLL_INTERVAL_MS);
   });
   onUnmounted(() => {
     if (intervalId) clearInterval(intervalId);

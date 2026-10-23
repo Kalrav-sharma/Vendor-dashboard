@@ -8,9 +8,10 @@
 //
 // Same shape as the S&OP composables: fetch on mount, poll every 60s.
 import { ref, computed, onMounted, onUnmounted } from "vue";
+import { visibleInterval } from "./visibleInterval.js";
 import { fetchAllRows } from "./sopPagedFetch.js";
 
-const POLL_INTERVAL_MS = 60 * 1000;
+const POLL_INTERVAL_MS = 5 * 60 * 1000;
 const WEEKS_SHOWN = 16;
 
 export const WH_CITIES = [
@@ -100,7 +101,7 @@ export function useSlaTrendsData() {
   const monthlyLocks = computed(() => periods("month", "locks"));
 
   let timer = null;
-  onMounted(() => { refresh(); timer = setInterval(refresh, POLL_INTERVAL_MS); });
+  onMounted(() => { refresh(); timer = visibleInterval(refresh, POLL_INTERVAL_MS); });
   onUnmounted(() => clearInterval(timer));
 
   return { rows, weekly, monthly, weeklyLocks, monthlyLocks, loadError, lastSynced, refresh };

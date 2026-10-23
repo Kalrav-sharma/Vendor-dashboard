@@ -3,9 +3,10 @@
 // sla_pincode_revised (browser-written, per week x pincode). A new RCA week starts a fresh list,
 // and its toggles start at No; older weeks' rows stay in the tables but aren't shown.
 import { ref, computed, watch, onMounted, onUnmounted } from "vue";
+import { visibleInterval } from "./visibleInterval.js";
 import { supabase } from "../supabaseClient.js";
 
-const POLL_INTERVAL_MS = 5 * 60 * 1000;
+const POLL_INTERVAL_MS = 10 * 60 * 1000;
 
 export function useSlaPincodeAlerts(weekStartRef, editorLabel) {
   const alerts = ref([]);
@@ -55,7 +56,7 @@ export function useSlaPincodeAlerts(weekStartRef, editorLabel) {
 
   watch(weekStartRef, (w, old) => { if (w && w !== old) refresh(); });
   let timer = null;
-  onMounted(() => { refresh(); timer = setInterval(refresh, POLL_INTERVAL_MS); });
+  onMounted(() => { refresh(); timer = visibleInterval(refresh, POLL_INTERVAL_MS); });
   onUnmounted(() => clearInterval(timer));
 
   return { alerts, week, loaded, loadError, saveError, isRevised, setRevised, syncedAt, refresh };

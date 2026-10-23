@@ -10,9 +10,10 @@
 // SLA Adherence = on_time / orders per carrying LSP (raftaar_*, sfx_ds_* columns).
 // Ratios are derived after summing, never averaged.
 import { ref, computed, onMounted, onUnmounted } from "vue";
+import { visibleInterval } from "./visibleInterval.js";
 import { fetchAllRows } from "./sopPagedFetch.js";
 
-const POLL_INTERVAL_MS = 5 * 60 * 1000;
+const POLL_INTERVAL_MS = 10 * 60 * 1000;
 // Next week's row appears once it "starts": enough early deliveries against next week's
 // promise to be worth reading, not the odd 1-2 orders delivered a week ahead.
 const NEXT_WEEK_MIN_ORDERS = 20;
@@ -103,7 +104,7 @@ export function useHealthSlaData() {
   const locks = computed(() => weeks("locks"));
 
   let timer = null;
-  onMounted(() => { refresh(); timer = setInterval(refresh, POLL_INTERVAL_MS); });
+  onMounted(() => { refresh(); timer = visibleInterval(refresh, POLL_INTERVAL_MS); });
   onUnmounted(() => clearInterval(timer));
 
   return { ro, locks, loadError, lastSynced, refresh };

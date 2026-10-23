@@ -7,9 +7,10 @@
 // excluded. `orders` stays every live order of the week (% base).
 // The same sync writes the delayed orders themselves to health_delay_orders (CSV download).
 import { ref, computed, onMounted, onUnmounted } from "vue";
+import { visibleInterval } from "./visibleInterval.js";
 import { supabase } from "../supabaseClient.js";
 
-const POLL_INTERVAL_MS = 5 * 60 * 1000;
+const POLL_INTERVAL_MS = 10 * 60 * 1000;
 
 function mondayOf(d) {
   const x = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
@@ -61,7 +62,7 @@ export function useHealthDelayData() {
   }
 
   let timer = null;
-  onMounted(() => { refresh(); timer = setInterval(refresh, POLL_INTERVAL_MS); });
+  onMounted(() => { refresh(); timer = visibleInterval(refresh, POLL_INTERVAL_MS); });
   onUnmounted(() => clearInterval(timer));
 
   return { spares, refreshKit, loadError, lastSynced, refresh, fetchDelayedOrders };

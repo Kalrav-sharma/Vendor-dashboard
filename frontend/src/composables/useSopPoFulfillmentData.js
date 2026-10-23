@@ -5,6 +5,7 @@
 // whichever runs happen to still be in the table (there should only ever
 // be one, but this is the correct query regardless).
 import { ref, onMounted, onUnmounted } from "vue";
+import { visibleInterval } from "./visibleInterval.js";
 import { supabase } from "../supabaseClient.js";
 import { fetchAllRows } from "./sopPagedFetch.js";
 
@@ -42,7 +43,7 @@ export function useSopPoFulfillmentData() {
   let intervalId = null;
   onMounted(async () => {
     await refresh();
-    intervalId = setInterval(refresh, POLL_INTERVAL_MS);
+    intervalId = visibleInterval(refresh, POLL_INTERVAL_MS);
   });
   onUnmounted(() => {
     if (intervalId) clearInterval(intervalId);

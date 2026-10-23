@@ -6,6 +6,7 @@
 // show up on an already-open tab (RateFinder.vue mounts once and stays
 // mounted while switching sidebar tabs), same reason that composable polls.
 import { ref, computed, onMounted, onUnmounted } from "vue";
+import { visibleInterval } from "./visibleInterval.js";
 import { supabase } from "../supabaseClient.js";
 
 // sync_mm_rate_card.py runs once/day -- 15 min is still far ahead of the
@@ -54,7 +55,7 @@ export function useRateCard() {
   let intervalId = null;
   onMounted(async () => {
     await refresh();
-    intervalId = setInterval(refresh, POLL_INTERVAL_MS);
+    intervalId = visibleInterval(refresh, POLL_INTERVAL_MS);
   });
   onUnmounted(() => {
     if (intervalId) clearInterval(intervalId);

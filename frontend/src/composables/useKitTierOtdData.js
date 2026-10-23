@@ -4,10 +4,11 @@
 // 579905 (Refresh) -- the same table behind the Health Card's Spares & Refresh SLA. Delivered orders only. Counts are summed
 // into a period first and the ratio taken after, never averaged.
 import { ref, computed, onMounted, onUnmounted } from "vue";
+import { visibleInterval } from "./visibleInterval.js";
 import { fetchAllRows } from "./sopPagedFetch.js";
 import { mondayOf, weekLabel, monthLabel } from "./useSlaTrendsData.js";
 
-const POLL_INTERVAL_MS = 60 * 1000;
+const POLL_INTERVAL_MS = 5 * 60 * 1000;
 const WEEKS_SHOWN = 16;
 export const KIT_OTD_TIERS = [
   { key: "pan", label: "Pan India", color: "--sla-pan", width: 3 },
@@ -52,7 +53,7 @@ export function useKitTierOtdData() {
   const refreshKit = { week: computed(() => periods("refresh", "week")), month: computed(() => periods("refresh", "month")) };
 
   let timer = null;
-  onMounted(() => { refresh(); timer = setInterval(refresh, POLL_INTERVAL_MS); });
+  onMounted(() => { refresh(); timer = visibleInterval(refresh, POLL_INTERVAL_MS); });
   onUnmounted(() => clearInterval(timer));
 
   return { spares, refreshKit, loadError };

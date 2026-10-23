@@ -3,6 +3,7 @@
 // every 60s -- ported from loadAndRender()/loadData() in the legacy
 // vendor.html/admin.html.
 import { ref, onMounted, onUnmounted } from "vue";
+import { visibleInterval } from "./visibleInterval.js";
 import { fetchAllRows } from "./sopPagedFetch.js";
 import { visiblePos, dedupeInvoiceNumbers } from "../format.js";
 
@@ -88,7 +89,7 @@ export function usePurchaseOrders(vendorCode = null) {
   let intervalId = null;
   onMounted(async () => {
     await refresh();
-    intervalId = setInterval(refresh, POLL_INTERVAL_MS);
+    intervalId = visibleInterval(refresh, POLL_INTERVAL_MS);
   });
   onUnmounted(() => {
     if (intervalId) clearInterval(intervalId);

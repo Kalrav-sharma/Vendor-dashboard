@@ -6,9 +6,10 @@
 //   Refresh: Jarvis 579905 -> on-time; Jarvis 508892 "Refresh Kit Orders" -> days (DELIVERY_DAYS)
 // Ratios are derived after summing, never averaged.
 import { ref, computed, onMounted, onUnmounted } from "vue";
+import { visibleInterval } from "./visibleInterval.js";
 import { supabase } from "../supabaseClient.js";
 
-const POLL_INTERVAL_MS = 5 * 60 * 1000;
+const POLL_INTERVAL_MS = 10 * 60 * 1000;
 export const KIT_TIERS = [
   { key: "top5", label: "Top 5", hint: "Mumbai, Delhi, Bangalore, Hyderabad, Kolkata" },
   { key: "next4", label: "Next 4", hint: "Chennai, Pune, Ahmedabad, Lucknow" },
@@ -61,7 +62,7 @@ export function useHealthKitSlaData() {
   const refreshKit = computed(() => weeks("refresh"));
 
   let timer = null;
-  onMounted(() => { refresh(); timer = setInterval(refresh, POLL_INTERVAL_MS); });
+  onMounted(() => { refresh(); timer = visibleInterval(refresh, POLL_INTERVAL_MS); });
   onUnmounted(() => clearInterval(timer));
 
   return { spares, refreshKit, loadError, lastSynced, refresh };

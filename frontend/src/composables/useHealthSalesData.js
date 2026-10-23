@@ -1,6 +1,7 @@
 // Health Card › 4.1 Net sales by SKU -- public.health_sales_monthly (one row per
 // month x sku_id), from Jarvis via scripts/sync_health_sales.py (VPN laptop).
 import { ref, onMounted, onUnmounted } from "vue";
+import { visibleInterval } from "./visibleInterval.js";
 import { supabase } from "../supabaseClient.js";
 
 // Monthly figures that sync at most a few times a day -- 30 min is plenty.
@@ -24,7 +25,7 @@ export function useHealthSalesData() {
   let intervalId = null;
   onMounted(async () => {
     await refresh();
-    intervalId = setInterval(refresh, POLL_INTERVAL_MS);
+    intervalId = visibleInterval(refresh, POLL_INTERVAL_MS);
   });
   onUnmounted(() => {
     if (intervalId) clearInterval(intervalId);

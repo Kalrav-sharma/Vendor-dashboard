@@ -2,6 +2,7 @@
 // series x dim), synced from WH-Channel-SKU's "actual sales" tab by
 // scripts/sync_sop_sales.py.
 import { ref, onMounted, onUnmounted } from "vue";
+import { visibleInterval } from "./visibleInterval.js";
 import { fetchAllRows } from "./sopPagedFetch.js";
 
 // sync_sop_sales.py runs every 2 hrs (0 4-18/2) -- 15 min is still far
@@ -21,7 +22,7 @@ export function useSopDailySalesData() {
   let intervalId = null;
   onMounted(async () => {
     await refresh();
-    intervalId = setInterval(refresh, POLL_INTERVAL_MS);
+    intervalId = visibleInterval(refresh, POLL_INTERVAL_MS);
   });
   onUnmounted(() => {
     if (intervalId) clearInterval(intervalId);

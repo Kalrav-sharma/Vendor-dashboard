@@ -6,6 +6,7 @@
 // Polls every 60s like useRateCard.js -- so another internal-staff login
 // editing a number shows up here without needing a page reload.
 import { ref, onMounted, onUnmounted } from "vue";
+import { visibleInterval } from "./visibleInterval.js";
 import { supabase } from "../supabaseClient.js";
 import { resolveFunctionError } from "../functionError.js";
 
@@ -43,7 +44,7 @@ export function useVendorContacts() {
   let intervalId = null;
   onMounted(async () => {
     await refresh();
-    intervalId = setInterval(refresh, POLL_INTERVAL_MS);
+    intervalId = visibleInterval(refresh, POLL_INTERVAL_MS);
   });
   onUnmounted(() => {
     if (intervalId) clearInterval(intervalId);

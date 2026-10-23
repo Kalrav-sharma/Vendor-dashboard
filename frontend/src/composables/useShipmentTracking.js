@@ -6,6 +6,7 @@
 // unique within one courier's own numbering -- same "join in JS, not SQL"
 // convention as usePurchaseOrders.js. Polls every 60s, same pattern too.
 import { ref, onMounted, onUnmounted } from "vue";
+import { visibleInterval } from "./visibleInterval.js";
 import { supabase } from "../supabaseClient.js";
 
 // The 3 courier tracking syncs (Bluedart/DTDC/Lets Transport) each run
@@ -45,7 +46,7 @@ export function useShipmentTracking(vendorCode = null) {
   let intervalId = null;
   onMounted(async () => {
     await refresh();
-    intervalId = setInterval(refresh, POLL_INTERVAL_MS);
+    intervalId = visibleInterval(refresh, POLL_INTERVAL_MS);
   });
   onUnmounted(() => {
     if (intervalId) clearInterval(intervalId);

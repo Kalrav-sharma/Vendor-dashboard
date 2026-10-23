@@ -2,6 +2,7 @@
 // every query by it" shape as useSopPoFulfillmentData.js, since these
 // tables are also wholesale-replaced per run.
 import { ref, onMounted, onUnmounted } from "vue";
+import { visibleInterval } from "./visibleInterval.js";
 import { supabase } from "../supabaseClient.js";
 import { fetchAllRows } from "./sopPagedFetch.js";
 
@@ -35,7 +36,7 @@ export function useSopDispatchPlanData() {
   let intervalId = null;
   onMounted(async () => {
     await refresh();
-    intervalId = setInterval(refresh, POLL_INTERVAL_MS);
+    intervalId = visibleInterval(refresh, POLL_INTERVAL_MS);
   });
   onUnmounted(() => {
     if (intervalId) clearInterval(intervalId);
