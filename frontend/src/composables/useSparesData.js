@@ -47,8 +47,8 @@ const SUMMARY_EXCLUDED_CATEGORIES = new Set(["ik", "refresh", "dummy", "disconti
 
 // The 9 RO machine SKU IDs (same set as scripts/sync_health_sales.py's SKU_DISPLAY). They sit in the
 // sheet under categories like M0 / M1 Pro, but they're machines, not spare parts, and Health Card
-// 1.1 RO Inventory already covers them, so the spares summary leaves them out. Matched by SKU ID,
-// not category: the same category names also hold real spare parts.
+// 1.1 RO Inventory already covers them, so the whole Spares section leaves them out (dropped as the
+// data loads, below). Matched by SKU ID, not category: the same names also hold real spare parts.
 const RO_MACHINE_SKUS = new Set([
   "UC/NATIVE/12501/M0", "UC/12304/M1", "UC/Native/M1/12401", "UC/Native/M1Pro/12601", "UC/12305/M2",
   "UC/Native/M2/12302", "UC/Native/M2/12502", "UC/Native/M3/12602", "UC/Native/M3Pro/12603",
@@ -132,9 +132,10 @@ export function useSparesData(editorLabel) {
       fetchAll("spares_category_override", "sku"),
       fetchAll("spares_remark", "sku"),
     ]);
-    if (!m.error) master.value = m.data;
-    if (!inv.error) inventory.value = inv.data;
-    if (!dr.error) drrRows.value = dr.data;
+    const notMachine = (r) => !RO_MACHINE_SKUS.has(String(r.sku).toLowerCase());
+    if (!m.error) master.value = m.data.filter(notMachine);
+    if (!inv.error) inventory.value = inv.data.filter(notMachine);
+    if (!dr.error) drrRows.value = dr.data.filter(notMachine);
     if (!so.error) statusOv.value = Object.fromEntries(so.data.map((r) => [`${r.sku}|${r.facility}`, r]));
     if (!vo.error) vendorOv.value = Object.fromEntries(vo.data.map((r) => [r.sku, r]));
     if (!co.error) categoryOv.value = Object.fromEntries(co.data.map((r) => [r.sku, r]));
@@ -230,8 +231,7 @@ export function useSparesData(editorLabel) {
   }
 
   const inSummaryScope = (sku) =>
-    masterBySku.value.has(sku) && !RO_MACHINE_SKUS.has(sku.toLowerCase()) &&
-    !SUMMARY_EXCLUDED_CATEGORIES.has(categoryOf(sku).toLowerCase());
+    masterBySku.value.has(sku) && !SUMMARY_EXCLUDED_CATEGORIES.has(categoryOf(sku).toLowerCase());
 
   // ---- writes -----------------------------------------------------------------------------
   const who = () => (typeof editorLabel === "function" ? editorLabel() : editorLabel?.value ?? editorLabel) || null;
