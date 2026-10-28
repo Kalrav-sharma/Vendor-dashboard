@@ -1,0 +1,39 @@
+name: Probe RTO return legs (one-off)
+
+# Manual only. READ-ONLY lookups against the official Delhivery and Shadowfax
+# tracking APIs for a handful of known RTO AWBs, using the repo's existing
+# Actions secrets, to see what a return leg looks like on a live response
+# before the Returns section is built on them. Prints whitelisted fields only;
+# see scripts/probe_rto_return_legs.py. Safe to delete once the Returns sync
+# exists.
+on:
+  workflow_dispatch:
+    inputs:
+      delhivery_awbs:
+        description: 'Delhivery AWBs, comma-separated'
+        required: false
+        default: ''
+      shadowfax_awbs:
+        description: 'Shadowfax AWBs, comma-separated'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -r requirements.txt
+      - run: python scripts/probe_rto_return_legs.py
+        env:
+          DELHIVERY_API_TOKEN: ${{ secrets.DELHIVERY_API_TOKEN }}
+          SHADOWFAX_API_TOKEN: ${{ secrets.SHADOWFAX_API_TOKEN }}
+          DLV_AWBS: ${{ github.event.inputs.delhivery_awbs }}
+          SFX_AWBS: ${{ github.event.inputs.shadowfax_awbs }}
