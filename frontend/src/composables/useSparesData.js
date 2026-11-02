@@ -50,9 +50,10 @@ const SUMMARY_EXCLUDED_CATEGORIES = new Set(["ik", "refresh", "dummy", "disconti
 // sheet under categories like M0 / M1 Pro, but they're machines, not spare parts, and Health Card
 // 1.1 RO Inventory already covers them, so the whole Spares section leaves them out (dropped as the
 // data loads, below). Matched by SKU ID, not category: the same names also hold real spare parts.
+// UC/Native/M2/12502_1 is a variant ID of the M2 Pro machine (12502), also a machine, not a spare.
 const RO_MACHINE_SKUS = new Set([
   "UC/NATIVE/12501/M0", "UC/12304/M1", "UC/Native/M1/12401", "UC/Native/M1Pro/12601", "UC/12305/M2",
-  "UC/Native/M2/12302", "UC/Native/M2/12502", "UC/Native/M3/12602", "UC/Native/M3Pro/12603",
+  "UC/Native/M2/12302", "UC/Native/M2/12502", "UC/Native/M2/12502_1", "UC/Native/M3/12602", "UC/Native/M3Pro/12603",
 ].map((k) => k.toLowerCase()));
 
 export const DOI_TARGET = 60;
